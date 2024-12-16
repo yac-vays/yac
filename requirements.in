@@ -1,0 +1,24 @@
+aioshutil
+anyio
+async-lru
+Authlib
+email-validator
+fastapi[standard]
+filelock
+httptools # to optimize uvicorn
+httpx
+itsdangerous # required by Authlib
+jinja2
+jsonschema[format]
+ldap3
+netaddr
+parse
+passlib
+pydantic
+pydantic_settings
+python-jose
+python-ldap
+python-multipart
+PyYAML
+ruamel.yaml
+uvloop # to optimize uvicorn

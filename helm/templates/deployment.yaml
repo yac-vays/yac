@@ -1,0 +1,84 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ $.Release.Name }}
+  replicas: {{ $.Values.deploy.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: {{ $.Release.Name }}
+        role: {{ $.Release.Name }}
+        ci-commit: {{ $.Values.build.commit }}
+        ci-job: {{ $.Values.build.job }}
+      annotations:
+        rollme: {{ randAlphaNum 5 | quote }}
+    spec:
+      containers:
+        - name: {{ $.Release.Name }}
+          image: {{ $.Values.image }}
+          imagePullPolicy: Always
+          args: ["--forwarded-allow-ips", "*"]
+          envFrom:
+          - secretRef:
+              name: {{ $.Release.Name }}-secret
+          env:
+          {{- range $key, $val := $.Values.env.plain }}
+          - name: {{ $key }}
+            value: {{ quote $val }}
+          {{- end }}
+          - name: YAC_ROOT_PATH
+            value: {{ $.Values.path }}
+          ports:
+            - containerPort: 80
+          resources:
+            limits:
+              cpu: {{ $.Values.deploy.cpu_limit }}
+              memory: {{ $.Values.deploy.memory_limit }}
+            requests:
+              cpu: 200m
+              memory: 200Mi
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: 80
+            timeoutSeconds: 5
+            failureThreshold: 2
+            periodSeconds: 300
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 80
+            timeoutSeconds: 2
+            failureThreshold: 20
+            periodSeconds: 3 
+          lifecycle:
+            preStop:
+              exec:
+                # Give the load balancer time to remove the
+                # pod before terminating (for zero downtime)
+                command: ["/bin/sh", "-c", "sleep 20"]
+          volumeMounts:
+          {{- range $key, $val := $.Values.files }}
+          - name: files-configmap
+            subPath: {{ $key }}
+            mountPath: {{ $val }}
+          {{- end }}
+          - mountPath: /repo
+            name: repo-tmpfs
+      volumes:
+      - name: files-configmap
+        configMap:
+          name: {{ $.Release.Name }}-configmap
+      - name: repo-tmpfs
+        emptyDir:
+          medium: Memory

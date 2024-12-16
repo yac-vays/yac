@@ -1,0 +1,47 @@
+#
+# The following variables need to be defined in the GitLab Project:
+#
+# - REGISTRY: hostname/path to the docker registry
+# - REGISTRY_CONF: b64 encoded docker config.json that allows pushing image(s)
+#
+
+stages:
+  - build
+
+variables:
+  APP_NAME: $CI_PROJECT_NAME
+  TAG_MAIN: none
+
+workflow:
+  rules:
+    # Stable versions, e.g. v8.23 or v3.0
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+$/
+      variables:
+        TAG_MINOR: "${CI_COMMIT_TAG}" # -> v8.23
+        TAG_MAJOR: "${CI_COMMIT_TAG%%.*}" # -> v8
+        TAG_MAIN: latest
+    # Testing versions,  e.g. v2.739rc35 or v32.0rc1
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+rc[0-9]+$/
+      variables:
+        TAG_MINOR: "${CI_COMMIT_TAG%%*([0-9])}" # -> v2.739rc
+        TAG_MAJOR: "${TAG_MINOR/.[0-9]/}" # -> v2rc
+        TAG_MAIN: testing
+
+build:
+  stage: build
+  rules:
+    - if: $TAG_MAIN != "none"
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+    - mkdir -p /kaniko/.docker
+    - echo "${REGISTRY_CONF}" |base64 -d > /kaniko/.docker/config.json
+    - >-
+      /kaniko/executor
+      --context "${CI_PROJECT_DIR}"
+      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
+      --build-arg "version=${CI_COMMIT_TAG}"
+      --destination "${REGISTRY}/${APP_NAME}:${TAG_MINOR}"
+      --destination "${REGISTRY}/${APP_NAME}:${TAG_MAJOR}"
+      --destination "${REGISTRY}/${APP_NAME}:${TAG_MAIN}"

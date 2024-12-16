@@ -1,0 +1,14 @@
+on: [push]
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # This fetches the full history
+      
+    - run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+    - run: git push --force https://${{ secrets.GITLAB_INF_TOKEN }}@gitlab.inf.ethz.ch/OU-ISG/yac-vays/yac.git --all

@@ -1,0 +1,4 @@
+apiVersion: v2
+name: yac-backend
+type: application
+version: 0.0.1

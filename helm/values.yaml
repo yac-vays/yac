@@ -1,0 +1,16 @@
+---
+hostname: ""
+path: /
+image: ""
+env:
+  plain: {}
+  secrets: {} # must be b64 encoded
+files: {} # key: file in ./files, val: mount path
+deploy:
+  replicas: 2
+  cpu_limit: 1
+  memory_limit: 1Gi
+  ingress_class: nginx
+build:
+  job: unknown
+  commit: unknown
