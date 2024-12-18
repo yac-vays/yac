@@ -8,40 +8,44 @@
 stages:
   - build
 
+# Testing versions like: v2.739rc35 -> v2.739rc, v2rc, testing / v32.0rc1 -> v32.0rc, v32rc, testing
+
 testing-build:
   stage: build
-  rules: # Testing versions, e.g. v2.739rc35 or v32.0rc1
+  rules:
     - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+rc[0-9]+$/
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
   script:
-    - mkdir -p /kaniko/.docker
-    - echo "${REGISTRY_CONF}" |base64 -d > /kaniko/.docker/config.json
+    - 'mkdir -p /kaniko/.docker'
+    - 'echo "${REGISTRY_CONF}" |base64 -d > /kaniko/.docker/config.json'
     - >-
-      /kaniko/executor
-      --context "${CI_PROJECT_DIR}"
-      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
-      --build-arg "version=${CI_COMMIT_TAG}"
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:${CI_COMMIT_TAG%%*([0-9])}" # e.g. :v2.739rc
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:${CI_COMMIT_TAG%%.*}rc" # e.g. :v2rc
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:testing"
+      '/kaniko/executor'
+      '--context "${CI_PROJECT_DIR}"'
+      '--dockerfile "${CI_PROJECT_DIR}/Dockerfile"'
+      '--build-arg "version=${CI_COMMIT_TAG}"'
+      '--destination "${REGISTRY}/${CI_PROJECT_NAME}:${CI_COMMIT_TAG%%*([0-9])}"'
+      '--destination "${REGISTRY}/${CI_PROJECT_NAME}:${CI_COMMIT_TAG%%.*}rc"'
+      '--destination "${REGISTRY}/${CI_PROJECT_NAME}:testing"'
+
+# Stable versions like: v8.23 -> v8.23, v8, latest / v3.0 -> v3.0, v3, latest 
 
 latest-build:
   stage: build
-  rules: # Stable versions, e.g. v8.23 or v3.0
+  rules:
     - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+$/
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
   script:
-    - mkdir -p /kaniko/.docker
-    - echo "${REGISTRY_CONF}" |base64 -d > /kaniko/.docker/config.json
+    - 'mkdir -p /kaniko/.docker'
+    - 'echo "${REGISTRY_CONF}" |base64 -d > /kaniko/.docker/config.json'
     - >-
-      /kaniko/executor
-      --context "${CI_PROJECT_DIR}"
-      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
-      --build-arg "version=${CI_COMMIT_TAG}"
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:${CI_COMMIT_TAG}" # e.g. :v8.23
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:${CI_COMMIT_TAG%%.*}" # e.g. :v8
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:latest"
+      '/kaniko/executor'
+      '--context "${CI_PROJECT_DIR}"'
+      '--dockerfile "${CI_PROJECT_DIR}/Dockerfile"'
+      '--build-arg "version=${CI_COMMIT_TAG}"'
+      '--destination "${REGISTRY}/${CI_PROJECT_NAME}:${CI_COMMIT_TAG}"'
+      '--destination "${REGISTRY}/${CI_PROJECT_NAME}:${CI_COMMIT_TAG%%.*}"'
+      '--destination "${REGISTRY}/${CI_PROJECT_NAME}:latest"'
