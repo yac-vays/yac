@@ -52,7 +52,7 @@ async def update_entity(  # pylint: disable=too-many-arguments,dangerous-default
 
     s = None if specs.in_repo() else await specs.read_from_file(op)
 
-    async with repo.read(op.user, details={}) as rpo:
+    async with repo.handler.reader(op.user, details={}) as rpo:
         if specs.in_repo():
             s = await specs.read_from_repo(rpo, op)
         if s is not None and s.type is not None:

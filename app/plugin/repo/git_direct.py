@@ -233,7 +233,7 @@ class GitRepo(Repo):
         async for root, _, files in Path(dirname(file_name)).walk():
             for file in files:
                 file_path = Path(f"{root}/{file}")
-                if await file_path.is_link():
+                if await file_path.is_symlink():
                     link_target = await file_path.resolve()
                     if link_target != file_path:
                         if (
