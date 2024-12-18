@@ -26,7 +26,7 @@ testing-build:
       --context "${CI_PROJECT_DIR}"
       --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
       --build-arg "version=${CI_COMMIT_TAG}"
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG%%*([0-9])}"
+      --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG%%rc*}rc"
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG%%.*}rc"
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:testing"
 
