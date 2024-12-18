@@ -373,7 +373,7 @@ class GitRepo(Repo):
             raise RepoError(f"Could not write file {file_new}") from error
 
         try:
-            await Path(file_old).remove()
+            await Path(file_old).unlink()
         except OSError as error:
             raise RepoError(f"Could not delete file {file_old}") from error
 
