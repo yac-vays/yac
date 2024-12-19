@@ -16,21 +16,21 @@ differently in the description.
 
 ## Extension Keywords
 
-| Keyword                         | Schema Type    | Keyword Type    |
-|:--------------------------------|:---------------|:----------------|
-| `yac_changable`                 | `any`          | `boolean`       |
-| `yac_if`                        | `any`          | `string`        |
-| `yac_optional`                  | *some*         | `boolean`       |
-| `yac_perms`                     | `any`          | `array[string]` |
-| `yac_types`                     | `any`          | `array[string]` |
-| `vays_category`                 | *some*         | `string`        |
-| `vays_group`                    | *some*         | `string`        |
-| `vays_options`                  | *some*         | `object`        |
-| `vays_options.initial`          | `vays_options` | `any`           |
-| `vays_options.initial_editable` | `vays_options` | `boolean`       |
-| `vays_options.renderer`         | `vays_options` | `string`        |
-| `vays_options.renderer_options` | `vays_options` | `object`        |
-
+| Keyword                         | Schema Type    | Keyword Type    | Since |
+|:--------------------------------|:---------------|:----------------|------:|
+| `yac_changable`                 | `any`          | `boolean`       |    v0 |
+| `yac_if`                        | `any`          | `string`        |    v0 |
+| `yac_optional`                  | *some*         | `boolean`       |    v0 |
+| `yac_perms`                     | `any`          | `array[string]` |    v0 |
+| `yac_types`                     | `any`          | `array[string]` |    v0 |
+| `vays_category`                 | *some*         | `string`        |    v0 |
+| `vays_group`                    | *some*         | `string`        |    v0 |
+| `vays_options`                  | *some*         | `object`        |    v0 |
+| `vays_options.initial`          | `vays_options` | `any`           |    v0 |
+| `vays_options.initial_editable` | `vays_options` | `boolean`       |    v0 |
+| `vays_options.renderer`         | `vays_options` | `string`        |    v0 |
+| `vays_options.renderer_options` | `vays_options` | `object`        |    v0 |
+Added
 ### Keyword `yac_changable`
 
 Only allow changing entity data specified by this subschema if `true`.
@@ -109,15 +109,19 @@ TODO link to custom renderer docs in VAYS repo
 
 Specific options for the `vays_options.renderer`.
 
-## Official Keywords With Modified Or Extended Behaviour
+## Official Keywords With Modified, Limited Or Extended Behaviour
 
-| Keyword                | Schema Type | Keyword Type |
-|:-----------------------|:------------|:-------------|
-| `title`                | `any`       | `string`     |
-| `description`          | `any`       | `string`     |
-| `default`              | `any`       | `any`        |
-| `not`                  | `any`       | `schema`     |
-| `format`               | `string`    | `string`     | 
+| Keyword                | Schema Type | Keyword Type | Since |   Draft |
+|:-----------------------|:------------|:-------------|------:|--------:|
+| `title`                | `any`       | `string`     |    v0 |       1 |
+| `description`          | `any`       | `string`     |    v0 |       1 |
+| `default`              | `any`       | `any`        |    v0 |       1 |
+| `if`                   | `any`       | `schema`     |    v0 |       7 |
+| `else`                 | `any`       | `schema`     |    v0 |       7 |
+| `then`                 | `any`       | `schema`     |    v0 |       7 |
+| `not`                  | `any`       | `schema`     |    v0 |       4 |
+| `format`               | `string`    | `string`     |    v0 |       1 |
+
 ### Keyword `title`
 
 Will used for VAYS forms and supports markdown formatting.
@@ -131,6 +135,19 @@ Will used for VAYS forms and supports markdown formatting.
 The value of `default` will always be present in the data (and thus the YAML
 file in the end) unless the user changes (or purposely deletes) it.
 
+### Keywords `if`, `else`, `then`
+
+VAYS only supports the `if`-construct in some scenarios.
+
+The following things are known to work:
+
+  - Changing value ranges (e.g. regex or enum values) conditionally
+
+The following things are known to **not** work:
+
+  - Adding/removing object properties conditionally
+  - Changing default values conditionally
+
 ### Keyword `not`
 
 YAC only supports the `not` keyword below the `if` keyword. Using `not` outside
@@ -138,77 +155,97 @@ of that context may lead to strange behaviour.
 
 ### Keyword `format`
 
-The following formats are supported by default (TODO):
+The following official formats are supported by YAC:
 
-`date-time`, `date`, `time`, `duration`, `email`, `idn-email`, `hostname`,
-`idn-hostname`, `ipv4`, `ipv6`, `uri`, `uri-reference`, `iri`, `iri-reference`,
-`uuid`, `uri-template`, `json-pointer`, `relative-json-pointer`, `regex`
+| Format                  | Since |   Draft |
+|:------------------------|------:|--------:|
+| `date-time`             |    v0 |       1 |
+| `email`                 |    v0 |       1 |
+| `hostname`              |    v0 |       1 |
+| `ipv4`                  |    v0 |       1 |
+| `ipv6`                  |    v0 |       1 |
+| `uri`                   |    v0 |       1 |
+| `date`                  |    v0 |       7 |
+| `regex`                 |    v0 |       7 |
+| `time`                  |    v0 |       7 |
+
+The following official formats are **not** supported:
+
+| Format                  |   Draft |
+|:------------------------|--------:|
+| `json-pointer`          |       6 |
+| `uri-reference`         |       6 |
+| `uri-template`          |       6 |
+| `idn-email`             |       7 |
+| `idn-hostname`          |       7 |
+| `iri-reference`         |       7 |
+| `iri`                   |       7 |
+| `relative-json-pointer` |       7 |
+| `duration`              | 2019-09 |
+| `uuid`                  | 2019-09 |
 
 But you are free to add custom formats by adding a function with the name
 of the format to `plugin/json_schema_format/*.py`.
 
-*Note* that custom formats are only validated on the server side, so the user
-might not get immediate feedback when using the VAYS form.
+*Note* that formats are only validated on the server side, so the user
+might not get immediate feedback when using VAYS.
 
 ## Official Keywords (Supported)
 
 Use the following link for a more detailed description/reference of the keywords below:
 https://www.learnjsonschema.com/2020-12/
 
-| Keyword                | Schema Type | Keyword Type             | Details |
-|:-----------------------|:------------|:-------------------------|:--------|
-| `type`                 | `any`       | `string\|array[string]`  | Options: `null` `boolean` `object` `array` `number` `integer` `string` |
-| `enum`                 | `any`       | `array[any]`             ||
-| `const`                | `any`       | `any`                    ||
-| `oneOf`                | `any`       | `array[schema]`          ||
-| `allOf`                | `any`       | `array[schema]`          ||
-| `anyOf`                | `any`       | `array[schema]`          ||
-| `if`                   | `any`       | `schema`                 ||
-| `else`                 | `any`       | `schema`                 ||
-| `then`                 | `any`       | `schema`                 ||
-| `properties`           | `object`    | `object[string,schema]`  ||
-| `additionalProperties` | `object`    | `boolean`                ||
-| `required`             | `object`    | `array[string]`          ||
-| `items`                | `array`     | `schema`                 ||
-| `maxItems`             | `array`     | `integer`                ||
-| `minItems`             | `array`     | `integer`                ||
-| `uniqueItems`          | `array`     | `boolean`                ||
-| `minLength`            | `string`    | `integer`                ||
-| `maxLength`            | `string`    | `integer`                ||
-| `pattern`              | `string`    | `string`                 ||
-| `maximum`              | `number`    | `number`                 ||
-| `minimum`              | `number`    | `number`                 ||
-| `exclusiveMaximum`     | `number`    | `number`                 ||
-| `exclusiveMaximums`    | `number`    | `number`                 ||
-| `multipleOf`           | `number`    | `number`                 ||
+| Keyword                | Schema Type | Keyword Type             |   Draft | Details |
+|:-----------------------|:------------|:-------------------------|--------:|:--------|
+| `type`                 | `any`       | `string\|array[string]`  |       1 | Options: `null` `boolean` `object` `array` `number` `integer` `string` |
+| `enum`                 | `any`       | `array[any]`             |       1 ||
+| `const`                | `any`       | `any`                    |       6 ||
+| `oneOf`                | `any`       | `array[schema]`          |       4 ||
+| `allOf`                | `any`       | `array[schema]`          |       4 ||
+| `anyOf`                | `any`       | `array[schema]`          |       4 ||
+| `properties`           | `object`    | `object[string,schema]`  |       1 ||
+| `additionalProperties` | `object`    | `boolean`                |       1 ||
+| `required`             | `object`    | `array[string]`          |       3 ||
+| `items`                | `array`     | `schema`                 |       1 ||
+| `maxItems`             | `array`     | `integer`                |       1 ||
+| `minItems`             | `array`     | `integer`                |       1 ||
+| `uniqueItems`          | `array`     | `boolean`                |       2 ||
+| `minLength`            | `string`    | `integer`                |       1 ||
+| `maxLength`            | `string`    | `integer`                |       1 ||
+| `pattern`              | `string`    | `string`                 |       1 ||
+| `maximum`              | `number`    | `number`                 |       1 ||
+| `minimum`              | `number`    | `number`                 |       1 ||
+| `exclusiveMaximum`     | `number`    | `number`                 |       3 ||
+| `exclusiveMinimum`     | `number`    | `number`                 |       3 ||
+| `multipleOf`           | `number`    | `number`                 |       4 ||
 
 ## Official Not Supported Keywords
 
 The following keywords are **NOT SUPPORTED** by YAC and VAYS!
 
-| Keyword                 | Schema Type | Keyword Type                   |
-|:------------------------|:------------|:-------------------------------|
-| `$schema`               | `any`       | `string`                       |
-| `$id`                   | `any`       | `string`                       |
-| `$ref`                  | `any`       | `string`                       |
-| `$defs`                 | `any`       | `object[string,schema]`        |
-| `$comment`              | `any`       | `string`                       |
-| `$dynamicAnchor`        | `any`       | `string`                       |
-| `$dynamicRef`           | `any`       | `string`                       |
-| `$anchor`               | `any`       | `string`                       |
-| `$vocabulary`           | `any`       | `object[string,boolean]`       |
-| `unevaluatedProperties` | `object`    | `boolean`                       |
-| `patternProperties`     | `object`    | `object[string,schema]`        |
-| `propertyNames`         | `object`    | `schema`                       |
-| `dependentRequired`     | `object`    | `object[string,array[string]]` |
-| `dependentSchemas`      | `object`    | `object[string,schema]`        |
-| `minProperties`         | `object`    | `integer`                      |
-| `maxProperties`         | `object`    | `integer`                      |
-| `contains`              | `array`     | `schema`                       |
-| `prefixItems`           | `array`     | `array[schema]`                |
-| `unevaluatedItems`      | `array`     | `boolean`                       |
-| `maxContains`           | `array`     | `integer`                      |
-| `minContains`           | `array`     | `integer`                      |
-| `contentEncoding`       | `string`    | `string`                       |
-| `contentMediaType`      | `string`    | `string`                       |
-| `contentSchema`         | `string`    | `schema`                       |
+| Keyword                 | Schema Type | Keyword Type                   |   Draft |
+|:------------------------|:------------|:-------------------------------|--------:|
+| `$schema`               | `any`       | `string`                       |       3 |
+| `$id`                   | `any`       | `string`                       |       6 |
+| `$ref`                  | `any`       | `string`                       |       3 |
+| `$defs`                 | `any`       | `object[string,schema]`        | 2019-09 |
+| `$comment`              | `any`       | `string`                       |       7 |
+| `$dynamicAnchor`        | `any`       | `string`                       | 2020-12 |
+| `$dynamicRef`           | `any`       | `string`                       | 2020-12 |
+| `$anchor`               | `any`       | `string`                       | 2019-09 |
+| `$vocabulary`           | `any`       | `object[string,boolean]`       | 2019-09 |
+| `unevaluatedProperties` | `object`    | `boolean`                      | 2019-09 |
+| `patternProperties`     | `object`    | `object[string,schema]`        |       3 |
+| `propertyNames`         | `object`    | `schema`                       |       6 |
+| `dependentRequired`     | `object`    | `object[string,array[string]]` | 2019-09 |
+| `dependentSchemas`      | `object`    | `object[string,schema]`        | 2019-09 |
+| `minProperties`         | `object`    | `integer`                      |       4 |
+| `maxProperties`         | `object`    | `integer`                      |       4 |
+| `contains`              | `array`     | `schema`                       |       6 |
+| `prefixItems`           | `array`     | `array[schema]`                | 2020-12 |
+| `unevaluatedItems`      | `array`     | `boolean`                      | 2019-09 |
+| `maxContains`           | `array`     | `integer`                      | 2019-09 |
+| `minContains`           | `array`     | `integer`                      | 2019-09 |
+| `contentEncoding`       | `string`    | `string`                       |       7 |
+| `contentMediaType`      | `string`    | `string`                       |       7 |
+| `contentSchema`         | `string`    | `schema`                       | 2019-09 |

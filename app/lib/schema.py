@@ -58,7 +58,6 @@ def get(
         logger.debug(f"Adding {name} format_checker {type(funct)}")
         format_checker.checks(name)(funct)
 
-    # TODO coordinate which validator to use with VAYS and update docs everywhere!
     validator = jsonschema.Draft7Validator(json_schema, format_checker=format_checker)
 
     try:
