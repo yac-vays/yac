@@ -41,87 +41,100 @@ from app.lib import j2
 from app.model import out
 from app.model.err import LogError
 from app.model.err import LogSpecsError
+from app.model.plg import ILog
 
 logger = logging.getLogger(__name__)
 
 
-async def get(
-    log_name: str, problem: bool, progress: bool, *, details: dict, props: dict
-) -> list[out.Log]:
-    try:
-        fn = details["path"].format(**props)
-    except (KeyError, IndexError, ValueError, AttributeError) as error:
-        raise LogSpecsError(f"In file log plugin details.path: {error}") from error
-
-    try:
-        async with await open_file(fn, mode="rb") as fh:
-            logger.debug(f"Reading end (1kB) of file {fn}")
-            if (await Path(fn).stat()).st_size > 1024:
-                # if the file is big (>1kB), only get the last 1kB
-                # and remove the first line as it might by incomplete
-                await fh.seek(-1024, 2)
-                lines = (await fh.readlines())[1:][-10:]
-            else:
-                lines = (await fh.readlines())[-10:]
-    except OSError as error:
-        if details.get("required", False):
-            raise LogError(f"Require log file {fn} not found/readable!") from error
-        else:
-            # Silently return to avoid non-sense errors in log if files are absent by design
-            return []
-
-    encoding = details.get("encoding", "utf-8")
-    result = []
-    for l in lines:
+class FileLog(ILog):
+    async def get(
+        self,
+        facility: str,
+        problem: bool,
+        progress: bool,
+        *,
+        details: dict,
+        props: dict,
+    ) -> list[out.Log]:
         try:
-            line = (
-                parse(details["line_format"], l.decode(encoding).rstrip("\r\n")).named  # type: ignore
-                or {}
-            )
+            fn = details["path"].format(**props)
         except (KeyError, IndexError, ValueError, AttributeError) as error:
-            raise LogSpecsError(
-                f"In file log plugin details.line_format: {error}"
-            ) from error
-
-        log_props = props.copy()
-        log_props.update({"log": line})
+            raise LogSpecsError(f"In file log plugin details.path: {error}") from error
 
         try:
-            entry = out.Log(
-                name=log_name,
-                time=await j2.render_print(details.get("time", '""'), log_props),
-                message=await j2.render_print(details.get("message", '""'), log_props),
-            )
-        except j2.J2Error as error:
-            raise LogSpecsError(
-                f"In file log plugin details.time/message: {error}"
-            ) from error
-
-        if problem:
-            try:
-                entry.problem = await j2.render_test(
-                    details.get("problem", "false"), log_props
-                )
-            except j2.J2Error as error:
-                raise LogSpecsError(
-                    f"In file log plugin details.problem: {error}"
-                ) from error
-
-        if progress:
-            try:
-                percent = int(
-                    await j2.render_print(details.get("progress", "0"), log_props)
-                )
-            except j2.J2Error as error:
-                raise LogSpecsError(
-                    f"In file log plugin details.progress: {error}"
-                ) from error
-
-            if 0 <= percent <= 100:
-                entry.progress = percent
+            async with await open_file(fn, mode="rb") as fh:
+                logger.debug(f"Reading end (1kB) of file {fn}")
+                if (await Path(fn).stat()).st_size > 1024:
+                    # if the file is big (>1kB), only get the last 1kB
+                    # and remove the first line as it might by incomplete
+                    await fh.seek(-1024, 2)
+                    lines = (await fh.readlines())[1:][-10:]
+                else:
+                    lines = (await fh.readlines())[-10:]
+        except OSError as error:
+            if details.get("required", False):
+                raise LogError(f"Require log file {fn} not found/readable!") from error
             else:
-                entry.progress = 100 if 100 < percent else 0
+                # Silently return to avoid non-sense errors in log if files are absent by design
+                return []
 
-        result.append(entry)
+        encoding = details.get("encoding", "utf-8")
+        result = []
+        for l in lines:
+            try:
+                line = (
+                    parse(details["line_format"], l.decode(encoding).rstrip("\r\n")).named  # type: ignore
+                    or {}
+                )
+            except (KeyError, IndexError, ValueError, AttributeError) as error:
+                raise LogSpecsError(
+                    f"In file log plugin details.line_format: {error}"
+                ) from error
 
-    return result
+            log_props = props.copy()
+            log_props.update({"log": line})
+
+            try:
+                entry = out.Log(
+                    name=facility,
+                    time=await j2.render_print(details.get("time", '""'), log_props),
+                    message=await j2.render_print(
+                        details.get("message", '""'), log_props
+                    ),
+                )
+            except j2.J2Error as error:
+                raise LogSpecsError(
+                    f"In file log plugin details.time/message: {error}"
+                ) from error
+
+            if problem:
+                try:
+                    entry.problem = await j2.render_test(
+                        details.get("problem", "false"), log_props
+                    )
+                except j2.J2Error as error:
+                    raise LogSpecsError(
+                        f"In file log plugin details.problem: {error}"
+                    ) from error
+
+            if progress:
+                try:
+                    percent = int(
+                        await j2.render_print(details.get("progress", "0"), log_props)
+                    )
+                except j2.J2Error as error:
+                    raise LogSpecsError(
+                        f"In file log plugin details.progress: {error}"
+                    ) from error
+
+                if 0 <= percent <= 100:
+                    entry.progress = percent
+                else:
+                    entry.progress = 100 if 100 < percent else 0
+
+            result.append(entry)
+
+        return result
+
+
+log = FileLog()

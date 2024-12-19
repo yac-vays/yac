@@ -15,18 +15,18 @@ from app.model.inp import CopyEntity
 from app.model.inp import LinkEntity
 from app.model.inp import OperationRequest
 from app.model.out import DetailedEntity
-from app.model.rpo import Entity
-from app.model.rpo import Repo
+from app.model.int import Entity
+from app.model.plg import IRepo
 from app.model.spc import Specs
 from app.model.spc import Type
 
 repo_plugin = plugin.get_module("repo", consts.ENV.repo_plugin)
-handler: Repo = repo_plugin.handler
+handler: IRepo = repo_plugin.handler
 
 
 # TODO alru caching: from async_lru import alru_cache -> @alru_cache(maxsize=32, ttl=1)
 async def get_entities(
-    rpo: Repo, op: OperationRequest, specs: Specs
+    rpo: IRepo, op: OperationRequest, specs: Specs
 ) -> tuple[Entity, Entity]:
     """
     Try to collect data about the entity refered in this OperationRequest.

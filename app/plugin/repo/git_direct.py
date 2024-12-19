@@ -50,7 +50,7 @@ from app.model.err import RepoTimeoutError
 from app.model.err import RepoSpecsError
 from app.model.out import Diff
 from app.model.out import User
-from app.model.rpo import Repo
+from app.model.plg import IRepo
 
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ KNOWN_HOSTS = consts.ENV.repo.get("ssh_known_hosts_file", "/root/.ssh/known_host
 DIRTY_MAX = int(consts.ENV.repo.get("dirty_max_age", "0"))
 
 
-class GitRepo(Repo):
+class GitRepo(IRepo):
     def __init__(self) -> None:
         self.fpath: str = ""
         self.dirty: bool = False

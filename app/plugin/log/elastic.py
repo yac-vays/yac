@@ -35,83 +35,96 @@ from app.lib import j2
 from app.model import out
 from app.model.err import LogError
 from app.model.err import LogSpecsError
+from app.model.plg import ILog
 
 
-async def get(
-    log_name: str, problem: bool, progress: bool, *, details: dict, props: dict
-) -> list[out.Log]:
-    try:
-        url = details["url"].format(**props)
-        query = details["query"].format(**props)
-    except (KeyError, IndexError, ValueError, AttributeError) as error:
-        raise LogSpecsError(
-            f"In elastic log plugin details.url/query: {error}"
-        ) from error
-
-    ssl = details.get("ssl_verify", True)
-    timeout = details.get("timeout", 5)
-
-    try:
-        async with httpx.AsyncClient(
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
-            verify=ssl,
-            timeout=timeout,
-        ) as client:
-            logs = await client.request(
-                method="GET",
-                url=f"{url}/_eql/search",
-                json={"query": query},
-            )
-        logs.raise_for_status()
-    except httpx.HTTPError as error:
-        raise LogError(f"Could not run elastic log eql query: {error}") from error
-
-    result = []
-    for l in logs.json().get("hits", {}).get("events", []):
-        log_props = props.copy()
-        log_props.update({"log": l.get("_source", {})})
-
+class ElasticLog(ILog):
+    async def get(
+        self,
+        facility: str,
+        problem: bool,
+        progress: bool,
+        *,
+        details: dict,
+        props: dict,
+    ) -> list[out.Log]:
         try:
-            entry = out.Log(
-                name=log_name,
-                time=await j2.render_print(
-                    details.get("time", 'log["@timestamp"]'), log_props
-                ),
-                message=await j2.render_print(details.get("message", '""'), log_props),
-            )
-        except j2.J2Error as error:
+            url = details["url"].format(**props)
+            query = details["query"].format(**props)
+        except (KeyError, IndexError, ValueError, AttributeError) as error:
             raise LogSpecsError(
-                f"In elastic log plugin details.time/message: {error}"
+                f"In elastic log plugin details.url/query: {error}"
             ) from error
 
-        if problem:
+        ssl = details.get("ssl_verify", True)
+        timeout = details.get("timeout", 5)
+
+        try:
+            async with httpx.AsyncClient(
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                verify=ssl,
+                timeout=timeout,
+            ) as client:
+                logs = await client.request(
+                    method="GET",
+                    url=f"{url}/_eql/search",
+                    json={"query": query},
+                )
+            logs.raise_for_status()
+        except httpx.HTTPError as error:
+            raise LogError(f"Could not run elastic log eql query: {error}") from error
+
+        result = []
+        for l in logs.json().get("hits", {}).get("events", []):
+            log_props = props.copy()
+            log_props.update({"log": l.get("_source", {})})
+
             try:
-                entry.problem = await j2.render_test(
-                    details.get("problem", "false"), log_props
+                entry = out.Log(
+                    name=facility,
+                    time=await j2.render_print(
+                        details.get("time", 'log["@timestamp"]'), log_props
+                    ),
+                    message=await j2.render_print(
+                        details.get("message", '""'), log_props
+                    ),
                 )
             except j2.J2Error as error:
                 raise LogSpecsError(
-                    f"In elastic log plugin details.problem: {error}"
+                    f"In elastic log plugin details.time/message: {error}"
                 ) from error
 
-        if progress:
-            try:
-                percent = int(
-                    await j2.render_print(details.get("progress", "0"), log_props)
-                )
-            except j2.J2Error as error:
-                raise LogSpecsError(
-                    f"In elastic log plugin details.progress: {error}"
-                ) from error
+            if problem:
+                try:
+                    entry.problem = await j2.render_test(
+                        details.get("problem", "false"), log_props
+                    )
+                except j2.J2Error as error:
+                    raise LogSpecsError(
+                        f"In elastic log plugin details.problem: {error}"
+                    ) from error
 
-            if 0 <= percent <= 100:
-                entry.progress = percent
-            else:
-                entry.progress = 100 if 100 < percent else 0
+            if progress:
+                try:
+                    percent = int(
+                        await j2.render_print(details.get("progress", "0"), log_props)
+                    )
+                except j2.J2Error as error:
+                    raise LogSpecsError(
+                        f"In elastic log plugin details.progress: {error}"
+                    ) from error
 
-        result.append(entry)
+                if 0 <= percent <= 100:
+                    entry.progress = percent
+                else:
+                    entry.progress = 100 if 100 < percent else 0
 
-    return result
+            result.append(entry)
+
+        return result
+
+
+log = ElasticLog()

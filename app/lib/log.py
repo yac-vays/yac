@@ -23,7 +23,7 @@ async def get(op: inp.OperationRequest, specs: spc.Specs) -> List[out.Log]:
         log_plugin = plugin.get_module("log", log_spec.plugin)
         try:
             logs.extend(
-                await log_plugin.get(
+                await log_plugin.log.get(
                     log_spec.name,
                     log_spec.problem,
                     log_spec.progress,

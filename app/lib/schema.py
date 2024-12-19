@@ -102,17 +102,17 @@ async def handle_schema(
 
     # pre_order plugins
 
-    for plug in plugin.get_modules_sorted("json_schema", late=False):
+    for plug in plugin.get_sorted("json_schema", "processor", late=False):
         logger.debug(
-            f"Early json_schema plugin {plug.__name__} processing schema at {loc}"
+            f"Early json_schema plugin {plug.__class__.__name__} processing schema at {loc}"
         )
         json, cx = await plug.process(loc, json, cx, p)
         if isinstance(json, bool) or json is None:
             return json, ui, cx
 
-    for plug in plugin.get_modules_sorted("ui_schema", late=False):
+    for plug in plugin.get_sorted("ui_schema", "processor", late=False):
         logger.debug(
-            f"Early ui_schema plugin {plug.__name__} processing schema at {loc}"
+            f"Early ui_schema plugin {plug.__class__.__name__} processing schema at {loc}"
         )
         json, ui = await plug.process(loc, json, ui, p)
         if isinstance(json, bool) or json is None:
@@ -158,17 +158,17 @@ async def handle_schema(
 
     # post_order plugins
 
-    for plug in plugin.get_modules_sorted("json_schema", late=True):
+    for plug in plugin.get_sorted("json_schema", "processor", late=True):
         logger.debug(
-            f"Late json_schema plugin {plug.__name__} processing schema at {loc}"
+            f"Late json_schema plugin {plug.__class__.__name__} processing schema at {loc}"
         )
         json, cx = await plug.process(loc, json, cx, p)
         if isinstance(json, bool) or json is None:
             return json, ui, cx
 
-    for plug in plugin.get_modules_sorted("ui_schema", late=True):
+    for plug in plugin.get_sorted("ui_schema", "processor", late=True):
         logger.debug(
-            f"Late ui_schema plugin {plug.__name__} processing schema at {loc}"
+            f"Late ui_schema plugin {plug.__class__.__name__} processing schema at {loc}"
         )
         json, ui = await plug.process(loc, json, ui, p)
         if isinstance(json, bool) or json is None:

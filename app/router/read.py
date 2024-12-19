@@ -87,7 +87,7 @@ async def get_entities(  # pylint: disable=too-many-arguments
     result = []
     async with repo.handler.reader(op.user, details={}) as rpo:
         s = await specs.read(op, rpo)
-        validator.test_ls(op, s)
+        await validator.test_ls(op, s)
 
         list_hash = await rpo.get_hash()
         for entity_name in await rpo.list():

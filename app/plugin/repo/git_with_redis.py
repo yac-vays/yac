@@ -3,10 +3,10 @@ from typing import Self, AsyncGenerator
 
 from app.model.out import Diff
 from app.model.out import User
-from app.model.rpo import Repo
+from app.model.plg import IRepo
 
 
-class GitRedisRepo(Repo):
+class GitRedisRepo(IRepo):
 
     @asynccontextmanager
     async def reader(

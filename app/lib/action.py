@@ -28,7 +28,7 @@ async def run(
 
         action_plugin = plugin.get_module("action", action.plugin)
         try:
-            await action_plugin.run(details=action.details, props=action_props)
+            await action_plugin.action.run(details=action.details, props=action_props)
         except ActionClientError as error:
             raise error
         except ActionError as error:

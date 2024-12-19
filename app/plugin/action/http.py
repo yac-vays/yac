@@ -36,41 +36,50 @@ from app.lib import j2
 from app.model.err import ActionClientError
 from app.model.err import ActionError
 from app.model.err import ActionSpecsError
+from app.model.plg import IAction
 
 
-async def run(*, details: dict, props: dict) -> None:
-    try:
-        url = details["url"].format(**props)
-    except (KeyError, IndexError, ValueError, AttributeError) as error:
-        raise ActionSpecsError(f"In HTTP action plugin details.url: {error}") from error
+class HttpAction(IAction):
+    async def run(self, *, details: dict, props: dict) -> None:
+        try:
+            url = details["url"].format(**props)
+        except (KeyError, IndexError, ValueError, AttributeError) as error:
+            raise ActionSpecsError(
+                f"In HTTP action plugin details.url: {error}"
+            ) from error
 
-    try:
-        body = await j2.render_print(details.get("body", '""'), props).encode("utf-8")
-    except j2.J2Error as error:
-        raise ActionSpecsError(
-            f"In HTTP action plugin details.body: {error}"
-        ) from error
-
-    try:
-        async with httpx.AsyncClient(
-            headers=details.get("headers", {}),
-            verify=details.get("ssl_verify", True),
-            timeout=details.get("timeout", 5),
-        ) as client:
-            response = await client.request(
-                method=details.get("method", "GET"),
-                url=url,
-                content=body,
+        try:
+            body = await j2.render_print(details.get("body", '""'), props).encode(
+                "utf-8"
             )
-    except httpx.HTTPError as error:
-        raise ActionError(f"Could not run HTTP request: {error}") from error
+        except j2.J2Error as error:
+            raise ActionSpecsError(
+                f"In HTTP action plugin details.body: {error}"
+            ) from error
 
-    if response.status_code in details.get(
-        "success", [200, 201, 202, 203, 204, 205, 206, 207, 208, 226]
-    ):
-        return
+        try:
+            async with httpx.AsyncClient(
+                headers=details.get("headers", {}),
+                verify=details.get("ssl_verify", True),
+                timeout=details.get("timeout", 5),
+            ) as client:
+                response = await client.request(
+                    method=details.get("method", "GET"),
+                    url=url,
+                    content=body,
+                )
+        except httpx.HTTPError as error:
+            raise ActionError(f"Could not run HTTP request: {error}") from error
 
-    if response.status_code in details.get("error", []):
-        raise ActionClientError(response.content.decode("utf-8"))
+        if response.status_code in details.get(
+            "success", [200, 201, 202, 203, 204, 205, 206, 207, 208, 226]
+        ):
+            return
 
-    raise ActionError(response.content.decode("utf-8"))
+        if response.status_code in details.get("error", []):
+            raise ActionClientError(response.content.decode("utf-8"))
+
+        raise ActionError(response.content.decode("utf-8"))
+
+
+action = HttpAction()

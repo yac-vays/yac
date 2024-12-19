@@ -15,7 +15,7 @@ from app.lib import props
 from app.lib import yaml
 from app.model.err import RepoError
 from app.model.err import SpecsError
-from app.model.rpo import Repo
+from app.model.plg import IRepo
 from app.model.spc import Request
 from app.model.spc import Specs
 from app.model.inp import OperationRequest
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 # TODO add (async) way to cache specs
-async def read(op: OperationRequest, rpo: Repo) -> Specs:
+async def read(op: OperationRequest, rpo: IRepo) -> Specs:
     if in_repo():
         s = await read_from_repo(op, rpo)
     else:
@@ -40,7 +40,7 @@ def in_repo() -> bool:
     return consts.ENV.specs.startswith(".")
 
 
-async def read_from_repo(op: OperationRequest, rpo: Repo) -> Specs:
+async def read_from_repo(op: OperationRequest, rpo: IRepo) -> Specs:
     try:
         data = await rpo.get_specs(consts.ENV.specs)
     except RepoError as error:
