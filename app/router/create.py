@@ -41,10 +41,10 @@ async def add_entity(  # pylint: disable=too-many-arguments,dangerous-default-va
     requested, run actions.
     """
     op = OperationRequest(
-        _request=request,
+        request=request,
         user=user,
         operation="create",
-        type_name=type_name,
+        type=type_name,
         name=None,
         actions=run,
         entity=entity,

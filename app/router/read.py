@@ -39,7 +39,7 @@ async def get_types(
     Lists all available entity types with their complete specifications.
     """
     op = OperationRequest(
-        _request=request,
+        request=request,
         user=user,
         operation="read",
         type_name="does-not-exist",
@@ -75,10 +75,10 @@ async def get_entities(  # pylint: disable=too-many-arguments
     permissions ('see' is required implicitly in any case).
     """
     op = OperationRequest(
-        _request=request,
+        request=request,
         user=user,
         operation="read",
-        type_name=type_name,
+        type=type_name,
         name=None,
         actions=[],
         entity=None,
@@ -126,10 +126,10 @@ async def get_entity(
     Lists all data of a specific entity including the raw YAML data and logs.
     """
     op = OperationRequest(
-        _request=request,
+        request=request,
         user=user,
         operation="read",
-        type_name=type_name,
+        type=type_name,
         name=entity_name,
         actions=[],
         entity=None,
@@ -158,10 +158,10 @@ async def get_entity_yaml(
     entity_name: PathName,
 ):
     op = OperationRequest(
-        _request=request,
+        request=request,
         user=user,
         operation="read",
-        type_name=type_name,
+        type=type_name,
         name=entity_name,
         actions=[],
         entity=None,
@@ -189,10 +189,10 @@ async def get_entity_logs(
 ) -> list[Log]:
 
     op = OperationRequest(
-        _request=request,
+        request=request,
         user=user,
         operation="read",
-        type_name=type_name,
+        type=type_name,
         name=entity_name,
         actions=[],
         entity=None,

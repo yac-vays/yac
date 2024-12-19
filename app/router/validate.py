@@ -27,10 +27,10 @@ async def validate_operation(
     """
 
     op = OperationRequest(
-        _request=request,
+        request=request,
         user=user,
         operation=op.operation,
-        type_name=op.type_name,
+        type=op.type_name,
         name=op.name,
         actions=op.actions,
         entity=op.entity,

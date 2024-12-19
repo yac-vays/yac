@@ -100,5 +100,8 @@ class Operation(BaseModel):
 
 
 class OperationRequest(Operation):
-    _request: Request
+    class Config:
+        arbitrary_types_allowed = True
+
+    request: Request
     user: out.User

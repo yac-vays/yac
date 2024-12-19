@@ -51,14 +51,14 @@ async def get_status(request: Request) -> Status:
     """
 
     op = OperationRequest(
-        _request=request,
+        request=request,
         user=OutUser(
             name="dummy-status-user",
             email="invalid",
             full_name="Dummy Status User",
         ),
         operation="read",
-        type_name="does-not-exist",
+        type="does-not-exist",
         name=None,
         actions=[],
         entity=None,

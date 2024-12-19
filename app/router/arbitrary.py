@@ -35,10 +35,10 @@ async def run_action_on_entity(
     """
 
     op = OperationRequest(
-        _request=request,
+        request=request,
         user=user,
         operation="arbitrary",
-        type_name=type_name,
+        type=type_name,
         name=entity_name,
         actions=[run],
         entity=None,

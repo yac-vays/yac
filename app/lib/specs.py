@@ -102,9 +102,7 @@ def __parse(specs: str, op: OperationRequest) -> Specs:
     except ValidationError as error:
         raise SpecsError(str(error)) from error
 
-    if s.version is None or not re.match(
-        rf"^v{s.version}\.[0-9]+(rc[0-9]+)?$", VERSION
-    ):
+    if s.version is None or not re.match(rf"^{s.version}\.[0-9]+(rc[0-9]+)?$", VERSION):
         raise SpecsError(
             f"In version: {s.version} is not compatibale with YAC {VERSION}"
         )

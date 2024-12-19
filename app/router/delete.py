@@ -37,10 +37,10 @@ async def delete_entity(  # pylint: disable=too-many-arguments,dangerous-default
     """
 
     op = OperationRequest(
-        _request=request,
+        request=request,
         user=user,
         operation="delete",
-        type_name=type_name,
+        type=type_name,
         name=entity_name,
         actions=run,
         entity=None,

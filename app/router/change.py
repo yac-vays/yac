@@ -41,10 +41,10 @@ async def update_entity(  # pylint: disable=too-many-arguments,dangerous-default
     configured and/or requested, run actions.
     """
     op = OperationRequest(
-        _request=request,
+        request=request,
         user=user,
         operation="change",
-        type_name=type_name,
+        type=type_name,
         name=entity_name,
         actions=run,
         entity=entity,
@@ -97,10 +97,10 @@ async def change_entity(  # pylint: disable=too-many-arguments,dangerous-default
     if configured and/or requested, run actions.
     """
     op = OperationRequest(
-        _request=request,
+        request=request,
         user=user,
         operation="change",
-        type_name=type_name,
+        type=type_name,
         name=entity_name,
         actions=run,
         entity=entity,
