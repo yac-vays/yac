@@ -1,0 +1,1 @@
+TODO hints for plain docker and helm
