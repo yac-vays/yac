@@ -51,18 +51,18 @@ class GitRedisRepo(Repo):
     async def write(
         self, name: str, content_old: str, content_new: str, msg: str
     ) -> Diff:
-        return Diff()  # TODO
+        return Diff(name="", hash="", patch="")  # TODO
 
     async def write_rename(
         self, name_old: str, name_new: str, content_old: str, content_new: str, msg: str
     ) -> Diff:
-        return Diff()  # TODO
+        return Diff(name="", hash="", patch="")  # TODO
 
     async def copy(self, name_dest: str, name_src: str, msg: str) -> Diff:
-        return Diff()  # TODO
+        return Diff(name="", hash="", patch="")  # TODO
 
     async def link(self, name_link: str, name_src: str, msg: str) -> Diff:
-        return Diff()  # TODO
+        return Diff(name="", hash="", patch="")  # TODO
 
     async def delete(self, name: str, msg: str) -> None:
         pass  # TODO

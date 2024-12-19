@@ -1,7 +1,7 @@
 import datetime
 import re
 import socket
-import uuid
+import uuid  # type: ignore
 
 import ipaddress
 
@@ -19,4 +19,4 @@ def now():
 
 
 def uuid() -> str:
-    return str(uuid.uuid4())
+    return str(uuid.uuid4())  # type: ignore

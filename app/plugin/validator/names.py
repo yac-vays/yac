@@ -33,15 +33,19 @@ def test(op: OperationRequest, spec: Specs) -> None:
     if op.operation == "read":
         return
 
+    assert spec.type is not None  # validated in type_spec plugin
+
     if op.operation == "create":
         __assert_none(op.name, "name")
     else:  # change, delete, arbitrary
         __assert_match(spec.type.name_pattern, op.name, "name")
 
     if op.operation == "change":
+        assert op.entity is not None  # validated in operations plugin
         __assert_match(spec.type.name_pattern, op.entity.name, "entity.name")
 
     if op.operation == "create":
+        assert op.entity is not None  # validated in operations plugin
         if spec.type.name_generated == "never":
             __assert_match(spec.type.name_pattern, op.entity.name, "entity.name")
         elif spec.type.name_generated == "optional":

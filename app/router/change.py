@@ -41,36 +41,36 @@ async def update_entity(  # pylint: disable=too-many-arguments,dangerous-default
     configured and/or requested, run actions.
     """
     op = OperationRequest(
-        request=request,
+        _request=request,
         user=user,
         operation="change",
-        type=type_name,
+        type_name=type_name,
         name=entity_name,
         actions=run,
         entity=entity,
     )
 
-    s = None if specs.in_repo() else await specs.read_from_file(op)
-
     async with repo.handler.reader(op.user, details={}) as rpo:
-        if specs.in_repo():
-            s = await specs.read_from_repo(rpo, op)
-        if s is not None and s.type is not None:
-            rpo.update_details(s.type.details)
-
+        s = await specs.read(op, rpo)
         old, new = await repo.get_entities(rpo, op, s)
 
     validator.test_all(op, s, old, new)
 
     await action.run(TypeActionHook.CHANGE_BEFORE, op, s)
 
-    async with repo.handler.writer(op.user, details=s.type.details) as rpo:
-        if op.name != op.entity.name:
-            diff = await rpo.write_rename(
-                op.name, op.entity.name, op.entity.yaml_old, op.entity.yaml_new, msg
-            )
+    async with repo.handler.writer(
+        op.user, details=s.type.details if s.type else {}
+    ) as rpo:
+        if entity_name == entity.name:
+            diff = await rpo.write(entity_name, entity.yaml_old, entity.yaml_new, msg)
         else:
-            diff = await rpo.write(op.name, op.entity.yaml_old, op.entity.yaml_new, msg)
+            diff = await rpo.write_rename(
+                entity_name,
+                entity.name or entity_name,
+                entity.yaml_old,
+                entity.yaml_new,
+                msg,
+            )
 
     await action.run(TypeActionHook.CHANGE_AFTER, op, s)
 
@@ -97,23 +97,17 @@ async def change_entity(  # pylint: disable=too-many-arguments,dangerous-default
     if configured and/or requested, run actions.
     """
     op = OperationRequest(
-        request=request,
+        _request=request,
         user=user,
         operation="change",
-        type=type_name,
+        type_name=type_name,
         name=entity_name,
         actions=run,
         entity=entity,
     )
 
-    s = None if specs.in_repo() else await specs.read_from_file(op)
-
     async with repo.handler.reader(op.user, details={}) as rpo:
-        if specs.in_repo():
-            s = await specs.read_from_repo(rpo, op)
-        if s is not None and s.type is not None:
-            rpo.update_details(s.type.details)
-
+        s = await specs.read(op, rpo)
         old, new = await repo.get_entities(rpo, op, s)
 
     validator.test_all(op, s, old, new)
@@ -121,17 +115,20 @@ async def change_entity(  # pylint: disable=too-many-arguments,dangerous-default
     await action.run(TypeActionHook.CHANGE_BEFORE, op, s)
 
     try:
-        yaml_new = yaml.update(old.yaml, op.entity.data)
+        yaml_new = yaml.update(old.yaml or "", entity.data)
     except yaml.YAMLError as error:
         raise RepoError(f"Failed to parse YAML of {op.type_name} {old.name}") from error
 
-    async with repo.handler.writer(op.user, details=s.type.details) as rpo:
-        if op.name != op.entity.name:
-            diff = await rpo.write_rename(
-                op.name, op.entity.name, old.yaml, yaml_new, msg
-            )
+    async with repo.handler.writer(
+        op.user, details=s.type.details if s.type else {}
+    ) as rpo:
+        if entity_name == entity.name:
+            diff = await rpo.write(entity_name, old.yaml or "", yaml_new, msg)
+
         else:
-            diff = await rpo.write(op.name, old.yaml, yaml_new, msg)
+            diff = await rpo.write_rename(
+                entity_name, entity.name or entity_name, old.yaml or "", yaml_new, msg
+            )
 
     await action.run(TypeActionHook.CHANGE_AFTER, op, s)
 

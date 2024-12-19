@@ -27,13 +27,13 @@ fastapi_oauth2 = OpenIdConnect(
 
 async def get_current_user(token: Annotated[str, Depends(fastapi_oauth2)]) -> User:
     try:
-        user = await authlib_oauth.oidc.parse_id_token(
+        user = await authlib_oauth.oidc.parse_id_token(  # type: ignore
             token={"id_token": token[7:] if token[:7] == "Bearer " else token},
             nonce=None,  # can be ignored because we're using PKCE
         )
         if user["aud"] not in consts.ENV.oidc_client_ids.split(","):
             raise AuthlibBaseError(f'"{user["aud"]}" is not an accepted client_id')
-    except AuthlibBaseError as error:
+    except (AttributeError, AuthlibBaseError) as error:
         raise AuthError(
             f"Supplied authentication could not be validated ({error})"
         ) from error

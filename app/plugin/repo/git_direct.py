@@ -262,11 +262,11 @@ class GitRepo(Repo):
         try:
             return sorted(
                 [
-                    parse(f"{self.path}/{self.fpath}", str(fn)).named["name"]
+                    parse(f"{self.path}/{self.fpath}", str(fn)).named["name"]  # type: ignore
                     async for fn in Path(self.path).glob(glob)
                 ]
             )
-        except OSError as error:
+        except (OSError, AttributeError, KeyError) as error:
             raise RepoError(f"Could not list files at {self.path}/{glob}") from error
 
     async def exists(self, name: str) -> bool:
@@ -296,7 +296,7 @@ class GitRepo(Repo):
 
         link = dest[(len(base) + 1) :]
         try:
-            return parse(self.fpath, link).named["name"]
+            return parse(self.fpath, link).named["name"]  # type: ignore
         except (AttributeError, KeyError) as error:
             raise RepoError(f"Link {src} has an illegal destination: {dest}") from error
 
@@ -456,7 +456,7 @@ class GitRepo(Repo):
 
         file = "/".join([self.path, self.fpath.format(name=name)])
         try:
-            await Path(file).remove()
+            await Path(file).unlink()
         except OSError as error:
             raise RepoError(f"Could not delete file {file}") from error
 

@@ -81,7 +81,7 @@ app.include_router(delete.router, tags=["Entities"])
 app.include_router(arbitrary.router, tags=["Entities"])
 app.include_router(validate.router, tags=["Entities"])
 
-app.add_exception_handler(YACError, error.handle_yac)
+app.add_exception_handler(YACError, error.handle_yac)  # type: ignore
 app.add_exception_handler(500, error.handle_all)
 
 app.openapi = hacks.get_openapi_schema_with_oidc_idtoken(app)

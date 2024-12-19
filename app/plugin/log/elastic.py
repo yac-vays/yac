@@ -60,8 +60,9 @@ async def get(
             verify=ssl,
             timeout=timeout,
         ) as client:
-            logs = await client.get(
-                f"{url}/_eql/search",
+            logs = await client.request(
+                method="GET",
+                url=f"{url}/_eql/search",
                 json={"query": query},
             )
         logs.raise_for_status()

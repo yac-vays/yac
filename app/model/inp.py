@@ -1,6 +1,6 @@
 from typing import Literal
 
-from fastapi import Query, Depends, Path
+from fastapi import Query, Depends, Path, Request
 from pydantic import BaseModel, Field
 from typing_extensions import Annotated
 
@@ -35,9 +35,7 @@ class LinkEntity(Entity):
     link_name: Annotated[
         str,
         Field(
-            description="""
-    Contains the name of the entity where this one is linked to
-    """,
+            description="Contains the name of the entity where this one is linked to",
             alias="link",
             pattern=consts.NAME_PATTERN,
         ),
@@ -52,9 +50,7 @@ class CopyEntity(Entity):
     copy_name: Annotated[
         str,
         Field(
-            description="""
-    Contains the name of the entity to copy
-    """,
+            description="Contains the name of the entity to copy",
             alias="copy",
             pattern=consts.NAME_PATTERN,
         ),
@@ -104,5 +100,5 @@ class Operation(BaseModel):
 
 
 class OperationRequest(Operation):
-    request: object  # Request lets pydantic fail
+    _request: Request
     user: out.User

@@ -22,9 +22,9 @@ dummy `nonce` parameter that won't be validated) is recommended. For
 automated login in scripts/software, use the `password` flow instead (therefore
 you will also need the `client_secret`).
 
-## Source and Issues
+## Source, Issues and Documentation
 
-Repository on [GitLab](https://gitlab.inf.ethz.ch/public-isg/yac-backend)
+Repository on [GitHub](https://github.com/yac-vays/yac)
 """
 CONTACT = {
     "name": "Manuel (isginf)",

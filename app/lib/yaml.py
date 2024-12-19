@@ -21,8 +21,7 @@ y.representer.add_representer(
 
 y_non_strict = ruamel.yaml.YAML(typ="rt")
 y_non_strict.allow_duplicate_keys = True
-
-YAMLSafeBase = ruamel.yaml.comments.CommentedBase
+YAMLSafeBase = ruamel.yaml.comments.CommentedBase  # type: ignore
 YAMLError = ruamel.yaml.YAMLError
 
 

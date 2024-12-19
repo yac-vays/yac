@@ -6,6 +6,7 @@ from app.lib import action
 from app.lib import repo
 from app.lib import specs
 from app.lib import validator
+from app.model.err import ServerError
 from app.model.err import http_responses
 from app.model.inp import CopyEntity
 from app.model.inp import LinkEntity
@@ -40,31 +41,27 @@ async def add_entity(  # pylint: disable=too-many-arguments,dangerous-default-va
     requested, run actions.
     """
     op = OperationRequest(
-        request=request,
+        _request=request,
         user=user,
         operation="create",
-        type=type_name,
+        type_name=type_name,
         name=None,
         actions=run,
         entity=entity,
     )
 
-    s = None if specs.in_repo() else await specs.read_from_file(op)
-
     async with repo.handler.reader(op.user, details={}) as rpo:
-        if specs.in_repo():
-            s = await specs.read_from_repo(rpo, op)
-        if s is not None and s.type is not None:
-            rpo.update_details(s.type.details)
-
+        s = await specs.read(op, rpo)
         old, new = await repo.get_entities(rpo, op, s)
 
     result = validator.test_all(op, s, old, new)
 
     await action.run(TypeActionHook.CREATE_BEFORE, op, s)
 
-    async with repo.handler.writer(op.user, details=s.type.details) as rpo:
-        name = op.entity.name
+    async with repo.handler.writer(
+        op.user, details=s.type.details if s.type else {}
+    ) as rpo:
+        name = op.entity.name if op.entity else None
         if name is None:
             name = repo.gen_name(op, s, await rpo.list(), result.schemas.data)
 
@@ -72,8 +69,10 @@ async def add_entity(  # pylint: disable=too-many-arguments,dangerous-default-va
             diff = await rpo.copy(name, op.entity.copy_name, msg)
         elif isinstance(op.entity, LinkEntity):
             diff = await rpo.link(name, op.entity.link_name, msg)
-        else:
+        elif isinstance(op.entity, NewEntity):
             diff = await rpo.write(name, "", op.entity.yaml, msg)
+        else:
+            raise ServerError("Cannot happen!")
 
     await action.run(TypeActionHook.CREATE_AFTER, op, s)
 

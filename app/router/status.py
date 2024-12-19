@@ -51,26 +51,21 @@ async def get_status(request: Request) -> Status:
     """
 
     op = OperationRequest(
-        request=request,
+        _request=request,
         user=OutUser(
             name="dummy-status-user",
             email="invalid",
             full_name="Dummy Status User",
         ),
         operation="read",
-        type="does-not-exist",
+        type_name="does-not-exist",
         name=None,
         actions=[],
         entity=None,
     )
 
-    if not specs.in_repo():
-        _ = await specs.read_from_file(op)
-
     async with repo.handler.reader(None, details={}) as rpo:
-        if specs.in_repo():
-            _ = await specs.read_from_repo(rpo, op)
-
+        _ = await specs.read(op, rpo)
         return Status(hash=await rpo.get_hash())
 
 

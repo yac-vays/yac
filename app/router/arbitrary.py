@@ -35,23 +35,17 @@ async def run_action_on_entity(
     """
 
     op = OperationRequest(
-        request=request,
+        _request=request,
         user=user,
         operation="arbitrary",
-        type=type_name,
+        type_name=type_name,
         name=entity_name,
         actions=[run],
         entity=None,
     )
 
-    s = None if specs.in_repo() else await specs.read_from_file(op)
-
     async with repo.handler.reader(op.user, details={}) as rpo:
-        if specs.in_repo():
-            s = await specs.read_from_repo(rpo, op)
-        if s is not None and s.type is not None:
-            rpo.update_details(s.type.details)
-
+        s = await specs.read(op, rpo)
         old, new = await repo.get_entities(rpo, op, s)
 
     validator.test_all(op, s, old, new)

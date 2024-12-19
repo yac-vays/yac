@@ -25,11 +25,23 @@ logger = logging.getLogger(__name__)
 # TODO check major version of specs (must match!)
 
 
+async def read(op: OperationRequest, rpo: Repo) -> Specs:
+    if in_repo():
+        s = await read_from_repo(op, rpo)
+    else:
+        s = await read_from_file(op)
+
+    if s.type is not None:
+        rpo.update_details(s.type.details)
+
+    return s
+
+
 def in_repo() -> bool:
     return consts.ENV.specs.startswith(".")
 
 
-async def read_from_repo(rpo: Repo, op: OperationRequest) -> Specs:
+async def read_from_repo(op: OperationRequest, rpo: Repo) -> Specs:
     try:
         data = await rpo.get_specs(consts.ENV.specs)
     except RepoError as error:
@@ -77,7 +89,12 @@ def __parse(specs: str, op: OperationRequest) -> Specs:
         # TODO skip rendering log and action details to allow handling within the plugins
         data["types"] = j2.render(data.get("types", []), props.get_types(op, request))
         data["type"] = next(
-            (t for t in data["types"] if t.get("name", "") == op.type_name), None
+            (
+                t
+                for t in data["types"]
+                if isinstance(t, dict) and t.get("name", "") == op.type_name
+            ),
+            None,
         )
     except j2.J2Error as error:
         raise SpecsError(f"In types at {error.loc}: {error}") from error

@@ -15,7 +15,6 @@ from app.model.inp import CopyEntity
 from app.model.inp import LinkEntity
 from app.model.inp import OperationRequest
 from app.model.out import DetailedEntity
-from app.model.out import User
 from app.model.rpo import Entity
 from app.model.rpo import Repo
 from app.model.spc import Specs
@@ -76,20 +75,21 @@ async def get_entities(
 
 
 def to_detailed_entity(
-    entity: Entity, entity_hash: str, type_spec: Type
+    entity: Entity, entity_hash: str, type_spec: Type | None
 ) -> DetailedEntity:
     options = {}
-    for o in type_spec.options:
-        if o.name in (entity.data or {}) or o.default is not None:
-            options[o.name] = (entity.data or {}).get(o.name, o.default)
+    if type_spec is not None:
+        for o in type_spec.options:
+            if o.name in (entity.data or {}) or o.default is not None:
+                options[o.name] = (entity.data or {}).get(o.name, o.default)
 
     return DetailedEntity(
-        name=entity.name,
+        name=entity.name or "",
         link=entity.link if entity.is_link else None,
         options=options,
-        data=entity.data,
+        data=entity.data or {},
         yaml=entity.yaml,
-        perms=entity.perms,
+        perms=entity.perms or [],
         hash=entity_hash,
     )
 

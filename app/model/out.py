@@ -35,9 +35,9 @@ class User(BaseModel):
     provider and should not be used directly (except for in the *specs*).
     """
 
-    name: Annotated[str, Field(example="user73")]
-    email: Annotated[str, Field(example="user73@example.com")]
-    full_name: Annotated[str, Field(example="John Doe")]
+    name: Annotated[str, Field(examples=["user73"])]
+    email: Annotated[str, Field(examples=["user73@example.com"])]
+    full_name: Annotated[str, Field(examples=["John Doe"])]
     token: dict = {}
 
 
@@ -51,29 +51,19 @@ class Log(BaseModel):
     message: str
     time: Annotated[
         str,
-        Field(
-            description="""
-    Should contain a parsable date/time string
-    """
-        ),
+        Field(description="Should contain a parsable date/time string"),
     ]
     progress: Annotated[
         int | None,
         Field(
-            description="""
-    Can indicate a progress for this name (from 0 to 100)
-    """,
+            description="Can indicate a progress for this name (from 0 to 100)",
             ge=0,
             le=100,
         ),
     ] = None
     problem: Annotated[
         bool | None,
-        Field(
-            description="""
-    Can indicate if a problem exists (true/false)
-    """
-        ),
+        Field(description="Can indicate if a problem exists (true/false)"),
     ] = None
 
 
@@ -89,19 +79,13 @@ class ListedEntity(Entity):
     link: Annotated[
         str | None,
         Field(
-            description="""
-    Contains the name of the entity where this one is linked to or null if
-    it is not linked
-    """
+            description="Contains the name of the entity where this one is linked to or null if it is not linked"
         ),
     ] = None
     options: Annotated[
         dict,
         Field(
-            description="""
-    Some options of this entity for the list preview (including the
-    defaults for undefined options)
-    """
+            description="Some options of this entity for the list preview (including the defaults for undefined options)"
         ),
     ] = {}
     perms: list[Permission | str] = ["see"]
@@ -120,10 +104,7 @@ class DetailedEntity(ListedEntity):
     data: Annotated[
         dict,
         Field(
-            description="""
-    All data that this entity has defined (including the defaults for
-    undefined options)
-    """
+            description="All data that this entity has defined (including the defaults for undefined options)"
         ),
     ] = {}
     yaml: Annotated[str | None, Field(description="The raw YAML data")] = None
@@ -163,76 +144,59 @@ class Schema(BaseModel):
             description="""
     The data structure (json-schema.org 2020-12)
     """,
-            example={"type": "object", "properties": {"owner": {"type": "string"}}},
+            examples=[{"type": "object", "properties": {"owner": {"type": "string"}}}],
         ),
     ]
     ui_schema: Annotated[
         dict,
         Field(
-            description="""
-    The form representation (jsonforms.io v3.1.0)
-    """,
-            example={"type": "Control", "scope": "#/properties/owner"},
+            description="The form representation (jsonforms.io v3.1.0)",
+            examples=[{"type": "Control", "scope": "#/properties/owner"}],
         ),
     ]
     data: Annotated[
         dict,
         Field(
-            description="""
-    The data used to build the schemas and validate against it.
-    For the different types of operations, this has different sources.
+            description="""The data used to build the schemas and validate against it. For the different types of operations, this has different sources.
 
-    - NewEntity: `entity.yaml`
-    - CopyEntity: `{}`
-    - LinkEntity: `{}`
-    - UpdateEntity: The existing data **merged** with `entity.data`!
-    - ReplaceEntity: `entity.yaml_new`
-    """,
-            example={"owner": "Bender"},
+- NewEntity: `entity.yaml`
+- CopyEntity: `{}`
+- LinkEntity: `{}`
+- UpdateEntity: The existing data **merged** with `entity.data`!
+- ReplaceEntity: `entity.yaml_new`""",
+            examples=[{"owner": "Bender"}],
         ),
     ] = {}
     valid: Annotated[
         bool,
-        Field(
-            description="""
-    If the data was valid according to the `json_schema`
-    """
-        ),
+        Field(description="If the data was valid according to the `json_schema`"),
     ] = False
     message: Annotated[
         str | None,
         Field(
-            description="""
-    The explanation why the validation failed (if `valid` is `false`)
-    """,
-            example="23 is not of type 'string'",
+            description="The explanation why the validation failed (if `valid` is `false`)",
+            examples=["23 is not of type 'string'"],
         ),
     ] = None
     validator: Annotated[
         str,
         Field(
-            description="""
-    The validator component that caused the message (if `valid` is `false`)
-    """,
-            example="format",
+            description="The validator component that caused the message (if `valid` is `false`)",
+            examples=["format", "additionalProperties"],
         ),
     ] = ""
     json_schema_loc: Annotated[
         str,
         Field(
-            description="""
-    Location in the json_schema where the validation failed (if `valid` is `false`)
-    """,
-            example="#/properties/abc",
+            description="Location in the json_schema where the validation failed (if `valid` is `false`)",
+            examples=["#/properties/abc"],
         ),
     ] = ""
     data_loc: Annotated[
         str,
         Field(
-            description="""
-    Location in the data where the validation failed (if `valid` is `false`)
-    """,
-            example="#/properties/abc",
+            description="Location in the data where the validation failed (if `valid` is `false`)",
+            examples=["#/properties/abc"],
         ),
     ] = ""
 
@@ -240,19 +204,13 @@ class Schema(BaseModel):
 class Request(BaseModel):
     valid: Annotated[
         bool,
-        Field(
-            description="""
-    If the requested operation is valid and permitted.
-    """
-        ),
+        Field(description="If the requested operation is valid and permitted."),
     ] = False
     message: Annotated[
         str | None,
         Field(
-            description="""
-    The explanation why the validation of the request failed (if `valid` is `false`)
-    """,
-            example="Action 'blub' is not defined",
+            description="The explanation why the validation of the request failed (if `valid` is `false`)",
+            examples=["Action 'blub' is not defined"],
         ),
     ] = None
 
@@ -268,44 +226,30 @@ class ValidationResult(BaseModel):
 
 
 class TypeOption(BaseModel):
-    name: Annotated[str, Field(example="os")]
-    title: Annotated[str, Field(example="Operating System")]
+    name: Annotated[str, Field(examples=["os"])]
+    title: Annotated[str, Field(examples=["Operating System"])]
     default: Annotated[
         Any | None,
         Field(
-            description="""
-    The default value to use in the list if the entity has not set this option
-    """
+            description="The default value to use in the list if the entity has not set this option"
         ),
     ] = None
     aliases: Annotated[
         dict,
-        Field(
-            description="""
-    A key-value list of aliases to use for the options
-    """
-        ),
+        Field(description="A key-value list of aliases to use for the options"),
     ] = {}
 
 
 class TypeLog(BaseModel):
-    name: Annotated[str, Field(example="installation")]
-    title: Annotated[str, Field(example="Installation")]
+    name: Annotated[str, Field(examples=["installation"])]
+    title: Annotated[str, Field(examples=["Installation"])]
     progress: Annotated[
         bool,
-        Field(
-            description="""
-    Whether to show a progress indicator in UI
-    """
-        ),
+        Field(description="Whether to show a progress indicator in UI"),
     ] = False
     problem: Annotated[
         bool,
-        Field(
-            description="""
-    Whether to show a problem indicator in UI
-    """
-        ),
+        Field(description="Whether to show a problem indicator in UI"),
     ] = False
 
 
@@ -333,43 +277,29 @@ class TypeActionHook(str, enum.Enum):
 
 
 class TypeAction(BaseModel):
-    name: Annotated[str, Field(example="install")]
-    title: Annotated[str, Field(example="Install")]
+    name: Annotated[str, Field(examples=["install"])]
+    title: Annotated[str, Field(examples=["Install"])]
     description: str = ""
     dangerous: Annotated[
         bool,
         Field(
-            description="""
-    Show confirmation dialogue in UI (with text from `description` field)
-    """
+            description="Show confirmation dialogue in UI (with text from `description` field)"
         ),
     ] = False
     icon: Annotated[
         str,
-        Field(
-            description="""
-    An SVG image used as button icon for this action
-    """
-        ),
+        Field(description="An SVG image used as button icon for this action"),
     ] = consts.SVG_ACTION
     perms: Annotated[
         list[Permission | str],
         Field(
-            description="""
-    The list of perms on the particular entity, at least one of which is
-    required to run this action
-    """
+            description="The list of perms on the particular entity, at least one of which is required to run this action"
         ),
     ] = ["act"]
     force: Annotated[
         bool,
         Field(
-            description="""
-    Run this action automatically when performing the hooked operation
-    (otherwise it is optional; has no effect on the hook `arbitrary`; if
-    `force` is `true`, actions perms are bypassed for all hooks except for
-    `arbitrary`)
-    """
+            description="Run this action automatically when performing the hooked operation (otherwise it is optional; has no effect on the hook `arbitrary`; if `force` is `true`, actions perms are bypassed for all hooks except for `arbitrary`)"
         ),
     ] = False
     hooks: list[TypeActionHook] = [TypeActionHook.ARBITRARY]
@@ -423,23 +353,15 @@ class TypeFavorite(BaseModel):
 
 
 class Type(BaseModel):
-    name: Annotated[str, Field(example="host")]
-    title: Annotated[str, Field(example="Hosts")]
+    name: Annotated[str, Field(examples=["host"])]
+    title: Annotated[str, Field(examples=["Hosts"])]
     name_pattern: Annotated[
         str,
-        Field(
-            description="""
-    Regular expression for names of entities of this type
-    """
-        ),
+        Field(description="Regular expression for names of entities of this type"),
     ] = consts.NAME_PATTERN
     name_example: Annotated[
         str,
-        Field(
-            description="""
-    An example for a name of an entity of this type
-    """
-        ),
+        Field(description="An example for a name of an entity of this type"),
     ] = ""
     name_generated: Annotated[
         Literal["never", "optional", "enforced"],
@@ -449,45 +371,31 @@ class Type(BaseModel):
     create: Annotated[
         bool,
         Field(
-            description="""
-    Allow creation of this type of entities (still requires the according
-    *perms*)
-    """
+            description="Allow creation of this type of entities (still requires the according *perms*)"
         ),
     ] = True
     change: Annotated[
         bool,
         Field(
-            description="""
-    Allow modifications of this type of entities (still requires the
-    according *perms*)
-    """
+            description="Allow modifications of this type of entities (still requires the according *perms*)"
         ),
     ] = True
     delete: Annotated[
         bool,
         Field(
-            description="""
-    Allow deletion of this type of entities (still requires the according
-    *perms*)
-    """
+            description="Allow deletion of this type of entities (still requires the according *perms*)"
         ),
     ] = True
     favorites: Annotated[
         list[TypeFavorite],
         Field(
-            description="""
-    A list of actions and operations to defined the more prominent buttons
-    and their order in UI
-    """
+            description="A list of actions and operations to defined the more prominent buttons and their order in UI"
         ),
     ] = []
     options: Annotated[
         list[TypeOption],
         Field(
-            description="""
-    A list of data values always attached when listing entities of this type
-    """
+            description="A list of data values always attached when listing entities of this type"
         ),
     ] = []
     logs: list[TypeLog] = []

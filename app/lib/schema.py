@@ -3,6 +3,7 @@ Raises: [app.model.err.SchemaSpecsError]
 """
 
 import logging
+from typing import Any
 
 import jsonschema
 
@@ -68,21 +69,22 @@ def get(
             data=new_data,
             valid=True,
         )
-    except jsonschema.exceptions.ValidationError as error:
+    except jsonschema.ValidationError as error:
+        # TODO remove this line if line above works: except jsonschema.exceptions.ValidationError as error:
         return out.Schema(
             json_schema=json_schema,
             ui_schema=ui_schema,
             data=new_data,
             valid=False,
             message=error.message,
-            validator=error.validator,
+            validator=str(error.validator),
             json_schema_loc="/".join(["#"] + [str(i) for i in list(error.schema_path)]),
             data_loc="/".join(["#"] + [str(i) for i in list(error.path)]),
         )
 
 
 def handle_schema(
-    loc: str, json_schema: dict | bool, ui_schema: dict, context: dict, prop: dict
+    loc: str, json_schema: dict | bool | Any, ui_schema: dict, context: dict, prop: dict
 ) -> tuple[dict | bool | None, dict, dict]:
 
     # pre-tests

@@ -25,7 +25,7 @@ class Type(out.Type):
     name_generator: str = "uuid()"
     details: dict = {}
     logs: list[TypeLog] = []
-    actions: list[TypeAction] = []
+    actions: list[TypeAction] = []  # TODO fix (also see router.read.get_types())
 
 
 class Role(BaseModel):

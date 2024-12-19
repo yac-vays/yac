@@ -37,30 +37,26 @@ async def delete_entity(  # pylint: disable=too-many-arguments,dangerous-default
     """
 
     op = OperationRequest(
-        request=request,
+        _request=request,
         user=user,
         operation="delete",
-        type=type_name,
+        type_name=type_name,
         name=entity_name,
         actions=run,
         entity=None,
     )
 
-    s = None if specs.in_repo() else await specs.read_from_file(op)
-
     async with repo.handler.reader(op.user, details={}) as rpo:
-        if specs.in_repo():
-            s = await specs.read_from_repo(rpo, op)
-        if s is not None and s.type is not None:
-            rpo.update_details(s.type.details)
-
+        s = await specs.read(op, rpo)
         old, new = await repo.get_entities(rpo, op, s)
 
     validator.test_all(op, s, old, new)
 
     await action.run(TypeActionHook.DELETE_BEFORE, op, s)
 
-    async with repo.handler.writer(op.user, details=s.type.details) as rpo:
-        await rpo.delete(op.name, msg)
+    async with repo.handler.writer(
+        op.user, details=s.type.details if s.type else {}
+    ) as rpo:
+        await rpo.delete(op.name or "", msg)
 
     await action.run(TypeActionHook.DELETE_AFTER, op, s)

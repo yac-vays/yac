@@ -75,7 +75,7 @@ async def get(
     for l in lines:
         try:
             line = (
-                parse(details["line_format"], l.decode(encoding).rstrip("\r\n")).named
+                parse(details["line_format"], l.decode(encoding).rstrip("\r\n")).named  # type: ignore
                 or {}
             )
         except (KeyError, IndexError, ValueError, AttributeError) as error:

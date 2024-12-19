@@ -19,9 +19,9 @@ def __request(request: Request, request_spec: spc.Request) -> dict:
             headers[key] = value
         else:
             headers[key] = spec.get("default", "")
-
+    host = request.client.host if request.client else ""
     return {
-        "ip": request.client.host,
+        "ip": host,
         "headers": headers,
     }
 
@@ -35,14 +35,14 @@ def get_request() -> dict:
 def get_types(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     return {
         "env": consts.ENV.env,
-        "request": __request(op.request, request_spec),
+        "request": __request(op._request, request_spec),
         "user": dict(op.user),
     }
 
 
 def get_action(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     return {
-        "request": __request(op.request, request_spec),
+        "request": __request(op._request, request_spec),
         "user": dict(op.user),
         "operation": op.operation,
         "actions": op.actions,
@@ -57,7 +57,7 @@ def get_action(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
 
 def get_log(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     return {
-        "request": __request(op.request, request_spec),
+        "request": __request(op._request, request_spec),
         "user": dict(op.user),
         "old": {
             "name": op.name,
@@ -70,7 +70,7 @@ def get_roles(
 ) -> dict:
     return {
         "env": consts.ENV.env,
-        "request": __request(op.request, request_spec),
+        "request": __request(op._request, request_spec),
         "user": dict(op.user),
         "operation": op.operation,
         "actions": op.actions,
@@ -93,7 +93,7 @@ def get_namegen(
 ) -> dict:
     return {
         "env": consts.ENV.env,
-        "request": __request(op.request, request_spec),
+        "request": __request(op._request, request_spec),
         "user": dict(op.user),
         "operation": op.operation,
         "actions": op.actions,
@@ -111,7 +111,7 @@ def get_schema(
 ) -> dict:
     return {
         "env": consts.ENV.env,
-        "request": __request(op.request, request_spec),
+        "request": __request(op._request, request_spec),
         "user": dict(op.user),
         "operation": op.operation,
         "actions": op.actions,
