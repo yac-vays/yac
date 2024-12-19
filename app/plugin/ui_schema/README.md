@@ -11,7 +11,7 @@ category, see `late` below).
 Each plugin must implement the following functions:
 
     def order() -> tuple[bool, int] # late, order
-    def process(loc: str, json_schema: dict, ui_schema: dict, props: dict) -> tuple[dict|bool|None, dict] # json_schema, ui_schema
+    async def process(loc: str, json_schema: dict, ui_schema: dict, props: dict) -> tuple[dict|bool|None, dict] # json_schema, ui_schema
 
 With:
 

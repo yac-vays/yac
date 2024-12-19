@@ -11,7 +11,7 @@ def order() -> tuple[bool, int]:
     return True, 100
 
 
-def process(
+async def process(
     loc: str, json_schema: dict, context: dict, props: dict
 ) -> tuple[dict | bool | None, dict]:
     """

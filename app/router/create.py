@@ -54,7 +54,7 @@ async def add_entity(  # pylint: disable=too-many-arguments,dangerous-default-va
         s = await specs.read(op, rpo)
         old, new = await repo.get_entities(rpo, op, s)
 
-    result = validator.test_all(op, s, old, new)
+    result = await validator.test_all(op, s, old, new)
 
     await action.run(TypeActionHook.CREATE_BEFORE, op, s)
 
@@ -63,7 +63,7 @@ async def add_entity(  # pylint: disable=too-many-arguments,dangerous-default-va
     ) as rpo:
         name = op.entity.name if op.entity else None
         if name is None:
-            name = repo.gen_name(op, s, await rpo.list(), result.schemas.data)
+            name = await repo.gen_name(op, s, await rpo.list(), result.schemas.data)
 
         if isinstance(op.entity, CopyEntity):
             diff = await rpo.copy(name, op.entity.copy_name, msg)

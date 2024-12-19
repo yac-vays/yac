@@ -1,6 +1,6 @@
 # Section `schema`
 
-YAC uses [JSON-Schema](json-schema.org) Draft-7 with custom extensions
+YAC uses [JSON-Schema](https://json-schema.org) Draft-7 with custom extensions
 to describe and validate data. From this schema, a `json_schema` and a
 `ui_schema` are generated. VAYS then uses them to generate and validate the
 forms.

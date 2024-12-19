@@ -67,9 +67,9 @@ async def get_entities(
                 f"Failed to parse YAML of {op.type_name} {old.name}: {error}"
             ) from error
 
-    old.perms = perms.get_from_roles(op, specs, old.data or {}, new_name=False)
+    old.perms = await perms.get_from_roles(op, specs, old.data or {}, new_name=False)
     # we only use old data to render the perms!
-    new.perms = perms.get_from_roles(op, specs, old.data or {}, new_name=True)
+    new.perms = await perms.get_from_roles(op, specs, old.data or {}, new_name=True)
 
     return old, new
 
@@ -94,14 +94,14 @@ def to_detailed_entity(
     )
 
 
-def gen_name(
+async def gen_name(
     op: OperationRequest, s: Specs, old_list: list[str], new_data: dict
 ) -> str:
     namegen_props = props.get_namegen(op, s.request, old_list, new_data)
     if s.type is None:
         raise RepoClientError("Type is not defined")
     try:
-        return j2.render_str(
+        return await j2.render_str(
             f"{{{{ {s.type.name_generator} }}}}", namegen_props, allow_nonstr=False
         )
     except j2.J2Error as error:

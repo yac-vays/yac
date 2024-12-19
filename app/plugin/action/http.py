@@ -45,7 +45,7 @@ async def run(*, details: dict, props: dict) -> None:
         raise ActionSpecsError(f"In HTTP action plugin details.url: {error}") from error
 
     try:
-        body = j2.render_print(details.get("body", '""'), props).encode("utf-8")
+        body = await j2.render_print(details.get("body", '""'), props).encode("utf-8")
     except j2.J2Error as error:
         raise ActionSpecsError(
             f"In HTTP action plugin details.body: {error}"

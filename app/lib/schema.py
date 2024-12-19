@@ -21,7 +21,7 @@ from app.model.err import SchemaSpecsError
 logger = logging.getLogger(__name__)
 
 
-def get(
+async def get(
     op: inp.OperationRequest,
     schema_spec: spc.Schema,
     request_spec: spc.Request,
@@ -41,11 +41,13 @@ def get(
         schema_props["old"]["perms"].append("add")
 
     try:
-        json_schema = j2.render(dict(schema_spec), schema_props)
+        json_schema = await j2.render(dict(schema_spec), schema_props)
     except j2.J2Error as error:
         raise SchemaSpecsError(f"{error.loc}: {error}") from error
 
-    json_schema, ui_schema, _ = handle_schema("#", json_schema, {}, {}, schema_props)
+    json_schema, ui_schema, _ = await handle_schema(
+        "#", json_schema, {}, {}, schema_props
+    )
 
     # convert trivial cases into real schemas
     if json_schema is None or (isinstance(json_schema, bool) and not json_schema):
@@ -82,7 +84,7 @@ def get(
         )
 
 
-def handle_schema(
+async def handle_schema(
     loc: str, json_schema: dict | bool | Any, ui_schema: dict, context: dict, prop: dict
 ) -> tuple[dict | bool | None, dict, dict]:
 
@@ -104,7 +106,7 @@ def handle_schema(
         logger.debug(
             f"Early json_schema plugin {plug.__name__} processing schema at {loc}"
         )
-        json, cx = plug.process(loc, json, cx, p)
+        json, cx = await plug.process(loc, json, cx, p)
         if isinstance(json, bool) or json is None:
             return json, ui, cx
 
@@ -112,7 +114,7 @@ def handle_schema(
         logger.debug(
             f"Early ui_schema plugin {plug.__name__} processing schema at {loc}"
         )
-        json, ui = plug.process(loc, json, ui, p)
+        json, ui = await plug.process(loc, json, ui, p)
         if isinstance(json, bool) or json is None:
             return json, ui, cx
 
@@ -120,7 +122,7 @@ def handle_schema(
 
     for k in SUBSCHEMAS:
         if k in json:
-            s, ui, cx = handle_schema(f"{loc}/{k}", json[k], ui, cx, p)
+            s, ui, cx = await handle_schema(f"{loc}/{k}", json[k], ui, cx, p)
             if s is None:
                 json.pop(k)
             else:
@@ -133,7 +135,9 @@ def handle_schema(
             if not isinstance(json[k], dict):
                 raise SchemaSpecsError(f"{loc}/{k} is not an object (of schemas)")
             for key in list(json[k].keys()):
-                s, ui, cx = handle_schema(f"{loc}/{k}/{key}", json[k][key], ui, cx, p)
+                s, ui, cx = await handle_schema(
+                    f"{loc}/{k}/{key}", json[k][key], ui, cx, p
+                )
                 if s is None:
                     json[k].pop(key)
                 else:
@@ -146,7 +150,7 @@ def handle_schema(
             if not isinstance(json[k], list):
                 raise SchemaSpecsError(f"{loc}/{k} is not an array (of schemas)")
             for i, val in enumerate(json[k]):
-                s, ui, cx = handle_schema(f"{loc}/{k}/{str(i)}", val, ui, cx, p)
+                s, ui, cx = await handle_schema(f"{loc}/{k}/{str(i)}", val, ui, cx, p)
                 if s is None:
                     json[k].pop(i)
                 else:
@@ -158,7 +162,7 @@ def handle_schema(
         logger.debug(
             f"Late json_schema plugin {plug.__name__} processing schema at {loc}"
         )
-        json, cx = plug.process(loc, json, cx, p)
+        json, cx = await plug.process(loc, json, cx, p)
         if isinstance(json, bool) or json is None:
             return json, ui, cx
 
@@ -166,7 +170,7 @@ def handle_schema(
         logger.debug(
             f"Late ui_schema plugin {plug.__name__} processing schema at {loc}"
         )
-        json, ui = plug.process(loc, json, ui, p)
+        json, ui = await plug.process(loc, json, ui, p)
         if isinstance(json, bool) or json is None:
             return json, ui, cx
 

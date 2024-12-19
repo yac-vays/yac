@@ -47,11 +47,11 @@ async def read_from_repo(op: OperationRequest, rpo: Repo) -> Specs:
         raise SpecsError(
             f"Could not read specs from repo at {consts.ENV.specs}"
         ) from error
-    return __parse(data, op)
+    return await __parse(data, op)
 
 
 async def read_from_file(op: OperationRequest) -> Specs:
-    return __parse(await __read_file(), op)
+    return await __parse(await __read_file(), op)
 
 
 async def __read_file():
@@ -67,14 +67,14 @@ async def __read_file():
         ) from error
 
 
-def __parse(specs: str, op: OperationRequest) -> Specs:
+async def __parse(specs: str, op: OperationRequest) -> Specs:
     try:
         data = yaml.load_as_dict(specs, strict=False)
     except yaml.YAMLError as error:
         raise SpecsError(f"In YAML syntax: {error}") from error
 
     try:
-        data["request"] = j2.render(
+        data["request"] = await j2.render(
             data.get("request", {"headers": {}}), props.get_request()
         )
         request = Request.model_validate(data["request"])
@@ -85,7 +85,9 @@ def __parse(specs: str, op: OperationRequest) -> Specs:
 
     try:
         # TODO skip rendering log and action details to allow handling within the plugins
-        data["types"] = j2.render(data.get("types", []), props.get_types(op, request))
+        data["types"] = await j2.render(
+            data.get("types", []), props.get_types(op, request)
+        )
         data["type"] = next(
             (
                 t

@@ -77,10 +77,10 @@ async def get(
         try:
             entry = out.Log(
                 name=log_name,
-                time=j2.render_print(
+                time=await j2.render_print(
                     details.get("time", 'log["@timestamp"]'), log_props
                 ),
-                message=j2.render_print(details.get("message", '""'), log_props),
+                message=await j2.render_print(details.get("message", '""'), log_props),
             )
         except j2.J2Error as error:
             raise LogSpecsError(
@@ -89,7 +89,7 @@ async def get(
 
         if problem:
             try:
-                entry.problem = j2.render_test(
+                entry.problem = await j2.render_test(
                     details.get("problem", "false"), log_props
                 )
             except j2.J2Error as error:
@@ -99,7 +99,9 @@ async def get(
 
         if progress:
             try:
-                percent = int(j2.render_print(details.get("progress", "0"), log_props))
+                percent = int(
+                    await j2.render_print(details.get("progress", "0"), log_props)
+                )
             except j2.J2Error as error:
                 raise LogSpecsError(
                     f"In elastic log plugin details.progress: {error}"

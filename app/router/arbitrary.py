@@ -48,6 +48,6 @@ async def run_action_on_entity(
         s = await specs.read(op, rpo)
         old, new = await repo.get_entities(rpo, op, s)
 
-    validator.test_all(op, s, old, new)
+    await validator.test_all(op, s, old, new)
 
     return await action.run(TypeActionHook.ARBITRARY, op, s)

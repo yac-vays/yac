@@ -50,7 +50,7 @@ async def delete_entity(  # pylint: disable=too-many-arguments,dangerous-default
         s = await specs.read(op, rpo)
         old, new = await repo.get_entities(rpo, op, s)
 
-    validator.test_all(op, s, old, new)
+    await validator.test_all(op, s, old, new)
 
     await action.run(TypeActionHook.DELETE_BEFORE, op, s)
 

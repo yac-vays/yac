@@ -40,4 +40,4 @@ async def validate_operation(
         s = await specs.read(op, rpo)
         old, new = await repo.get_entities(rpo, op, s)
 
-    return validator.test_all(op, s, old, new, raise_on_error=False)
+    return await validator.test_all(op, s, old, new, raise_on_error=False)

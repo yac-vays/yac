@@ -44,7 +44,7 @@ def __expand_perms(p: list[str]) -> list[str]:
     return sorted(list(set(result)))
 
 
-def get_from_roles(
+async def get_from_roles(
     op: inp.OperationRequest, specs: spc.Specs, old_data: dict, new_name: bool = False
 ) -> list[str]:
     """
@@ -58,7 +58,7 @@ def get_from_roles(
     for role in specs.roles:
         for role_def, role_test in dict(role).items():
             try:
-                rtest = j2.render_test(role_test, role_props)
+                rtest = await j2.render_test(role_test, role_props)
             except j2.J2Error as error:
                 logger.error(f"Role {role_def} could not be rendered: {error}")
                 rtest = False
@@ -72,7 +72,7 @@ def get_from_roles(
                         set_name, "false"
                     )
                     try:
-                        stest = j2.render_test(set_test, role_props)
+                        stest = await j2.render_test(set_test, role_props)
                     except j2.J2Error as error:
                         logger.error(
                             f"Set {op.type_name}.{set_name} could not be rendered: {error}"

@@ -6,7 +6,7 @@ def order() -> tuple[bool, int]:
     return False, 0
 
 
-def process(
+async def process(
     loc: str, json_schema: dict, context: dict, props: dict
 ) -> tuple[dict | bool | None, dict]:
     """
@@ -20,7 +20,7 @@ def process(
         raise SchemaSpecsError(f"{loc}/yac_if is not a string")
 
     try:
-        condition = j2.render_test(json_schema["yac_if"], props)
+        condition = await j2.render_test(json_schema["yac_if"], props)
     except j2.J2Error as error:
         raise SchemaSpecsError(f"{loc}/yac_if: {error}") from error
 

@@ -17,7 +17,7 @@ from app.model.rpo import Entity
 from app.model.spc import Specs
 
 
-def test_all(
+async def test_all(
     op: OperationRequest, specs: Specs, old: Entity, new: Entity, *, raise_on_error=True
 ) -> ValidationResult:
     """
@@ -47,7 +47,7 @@ def test_all(
     if op.operation == "change" or (
         op.operation == "create" and isinstance(op.entity, NewEntity)
     ):
-        schemas = schema.get(
+        schemas = await schema.get(
             op,
             specs.json_schema,
             specs.request,

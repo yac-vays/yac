@@ -7,7 +7,7 @@ iterates over the schema and runs each plugin on every level of subschemas!
 Each plugin must implement the following functions:
 
     def order() -> tuple[bool, int] # late, order
-    def process(loc: str, schema: dict, context: dict, props: dict) -> type[dict|bool|None, dict] # schema, context
+    async def process(loc: str, schema: dict, context: dict, props: dict) -> type[dict|bool|None, dict] # schema, context
 
 With:
 

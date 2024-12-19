@@ -5,31 +5,33 @@ import socket
 from app.model.err import RequestError
 
 
-def rformat(string: str, pattern: str) -> str:
+async def rformat(string: str, pattern: str) -> str:
     return pattern % string
 
 
-def to_consts(lst: list[str]) -> list:
+async def to_consts(lst: list[str]) -> list:
     return [{"const": l, "title": l} for l in lst]
 
 
-def to_datetime(string, format="%Y-%m-%d %H:%M:%S"):
+async def to_datetime(string, format="%Y-%m-%d %H:%M:%S"):
     return datetime.datetime.strptime(string, format)
 
 
-def to_fqhn(ip: str) -> str:
+async def to_fqhn(ip: str) -> str:
     return socket.gethostbyaddr(str(ip))[0]
 
 
-def regex_replace(value: str = "", pattern: str = "", replacement: str = "") -> str:
+async def regex_replace(
+    value: str = "", pattern: str = "", replacement: str = ""
+) -> str:
     return re.sub(pattern, replacement, value)
 
 
-def re_escape(string: str) -> str:
+async def re_escape(string: str) -> str:
     return re.escape(string)
 
 
-def next_int_by_regex(
+async def next_int_by_regex(
     names: list[str],
     pattern: str = r"^(.*)$",
     *,
@@ -54,8 +56,7 @@ def next_int_by_regex(
 
     result = max(n) + 1
 
-    if limit != 0 and result > limit:
-        # TODO not working yet
-        raise RequestError(f"Number of {limit} reached!")
+    if limit != 0 and len(n) == limit:
+        raise RequestError(f"Maximum number of {limit} reached!")
 
     return result

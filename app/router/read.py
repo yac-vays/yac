@@ -140,7 +140,7 @@ async def get_entity(
         old, new = await repo.get_entities(rpo, op, s)
         entity_hash = await rpo.get_hash()
 
-    validator.test_all(op, s, old, new)
+    await validator.test_all(op, s, old, new)
 
     return repo.to_detailed_entity(old, entity_hash, s.type)
 
@@ -171,7 +171,7 @@ async def get_entity_yaml(
         s = await specs.read(op, rpo)
         old, new = await repo.get_entities(rpo, op, s)
 
-    validator.test_all(op, s, old, new)
+    await validator.test_all(op, s, old, new)
 
     return PlainTextResponse(content=old.yaml, media_type="application/yaml")
 
@@ -203,6 +203,6 @@ async def get_entity_logs(
         s = await specs.read(op, rpo)
         old, new = await repo.get_entities(rpo, op, s)
 
-    validator.test_all(op, s, old, new)
+    await validator.test_all(op, s, old, new)
 
     return await log.get(op, s)

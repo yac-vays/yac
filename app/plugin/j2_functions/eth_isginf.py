@@ -18,10 +18,13 @@ import logging
 import os
 import re
 
+from async_lru import alru_cache
+
 logger = logging.getLogger(__name__)
 
 
-def isginf_ldap_search(
+@alru_cache(maxsize=1000, ttl=600)
+async def isginf_ldap_search(
     dn: str,
     filterstr: str = "(cn=*)",
     attr: str = "cn",
@@ -39,6 +42,7 @@ def isginf_ldap_search(
     if not cert_check:
         ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
 
+    # TODO find non-blocking ldap lib?
     c = ldap.initialize(os.environ.get("YAC_ISGINF_LDAPSEARCH_URL"))
     c.simple_bind_s(
         os.environ.get("YAC_ISGINF_LDAPSEARCH_BIND_DN"),
@@ -59,10 +63,10 @@ def isginf_ldap_search(
     return [result[1][attr][0].decode("utf-8") for result in results]
 
 
-def isginf_user_in_ou(user: str, ou: str) -> bool:
+async def isginf_user_in_ou(user: str, ou: str) -> bool:
     return (
         len(
-            isginf_ldap_search(
+            await isginf_ldap_search(
                 f"ou=users,ou={ou},ou=inf,ou=auth,o=ethz,c=ch", f"(cn={user})"
             )
         )
@@ -70,10 +74,10 @@ def isginf_user_in_ou(user: str, ou: str) -> bool:
     )
 
 
-def isginf_user_itc_in_ou(user: str, ou: str) -> bool:
+async def isginf_user_itc_in_ou(user: str, ou: str) -> bool:
     return (
         len(
-            isginf_ldap_search(
+            await isginf_ldap_search(
                 f"ou=users,ou={ou},ou=inf,ou=auth,o=ethz,c=ch",
                 f"(&(description=ik=1)(cn={user}))",
             )
@@ -82,16 +86,20 @@ def isginf_user_itc_in_ou(user: str, ou: str) -> bool:
     )
 
 
-def isginf_get_user_ous(user: str) -> list[str]:
+async def isginf_get_user_ous(user: str) -> list[str]:
     pattern = re.compile(f"^cn={user},ou=users,ou=([^,]+),ou=inf,ou=auth,o=ethz,c=ch$")
     ous = []
-    for dn in isginf_ldap_search("ou=inf,ou=auth,o=ethz,c=ch", f"(cn={user})", "dn"):
+    for dn in await isginf_ldap_search(
+        "ou=inf,ou=auth,o=ethz,c=ch", f"(cn={user})", "dn"
+    ):
         if pattern.match(dn):
             ous.append(pattern.sub(r"\1", dn))
     return sorted(ous)
 
 
-def isginf_get_ou_users(ou: str, subou: str = "all") -> list[str]:
+async def isginf_get_ou_users(ou: str, subou: str = "all") -> list[str]:
     if subou == "all":
-        return isginf_ldap_search(f"ou=users,ou={ou},ou=inf,ou=auth,o=ethz,c=ch")
-    return isginf_ldap_search(f"ou=users,ou={subou},ou={ou},ou=inf,ou=auth,o=ethz,c=ch")
+        return await isginf_ldap_search(f"ou=users,ou={ou},ou=inf,ou=auth,o=ethz,c=ch")
+    return await isginf_ldap_search(
+        f"ou=users,ou={subou},ou={ou},ou=inf,ou=auth,o=ethz,c=ch"
+    )
