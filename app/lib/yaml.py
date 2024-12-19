@@ -53,8 +53,13 @@ def dump(data: dict | YAMLObject | None) -> str:
 def has_structural_changes(yaml_old: str, yaml_new: str) -> bool:
     old = load(yaml_old)
     new = load(yaml_new)
+
+    # ruamel cannot handle cases where one is None
     if old is None:
         return False
+    if new is None:
+        return True
+
     old.update(new)
     return dump(old) != dump(new)
 

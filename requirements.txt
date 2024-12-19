@@ -18,13 +18,13 @@ arrow==1.3.0
     # via isoduration
 async-lru==2.0.4
     # via -r /r.in
-attrs==24.2.0
+attrs==24.3.0
     # via
     #   jsonschema
     #   referencing
 authlib==1.3.2
     # via -r /r.in
-certifi==2024.8.30
+certifi==2024.12.14
     # via
     #   httpcore
     #   httpx
@@ -47,10 +47,8 @@ email-validator==2.2.0
     #   fastapi
 fastapi[standard]==0.115.6
     # via -r /r.in
-fastapi-cli[standard]==0.0.6
+fastapi-cli[standard]==0.0.7
     # via fastapi
-filelock==3.16.1
-    # via -r /r.in
 fqdn==1.5.1
     # via jsonschema
 h11==0.14.0
@@ -112,14 +110,14 @@ pyasn1-modules==0.4.1
     # via python-ldap
 pycparser==2.22
     # via cffi
-pydantic==2.10.3
+pydantic==2.10.4
     # via
     #   -r /r.in
     #   fastapi
     #   pydantic-settings
-pydantic-core==2.27.1
+pydantic-core==2.27.2
     # via pydantic
-pydantic-settings==2.6.1
+pydantic-settings==2.7.0
     # via -r /r.in
 pygments==2.18.0
     # via rich
@@ -133,7 +131,7 @@ python-jose==3.3.0
     # via -r /r.in
 python-ldap==3.4.4
     # via -r /r.in
-python-multipart==0.0.19
+python-multipart==0.0.20
     # via
     #   -r /r.in
     #   fastapi
@@ -190,7 +188,7 @@ typing-extensions==4.12.2
     #   typer
 uri-template==1.3.0
     # via jsonschema
-uvicorn[standard]==0.32.1
+uvicorn[standard]==0.34.0
     # via
     #   fastapi
     #   fastapi-cli

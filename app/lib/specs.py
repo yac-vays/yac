@@ -3,12 +3,13 @@ Raises: [app.model.err.SpecsError]
 """
 
 import logging
-from functools import lru_cache
+import re
 
 from pydantic import ValidationError
 from anyio import Path, open_file
 
 from app import consts
+from app.version import VERSION
 from app.lib import j2
 from app.lib import props
 from app.lib import yaml
@@ -21,10 +22,8 @@ from app.model.inp import OperationRequest
 
 logger = logging.getLogger(__name__)
 
+
 # TODO add (async) way to cache specs
-# TODO check major version of specs (must match!)
-
-
 async def read(op: OperationRequest, rpo: Repo) -> Specs:
     if in_repo():
         s = await read_from_repo(op, rpo)
@@ -55,7 +54,6 @@ async def read_from_file(op: OperationRequest) -> Specs:
     return __parse(await __read_file(), op)
 
 
-@lru_cache(maxsize=1)
 async def __read_file():
     try:
         async with await open_file(
@@ -100,6 +98,15 @@ def __parse(specs: str, op: OperationRequest) -> Specs:
         raise SpecsError(f"In types at {error.loc}: {error}") from error
 
     try:
-        return Specs.model_validate(data)
+        s = Specs.model_validate(data)
     except ValidationError as error:
         raise SpecsError(str(error)) from error
+
+    if s.version is None or not re.match(
+        rf"^v{s.version}\.[0-9]+(rc[0-9]+)?$", VERSION
+    ):
+        raise SpecsError(
+            f"In version: {s.version} is not compatibale with YAC {VERSION}"
+        )
+
+    return s

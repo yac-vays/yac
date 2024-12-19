@@ -44,6 +44,7 @@ class Schema(BaseModel):
 
 
 class Specs(BaseModel):
+    version: int | None = None
     request: Request = Request()
     types: list[Type]
     type: Type | None = None

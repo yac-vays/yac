@@ -4,7 +4,6 @@ async-lru
 Authlib
 email-validator
 fastapi[standard]
-filelock
 httptools # to optimize uvicorn
 httpx
 itsdangerous # required by Authlib
