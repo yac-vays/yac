@@ -42,7 +42,7 @@ async def get_types(
         request=request,
         user=user,
         operation="read",
-        type_name="does-not-exist",
+        type="does-not-exist",
         name=None,
         actions=[],
         entity=None,
