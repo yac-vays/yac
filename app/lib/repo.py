@@ -102,7 +102,7 @@ async def gen_name(
         raise RepoClientError("Type is not defined")
     try:
         return await j2.render_str(
-            f"{{{{ {s.type.name_generator} }}}}", namegen_props, allow_nonstr=False
+            s.type.name_generator, namegen_props, allow_nonstr=False
         )
     except j2.J2Error as error:
         raise RepoSpecsError(f"In types name_generator: {error}") from error

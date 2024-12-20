@@ -39,8 +39,8 @@ are too different, better run a second instance.
             query: # mandatory, with `name` and any var as format-string
             message: '' # jinja2 string with `log` as additional var containing
                         # all data from the elastic server for each entry
-            time: 'log["@timestamp"]' # jinja2 string with `log` var
-            progress: 0 # jinja2 int with `log` var
+            time: "{{ log['@timestamp'] }}" # string with `log` var
+            progress: 0 # int with `log` var
             problem: false # jinja2 bool with `log` var
 
             # for file:
@@ -103,15 +103,15 @@ are too different, better run a second instance.
             plugin: elastic
             details:
               url: https://user:{{ env.elastic_pass }}@elastic.example.com:9200/camera-trap
-              query: 'any where animal.name == "{name}"'
-              message: '"![image](%s)" | format(animal.foto_url)'
-              progress: 'animal.count * 100 / animal.total'
+              query: 'any where animal.name == "{{ name }}"'
+              message: '![image]({{ animal.foto_url }})'
+              progress: '{{ animal.count * 100 / animal.total }}'
           - name: camera-status
             title: Camera Status
             problem: true
             plugin: file
             details:
-              path: "/logs/camera/{name}.log"
+              path: "/logs/camera/{{ name }}.log"
               line_format: "[{time}] {message}"
               time: "log.time"
               message: "log.message"

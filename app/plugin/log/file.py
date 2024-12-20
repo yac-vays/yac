@@ -7,8 +7,8 @@ last 10 lines.
 Details:
 
   path:        Absolute path to the log file
-               type: format-string (with all props available)
-               default: null -> required!
+               type: string
+               default: "" -> required!
   required:    Do we expect the file to always exist
                type: bool
                default: false
@@ -16,25 +16,25 @@ Details:
                type: string
                default: utf-8
   line_format: The format of each line
-               type: format-string (with defined vars will be added to props in "log")
-               default: null -> required!
-               example: '[{time}] {message}'
+               type: regex-string (groups will be available later)
+               default: "^(.*)$" -> required!
+               example: "^[([^]]*)] (.*)$" # for [timestamp] message
   time:        Timestamp of the log entry
-               type: jinja2-string (with all props + the line_format vars in "log")
-               default: ''
+               type: string (with all j2 props + the regex groups in var "log")
+               default: ""
   message:     Message of the log entry
-               type: jinja2-string (with all props + the line_format vars in "log")
-               default: ''
+               type: string (with all j2 props + the regex groups in var "log")
+               default: "{{ log[1] }}"
   problem:     Does the log entry indicate a problem
-               type: jinja2-bool (with all props + the line_format vars in "log")
-               default: 'false'
+               type: bool (with all j2 props + the regex groups in var "log")
+               default: false
   progress:    Progress indicated by the log entry
-               type: jinja2-int (with all props + the line_format vars in "log")
-               default: '0'
+               type: int (with all j2 props + the regex groups in var "log")
+               default: 0
 """
 
+import re
 import logging
-from parse import parse
 from anyio import Path, open_file
 
 from app.lib import j2
@@ -57,9 +57,14 @@ class FileLog(ILog):
         props: dict,
     ) -> list[out.Log]:
         try:
-            fn = details["path"].format(**props)
-        except (KeyError, IndexError, ValueError, AttributeError) as error:
-            raise LogSpecsError(f"In file log plugin details.path: {error}") from error
+            d = await j2.render(
+                details, props, skip=["time", "message", "problem", "progress"]
+            )
+            assert isinstance(d, dict)
+        except (AssertionError, j2.J2Error) as error:
+            raise LogSpecsError(f'In details for log plugin "file": {error}') from error
+
+        fn = d.get("path", "")
 
         try:
             async with await open_file(fn, mode="rb") as fh:
@@ -72,69 +77,63 @@ class FileLog(ILog):
                 else:
                     lines = (await fh.readlines())[-10:]
         except OSError as error:
-            if details.get("required", False):
+            if d.get("required", False):
                 raise LogError(f"Require log file {fn} not found/readable!") from error
             # Silently return to avoid non-sense errors in log if files are absent by design
             return []
 
-        encoding = details.get("encoding", "utf-8")
+        enc = d.get("encoding", "utf-8")
+        try:
+            pattern = re.compile(d.get("line_format", r"^(.*)$"))
+        except Exception as error:
+            raise LogSpecsError(
+                f'In details.line_format for log plugin "file": {error}'
+            )
+
         result = []
         for l in lines:
-            try:
-                line = (
-                    parse(
-                        details["line_format"], l.decode(encoding).rstrip("\r\n")
-                    ).named  # type: ignore
-                    or {}
-                )
-            except (KeyError, IndexError, ValueError, AttributeError) as error:
-                raise LogSpecsError(
-                    f"In file log plugin details.line_format: {error}"
-                ) from error
+            line = l.decode(enc).rstrip("\r\n")
+            match = pattern.search(line)
+            if not match:
+                continue
 
             log_props = props.copy()
-            log_props.update({"log": line})
+            log_props.update({"log": match.groups()})
 
-            try:
-                entry = out.Log(
-                    name=facility,
-                    time=await j2.render_print(details.get("time", '""'), log_props),
-                    message=await j2.render_print(
-                        details.get("message", '""'), log_props
-                    ),
-                )
-            except j2.J2Error as error:
-                raise LogSpecsError(
-                    f"In file log plugin details.time/message: {error}"
-                ) from error
+            time = await self.__render(d, "time", str, "", log_props)
+            message = await self.__render(d, "message", str, "{{ log[1] }}", log_props)
+
+            entry = out.Log(
+                name=facility,
+                time=time,
+                message=message,
+            )
 
             if problem:
-                try:
-                    entry.problem = await j2.render_test(
-                        details.get("problem", "false"), log_props
-                    )
-                except j2.J2Error as error:
-                    raise LogSpecsError(
-                        f"In file log plugin details.problem: {error}"
-                    ) from error
+                entry.problem = await self.__render(
+                    d, "problem", bool, False, log_props
+                )
 
             if progress:
-                try:
-                    percent = int(
-                        await j2.render_print(details.get("progress", "0"), log_props)
-                    )
-                except j2.J2Error as error:
-                    raise LogSpecsError(
-                        f"In file log plugin details.progress: {error}"
-                    ) from error
+                prog = await self.__render(d, "progress", (int, float), 0, log_props)
 
-                if 0 <= percent <= 100:
-                    entry.progress = percent
+                if 0 <= prog <= 100:
+                    entry.progress = int(prog)
                 else:
-                    entry.progress = 100 if 100 < percent else 0
+                    entry.progress = 100 if 100 < prog else 0
 
             result.append(entry)
 
+        return result
+
+    async def __render(self, data: dict, key: str, typ, default, props: dict):
+        try:
+            result = await j2.render(data.get(key, default), props)
+            assert isinstance(result, typ)
+        except (AssertionError, j2.J2Error) as error:
+            raise LogSpecsError(
+                f'In details.{key} for log plugin "file": {error}'
+            ) from error
         return result
 
 

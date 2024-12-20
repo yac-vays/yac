@@ -15,11 +15,11 @@ class J2Error(Exception):
     loc = "#"
 
 
-async def render(o, props: dict, *, strict: bool = True):
+async def render(o, props: dict, *, skip: list[str] = [], strict: bool = True):
     if isinstance(o, dict):
-        return await __render_dict(o, props, strict=strict)
+        return await __render_dict(o, props, skip=skip, strict=strict)
     if isinstance(o, list):
-        return await __render_list(o, props, strict=strict)
+        return await __render_list(o, props, skip=skip, strict=strict)
     if isinstance(o, str):
         return await render_str(o, props, strict=strict)
     return o
@@ -68,14 +68,16 @@ async def render_str(s, props, *, allow_nonstr: bool = True, strict: bool = True
         return result
 
 
-async def __render_dict(d, props, *, strict: bool = True):
+async def __render_dict(d, props, *, skip: list[str], strict: bool = True):
     r = {}
     for k, v in d.items():
         try:
-            if isinstance(v, dict):
-                r.update({k: await __render_dict(v, props, strict=strict)})
+            if k in skip:
+                r.update({k: v})
+            elif isinstance(v, dict):
+                r.update({k: await __render_dict(v, props, skip=skip, strict=strict)})
             elif isinstance(v, list):
-                r.update({k: await __render_list(v, props, strict=strict)})
+                r.update({k: await __render_list(v, props, skip=skip, strict=strict)})
             elif isinstance(v, str):
                 r.update({k: await render_str(v, props, strict=strict)})
             else:
@@ -86,14 +88,14 @@ async def __render_dict(d, props, *, strict: bool = True):
     return r
 
 
-async def __render_list(l, props, *, strict: bool = True):
+async def __render_list(l, props, *, skip: list[str], strict: bool = True):
     r = []
     for v in l:
         try:
             if isinstance(v, dict):
-                r.append(await __render_dict(v, props, strict=strict))
+                r.append(await __render_dict(v, props, skip=skip, strict=strict))
             elif isinstance(v, list):
-                r.append(await __render_list(v, props, strict=strict))
+                r.append(await __render_list(v, props, skip=skip, strict=strict))
             elif isinstance(v, str):
                 r.append(await render_str(v, props, strict=strict))
             else:

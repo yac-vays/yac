@@ -52,6 +52,7 @@ def get_action(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
         "new": {
             "name": None if op.entity is None else op.entity.name,
         },
+        "name": op.entity.name if op.entity and op.entity.name else op.name,
     }
 
 
@@ -62,6 +63,7 @@ def get_log(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
         "old": {
             "name": op.name,
         },
+        "name": op.name,
     }
 
 
@@ -82,6 +84,7 @@ def get_roles(
         "new": {
             "name": None if op.entity is None else op.entity.name,
         },
+        "name": op.entity.name if op.entity and op.entity.name else op.name,
     }
 
 
@@ -125,4 +128,5 @@ def get_schema(
             "name": None if op.entity is None else op.entity.name,
             "data": new_data or {},
         },
+        "name": op.entity.name if op.entity and op.entity.name else op.name,
     }

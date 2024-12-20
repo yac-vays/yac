@@ -7,6 +7,7 @@ import re
 
 from pydantic import ValidationError
 from anyio import open_file
+from async_lru import alru_cache
 
 from app import consts
 from app.version import VERSION
@@ -23,7 +24,7 @@ from app.model.inp import OperationRequest
 logger = logging.getLogger(__name__)
 
 
-# TODO add (async) way to cache specs
+# TODO add (async) way to cache specs -> requires redesign of op
 async def read(op: OperationRequest, rpo: IRepo) -> Specs:
     if in_repo():
         s = await read_from_repo(op, rpo)
@@ -84,9 +85,10 @@ async def __parse(specs: str, op: OperationRequest) -> Specs:
         raise SpecsError(f"In request: {error}") from error
 
     try:
-        # TODO skip rendering log and action details to allow handling within the plugins
         data["types"] = await j2.render(
-            data.get("types", []), props.get_types(op, request)
+            data.get("types", []),
+            props.get_types(op, request),
+            skip=["name_generator", "details"],
         )
         data["type"] = next(
             (

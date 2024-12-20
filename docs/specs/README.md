@@ -51,24 +51,26 @@ of all variables and their scope:
 
 TODO clairify where the variables are available (plugins!!)
 
-| Variable\\Section | `request` | `types` | `types[].name_generator`  | `types[].actions[].details` | `types[].logs[].details`  | `roles` | `sets`  | `schema`  |
-|:------------------|:---------:|:-------:|:-------------------------:|:---------------------------:|:-------------------------:|:-------:|:-------:|:---------:|
-| `env`             |     X     |    X    |             X             |                             |                           |    X    |    X    |     X     |
-| `request.ip`      |           |    X    |             X             |              X              |             X             |    X    |    X    |     X     |
-| `request.headers` |           |    X    |             X             |              X              |             X             |    X    |    X    |     X     |
-| `user.name`       |           |    X    |             X             |              X              |             X             |    X    |    X    |     X     |
-| `user.email`      |           |    X    |             X             |              X              |             X             |    X    |    X    |     X     |
-| `user.full_name`  |           |    X    |             X             |              X              |             X             |    X    |    X    |     X     |
-| `user.token`      |           |    X    |             X             |              X              |             X             |    X    |    X    |     X     |
-| `operation`       |           |         |             X             |              X              |                           |    X    |    X    |     X     |
-| `actions`         |           |         |             X             |              X              |                           |    X    |    X    |     X     |
-| `type`            |           |         |                           |                             |                           |    X    |    X    |     X     |
-| `old.name`        |           |         |                           |              X              |             X             |    X    |    X    |     X     |
-| `old.data`        |           |         |                           |                             |                           |    X    |    X    |     X     |
-| `old.perms`       |           |         |                           |                             |                           |         |         |     X     |
-| `old.list`        |           |         |             X             |                             |                           |         |         |           |
-| `new.name`        |           |         |                           |              X              |                           |    X    |    X    |     X     |
-| `new.data`        |           |         |             X             |                             |                           |         |         |     X     |
+| Variable\\Section | `request` | `types` | `types[].details` | `types[].name_generator`  | `types[].actions[].details` | `types[].logs[].details`  | `roles` | `sets`  | `schema`  |
+|:------------------|:---------:|:-------:|:-----------------:|:-------------------------:|:---------------------------:|:-------------------------:|:-------:|:-------:|:---------:|
+| `env`             |     X     |    X    |                   |             X             |                             |                           |    X    |    X    |     X     |
+| `request.ip`      |           |    X    |                   |             X             |              X              |             X             |    X    |    X    |     X     |
+| `request.headers` |           |    X    |                   |             X             |              X              |             X             |    X    |    X    |     X     |
+| `user.name`       |           |    X    |                   |             X             |              X              |             X             |    X    |    X    |     X     |
+| `user.email`      |           |    X    |                   |             X             |              X              |             X             |    X    |    X    |     X     |
+| `user.full_name`  |           |    X    |                   |             X             |              X              |             X             |    X    |    X    |     X     |
+| `user.token`      |           |    X    |                   |             X             |              X              |             X             |    X    |    X    |     X     |
+| `operation`       |           |         |                   |             X             |              X              |                           |    X    |    X    |     X     |
+| `actions`         |           |         |                   |             X             |              X              |                           |    X    |    X    |     X     |
+| `type`            |           |         |                   |                           |                             |                           |    X    |    X    |     X     |
+| `old.name`        |           |         |                   |                           |              X              |             X             |    X    |    X    |     X     |
+| `old.data`        |           |         |                   |                           |                             |                           |    X    |    X    |     X     |
+| `old.perms`       |           |         |                   |                           |                             |                           |         |         |     X     |
+| `old.list`        |           |         |                   |             X             |                             |                           |         |         |           |
+| `new.name`        |           |         |                   |                           |              X              |                           |    X    |    X    |     X     |
+| `new.data`        |           |         |                   |             X             |                             |                           |         |         |     X     |
+| `name`            |           |         |         X         |                           |              X              |             X             |    X    |    X    |     X     |
+| *Plugin specific* |           |         |         X         |                           |              X              |             X             |         |         |           |
 
 #### Variable `env`
 
@@ -100,6 +102,14 @@ to create/change that entity. So `new.name` may be a non-existing entity and
 
 (`new.data` is acutally what will be validated with the schema after generating
 the schema.)
+
+### Variable `name`
+
+This is the same as `old.name` or `new.name` depending on the context. This
+should usually be a good default to use but note the following special cases:
+
+  - If an entity is being renamed, it contains the new name!
+  - If an entity is being copied or linked, it contains the new name!
 
 #### Variable `user`
 

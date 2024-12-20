@@ -22,7 +22,6 @@ COPY ./app /code/app
 
 FROM build AS test
 
-# TODO enable pylint and enforce by removing --exit-zero
 RUN pip install --no-cache-dir --upgrade --compile pylint
 RUN pylint --rcfile /code/app/.pylintrc --exit-zero /code/app /code/app/plugin/*/*.py
 COPY ./tests /code/tests

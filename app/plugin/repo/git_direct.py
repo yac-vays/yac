@@ -6,6 +6,7 @@ mount a tmpfs at `/repo`, so all the data is always in memory.
 
 Details:
 
+  TODO switch to j2 syntax (here in code, in all specs files and in docs)
   file: The path for YAML files of this entity type.
         type: format-string (with {name} as entity name)
         default: null -> required!

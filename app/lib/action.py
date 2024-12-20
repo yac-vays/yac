@@ -30,6 +30,7 @@ async def run(
             continue
 
         action_plugin = plugin.get_module("action", action.plugin)
+
         try:
             await action_plugin.action.run(details=action.details, props=action_props)
         except ActionClientError as error:

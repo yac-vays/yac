@@ -2,13 +2,13 @@
 Retreive logs from an Elastic Search server using an EQL query.
 
 Details:
-              
+
   url:        EQL search base URL
-              type: format-string (with all props available)
-              default: null -> required!
+              type: string
+              default: "" -> required!
   query:      EQL search query
-              type: format-string (with all props available)
-              default: null -> required!
+              type: string
+              default: "" -> required!
   ssl_verify: Verify the HTTPS-Certificate
               type: bool
               default: true
@@ -16,17 +16,17 @@ Details:
               type: int
               default: 5
   time:       Timestamp of the log entry
-              type: jinja2-string (with all props + the query result as var "log")
-              default: 'log["@timestamp"]'
+              type: string (with all j2 props + the query result as var "log")
+              default: "{{ log['@timestamp'] }}"
   message:    Message of the log entry
-              type: jinja2-string (with all props + the query result as var "log")
-              default: ''
+              type: string (with all j2 props + the query result as var "log")
+              default: ""
   problem:    Does the log entry indicate a problem
-              type: jinja2-bool (with all props + the query result as var "log")
-              default: 'false'
+              type: bool (with all j2 props + the query result as var "log")
+              default: false
   progress:   Progress indicated by the log entry
-              type: jinja2-int (with all props + the query result as var "log")
-              default: '0'
+              type: int (with all j2 props + the query result as var "log")
+              default: 0
 """
 
 import httpx
@@ -49,15 +49,14 @@ class ElasticLog(ILog):
         props: dict,
     ) -> list[out.Log]:
         try:
-            url = details["url"].format(**props)
-            query = details["query"].format(**props)
-        except (KeyError, IndexError, ValueError, AttributeError) as error:
+            d = await j2.render(
+                details, props, skip=["time", "message", "problem", "progress"]
+            )
+            assert isinstance(d, dict)
+        except (AssertionError, j2.J2Error) as error:
             raise LogSpecsError(
-                f"In elastic log plugin details.url/query: {error}"
+                f'In details for log plugin "elastic": {error}'
             ) from error
-
-        ssl = details.get("ssl_verify", True)
-        timeout = details.get("timeout", 5)
 
         try:
             async with httpx.AsyncClient(
@@ -65,13 +64,13 @@ class ElasticLog(ILog):
                     "Accept": "application/json",
                     "Content-Type": "application/json",
                 },
-                verify=ssl,
-                timeout=timeout,
+                verify=d.get("ssl_verify", True),
+                timeout=d.get("timeout", 5),
             ) as client:
                 logs = await client.request(
                     method="GET",
-                    url=f"{url}/_eql/search",
-                    json={"query": query},
+                    url=f"{d.get('url', '')}/_eql/search",
+                    json={"query": d.get("query", "")},
                 )
             logs.raise_for_status()
         except httpx.HTTPError as error:
@@ -82,48 +81,41 @@ class ElasticLog(ILog):
             log_props = props.copy()
             log_props.update({"log": l.get("_source", {})})
 
-            try:
-                entry = out.Log(
-                    name=facility,
-                    time=await j2.render_print(
-                        details.get("time", 'log["@timestamp"]'), log_props
-                    ),
-                    message=await j2.render_print(
-                        details.get("message", '""'), log_props
-                    ),
-                )
-            except j2.J2Error as error:
-                raise LogSpecsError(
-                    f"In elastic log plugin details.time/message: {error}"
-                ) from error
+            time = await self.__render(
+                d, "time", str, "{{ log['@timestamp'] }}", log_props
+            )
+            message = await self.__render(d, "message", str, "", log_props)
+
+            entry = out.Log(
+                name=facility,
+                time=time,
+                message=message,
+            )
 
             if problem:
-                try:
-                    entry.problem = await j2.render_test(
-                        details.get("problem", "false"), log_props
-                    )
-                except j2.J2Error as error:
-                    raise LogSpecsError(
-                        f"In elastic log plugin details.problem: {error}"
-                    ) from error
+                entry.problem = await self.__render(
+                    d, "problem", bool, False, log_props
+                )
 
             if progress:
-                try:
-                    percent = int(
-                        await j2.render_print(details.get("progress", "0"), log_props)
-                    )
-                except j2.J2Error as error:
-                    raise LogSpecsError(
-                        f"In elastic log plugin details.progress: {error}"
-                    ) from error
-
-                if 0 <= percent <= 100:
-                    entry.progress = percent
+                prog = await self.__render(d, "progress", (int, float), 0, log_props)
+                if 0 <= prog <= 100:
+                    entry.progress = int(prog)
                 else:
-                    entry.progress = 100 if 100 < percent else 0
+                    entry.progress = 100 if 100 < prog else 0
 
             result.append(entry)
 
+        return result
+
+    async def __render(self, data: dict, key: str, typ, default, props: dict):
+        try:
+            result = await j2.render(data.get(key, default), props)
+            assert isinstance(result, typ)
+        except (AssertionError, j2.J2Error) as error:
+            raise LogSpecsError(
+                f'In details.{key} for log plugin "elastic": {error}'
+            ) from error
         return result
 
 

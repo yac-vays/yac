@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 # Startup / Shutdown
 #
 
+# TODO update all yac specs to match the new j2-everywhere syntax (logs, actions and maybe repo)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
