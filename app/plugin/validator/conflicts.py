@@ -9,8 +9,6 @@ from app.model.int import Entity
 from app.model.spc import Specs
 from app.model.plg import IValidator
 
-# pylint: disable=unused-argument
-
 
 class ConflictTester(IValidator):
     def order(self) -> tuple[bool, int]:
@@ -22,6 +20,7 @@ class ConflictTester(IValidator):
         """
         Test the operation for conflicts in existance of the entities/links.
         """
+        del spec
 
         if op.operation == "create":
             if new.exists:

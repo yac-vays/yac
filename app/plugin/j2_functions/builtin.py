@@ -1,7 +1,7 @@
 import datetime
 import re
 import socket
-import uuid  # type: ignore
+import uuid as module_uuid
 
 import ipaddress
 
@@ -21,4 +21,4 @@ async def now():
 
 
 async def uuid() -> str:
-    return str(uuid.uuid4())  # type: ignore
+    return str(module_uuid.uuid4())

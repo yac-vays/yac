@@ -15,9 +15,7 @@ class J2Error(Exception):
     loc = "#"
 
 
-async def render(
-    o, props: dict = {}, *, strict: bool = True
-):  # pylint: disable=dangerous-default-value
+async def render(o, props: dict, *, strict: bool = True):
     if isinstance(o, dict):
         return await __render_dict(o, props, strict=strict)
     if isinstance(o, list):
@@ -27,15 +25,11 @@ async def render(
     return o
 
 
-async def render_test(
-    test_str: str, props: dict = {}
-) -> bool:  # pylint: disable=dangerous-default-value
+async def render_test(test_str: str, props: dict) -> bool:
     return bool(await render_str(f"{{{{ {test_str} }}}}", props, allow_nonstr=True))
 
 
-async def render_print(
-    print_str: str, props: dict = {}, *, strict: bool = True
-) -> str:  # pylint: disable=dangerous-default-value
+async def render_print(print_str: str, props: dict, *, strict: bool = True) -> str:
     return str(
         await render_str(
             f"{{{{ {print_str} }}}}", props, allow_nonstr=False, strict=strict

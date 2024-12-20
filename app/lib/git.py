@@ -22,7 +22,7 @@ class GitTimeoutError(GitError):
 
 class Repo:
 
-    def __init__(self, path: str, env: dict[str, str] = {}) -> None:
+    def __init__(self, path: str, env: dict[str, str]) -> None:
         self.loaded = False
         self.path = path
         self.env = env
@@ -61,7 +61,7 @@ class Repo:
         try:
             await Path(self.path).mkdir(parents=True, exist_ok=True)
         except OSError as error:
-            raise GitError(f"Unable to create {self.path}: {error}")
+            raise GitError(f"Unable to create {self.path}: {error}") from error
         await self.__run(
             "clone",
             "--depth",
@@ -96,7 +96,7 @@ class Repo:
         return True
 
     async def reset(self, branch: str, *, hard: bool = True) -> None:
-        args = ["reset"]
+        args = ["reset", branch]
         if hard:
             args.append("--hard")
         await self.__run(*args, timeout=3)

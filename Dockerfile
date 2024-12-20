@@ -42,4 +42,4 @@ ARG version=v0
 RUN echo 'VERSION = "'${version#v}'"' > /code/app/version.py
 
 EXPOSE 80
-ENTRYPOINT ["uvicorn", "--log-config", "app/uvicorn.yml", "--host", "0.0.0.0", "--port", "80", "app.main:app"]
+ENTRYPOINT ["uvicorn", "--log-config", "app/uvicorn.yml", "--host", "0.0.0.0", "--port", "80", "app.main:yac"]

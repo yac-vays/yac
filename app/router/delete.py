@@ -24,7 +24,7 @@ router = APIRouter()
     status_code=status.HTTP_204_NO_CONTENT,
     responses=http_responses(),
 )
-async def delete_entity(  # pylint: disable=too-many-arguments,dangerous-default-value
+async def delete_entity(
     request: Request,
     user: User,
     type_name: PathType,

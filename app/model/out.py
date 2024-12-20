@@ -79,13 +79,19 @@ class ListedEntity(Entity):
     link: Annotated[
         str | None,
         Field(
-            description="Contains the name of the entity where this one is linked to or null if it is not linked"
+            description=(
+                "Contains the name of the entity where this one is linked to or null if"
+                " it is not linked"
+            )
         ),
     ] = None
     options: Annotated[
         dict,
         Field(
-            description="Some options of this entity for the list preview (including the defaults for undefined options)"
+            description=(
+                "Some options of this entity for the list preview (including the"
+                " defaults for undefined options)"
+            )
         ),
     ] = {}
     perms: list[Permission | str] = ["see"]
@@ -104,7 +110,10 @@ class DetailedEntity(ListedEntity):
     data: Annotated[
         dict,
         Field(
-            description="All data that this entity has defined (including the defaults for undefined options)"
+            description=(
+                "All data that this entity has defined (including the defaults for"
+                " undefined options)"
+            )
         ),
     ] = {}
     yaml: Annotated[str | None, Field(description="The raw YAML data")] = None
@@ -157,7 +166,8 @@ class Schema(BaseModel):
     data: Annotated[
         dict,
         Field(
-            description="""The data used to build the schemas and validate against it. For the different types of operations, this has different sources.
+            description="""The data used to build the schemas and validate against it.
+For the different types of operations, this has different sources.
 
 - NewEntity: `entity.yaml`
 - CopyEntity: `{}`
@@ -174,28 +184,39 @@ class Schema(BaseModel):
     message: Annotated[
         str | None,
         Field(
-            description="The explanation why the validation failed (if `valid` is `false`)",
+            description=(
+                "The explanation why the validation failed (if `valid` is `false`)"
+            ),
             examples=["23 is not of type 'string'"],
         ),
     ] = None
     validator: Annotated[
         str,
         Field(
-            description="The validator component that caused the message (if `valid` is `false`)",
+            description=(
+                "The validator component that caused the message (if `valid` is"
+                " `false`)"
+            ),
             examples=["format", "additionalProperties"],
         ),
     ] = ""
     json_schema_loc: Annotated[
         str,
         Field(
-            description="Location in the json_schema where the validation failed (if `valid` is `false`)",
+            description=(
+                "Location in the json_schema where the validation failed (if `valid` is"
+                " `false`)"
+            ),
             examples=["#/properties/abc"],
         ),
     ] = ""
     data_loc: Annotated[
         str,
         Field(
-            description="Location in the data where the validation failed (if `valid` is `false`)",
+            description=(
+                "Location in the data where the validation failed (if `valid` is"
+                " `false`)"
+            ),
             examples=["#/properties/abc"],
         ),
     ] = ""
@@ -209,7 +230,10 @@ class Request(BaseModel):
     message: Annotated[
         str | None,
         Field(
-            description="The explanation why the validation of the request failed (if `valid` is `false`)",
+            description=(
+                "The explanation why the validation of the request failed (if `valid`"
+                " is `false`)"
+            ),
             examples=["Action 'blub' is not defined"],
         ),
     ] = None
@@ -231,7 +255,10 @@ class TypeOption(BaseModel):
     default: Annotated[
         Any | None,
         Field(
-            description="The default value to use in the list if the entity has not set this option"
+            description=(
+                "The default value to use in the list if the entity has not set this"
+                " option"
+            )
         ),
     ] = None
     aliases: Annotated[
@@ -283,7 +310,9 @@ class TypeAction(BaseModel):
     dangerous: Annotated[
         bool,
         Field(
-            description="Show confirmation dialogue in UI (with text from `description` field)"
+            description=(
+                "Show confirmation dialogue in UI (with text from `description` field)"
+            )
         ),
     ] = False
     icon: Annotated[
@@ -293,13 +322,21 @@ class TypeAction(BaseModel):
     perms: Annotated[
         list[Permission | str],
         Field(
-            description="The list of perms on the particular entity, at least one of which is required to run this action"
+            description=(
+                "The list of perms on the particular entity, at least one of which is"
+                " required to run this action"
+            )
         ),
     ] = ["act"]
     force: Annotated[
         bool,
         Field(
-            description="Run this action automatically when performing the hooked operation (otherwise it is optional; has no effect on the hook `arbitrary`; if `force` is `true`, actions perms are bypassed for all hooks except for `arbitrary`)"
+            description=(
+                "Run this action automatically when performing the hooked operation"
+                " (otherwise it is optional; has no effect on the hook `arbitrary`; if"
+                " `force` is `true`, actions perms are bypassed for all hooks except"
+                " for `arbitrary`)"
+            )
         ),
     ] = False
     hooks: list[TypeActionHook] = [TypeActionHook.ARBITRARY]
@@ -371,31 +408,46 @@ class Type(BaseModel):
     create: Annotated[
         bool,
         Field(
-            description="Allow creation of this type of entities (still requires the according *perms*)"
+            description=(
+                "Allow creation of this type of entities (still requires the according"
+                " *perms*)"
+            )
         ),
     ] = True
     change: Annotated[
         bool,
         Field(
-            description="Allow modifications of this type of entities (still requires the according *perms*)"
+            description=(
+                "Allow modifications of this type of entities (still requires the"
+                " according *perms*)"
+            )
         ),
     ] = True
     delete: Annotated[
         bool,
         Field(
-            description="Allow deletion of this type of entities (still requires the according *perms*)"
+            description=(
+                "Allow deletion of this type of entities (still requires the according"
+                " *perms*)"
+            )
         ),
     ] = True
     favorites: Annotated[
         list[TypeFavorite],
         Field(
-            description="A list of actions and operations to defined the more prominent buttons and their order in UI"
+            description=(
+                "A list of actions and operations to defined the more prominent buttons"
+                " and their order in UI"
+            )
         ),
     ] = []
     options: Annotated[
         list[TypeOption],
         Field(
-            description="A list of data values always attached when listing entities of this type"
+            description=(
+                "A list of data values always attached when listing entities of this"
+                " type"
+            )
         ),
     ] = []
     logs: list[TypeLog] = []

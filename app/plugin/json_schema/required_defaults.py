@@ -5,8 +5,6 @@ from app.model.plg import IJsonSchema
 
 logger = logging.getLogger(__name__)
 
-# pylint: disable=unused-argument
-
 
 class RequiredDefaults(IJsonSchema):
 
@@ -23,6 +21,7 @@ class RequiredDefaults(IJsonSchema):
         - Required booleans without default value get a default = false
         - Required consts without default value get a default = const value
         """
+        del props
         if json_schema.get("type", "") != "object":
             return json_schema, context
 
@@ -41,14 +40,16 @@ class RequiredDefaults(IJsonSchema):
                 if json_schema["properties"][key].get("type", None) == "boolean":
                     json_schema["properties"][key]["default"] = False
                     logger.debug(
-                        f"Added required {loc}/properties/{key}/default = false to schema"
+                        f"Added required {loc}/properties/{key}/default = false to"
+                        " schema"
                     )
                 elif "const" in json_schema["properties"][key]:
                     json_schema["properties"][key]["default"] = json_schema[
                         "properties"
                     ][key]["const"]
                     logger.debug(
-                        f"Added required {loc}/properties/{key}/default = const value to schema"
+                        f"Added required {loc}/properties/{key}/default = const value"
+                        " to schema"
                     )
 
         return json_schema, context

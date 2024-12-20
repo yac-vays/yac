@@ -1,7 +1,6 @@
 from app.lib import yaml
 from app.model.err import RequestError
 from app.model.err import RequestForbidden
-from app.model.err import ServerError
 from app.model.inp import CopyEntity
 from app.model.inp import LinkEntity
 from app.model.inp import OperationRequest

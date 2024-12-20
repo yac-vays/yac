@@ -1,5 +1,8 @@
 """
-Raises: [app.model.err.ActionError, app.model.err.ActionClientError, app.model.err.ActionSpecsError]
+Raises:
+  - app.model.err.ActionError
+  - app.model.err.ActionClientError
+  - app.model.err.ActionSpecsError
 """
 
 import logging
@@ -33,6 +36,8 @@ async def run(
             raise error
         except ActionError as error:
             raise ActionError(
-                f'Action {action.name} for {action_props.get("type", "(unknown type)")} '
-                f'"{action_props.get("old", {}).get("name", "(unknown name)")}" failed with: {error}'
+                f"Action {action.name} for"
+                f" {action_props.get('type', '(unknown type)')}"
+                f" \"{action_props.get('old', {}).get('name', '(unknown name)')}\""
+                f" failed with: {error}"
             ) from error

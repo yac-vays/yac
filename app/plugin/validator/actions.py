@@ -5,8 +5,6 @@ from app.model.int import Entity
 from app.model.spc import Specs
 from app.model.plg import IValidator
 
-# pylint: disable=unused-argument
-
 
 class ActionTester(IValidator):
     def order(self) -> tuple[bool, int]:
@@ -19,6 +17,7 @@ class ActionTester(IValidator):
         Test if the actions are valid for this operation and if the user has the
         permissions to execute them.
         """
+        del new
 
         for action in op.actions:
             action_spec = next(
@@ -43,8 +42,8 @@ class ActionTester(IValidator):
             if len(set(old.perms or []).intersection(set(perms_required))) <= 0:
                 if op.operation == "arbitrary" or not action_spec.force:
                     raise RequestForbidden(
-                        f"You need one of these permission to run this action(s): "
-                        f'{", ".join(perms_required)}'
+                        "You need one of these permission to run this action(s): "
+                        f"{', '.join(perms_required)}"
                     )
 
 

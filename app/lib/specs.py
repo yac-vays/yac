@@ -6,7 +6,7 @@ import logging
 import re
 
 from pydantic import ValidationError
-from anyio import Path, open_file
+from anyio import open_file
 
 from app import consts
 from app.version import VERSION

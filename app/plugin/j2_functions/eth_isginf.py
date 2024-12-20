@@ -13,11 +13,11 @@ Environment variables:
                                  default: '' -> required!
 """
 
-import ldap
 import logging
 import os
 import re
 
+import ldap
 from async_lru import alru_cache
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,6 @@ async def isginf_ldap_search(
     scope: str = "subtree",
     cert_check: bool = False,
 ) -> list[str]:
-    # pylint: disable=no-member
     scopes = {
         "base": ldap.SCOPE_BASE,
         "onelevel": ldap.SCOPE_ONELEVEL,

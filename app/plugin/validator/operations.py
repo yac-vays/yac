@@ -8,8 +8,6 @@ from app.model.inp import UpdateEntity
 from app.model.spc import Specs
 from app.model.plg import IValidator
 
-# pylint: disable=unused-argument
-
 
 class OperationTester(IValidator):
     def order(self) -> tuple[bool, int]:
@@ -19,6 +17,7 @@ class OperationTester(IValidator):
         """
         Test for the correct entity formats and actions count.
         """
+        del spec
 
         if op.operation == "create":
             if not isinstance(op.entity, (NewEntity, CopyEntity, LinkEntity)):

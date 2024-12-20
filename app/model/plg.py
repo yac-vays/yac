@@ -48,7 +48,6 @@ class IJsonSchema(ISortable):
         walking down the schema tree = false). The integer indicates the order
         number (lower number run earlier).
         """
-        ...
 
     @abstractmethod
     async def process(
@@ -63,7 +62,6 @@ class IJsonSchema(ISortable):
         If the returned `schema` is `None`, the whole subschema will be removed
         from the parent schema.
         """
-        ...
 
 
 class IUiSchema(ISortable):
@@ -79,7 +77,6 @@ class IUiSchema(ISortable):
         If the returned `schema` is `None`, the whole subschema will be removed
         from the parent schema.
         """
-        ...
 
     @abstractmethod
     async def process(
@@ -90,7 +87,6 @@ class IUiSchema(ISortable):
         json_schema (only the current subschema we're working on) and the
         second one is the (full, updated) ui_schema.
         """
-        ...
 
 
 class IValidator(ISortable):
@@ -103,7 +99,6 @@ class IValidator(ISortable):
         number (lower number run earlier). All test_always functions always run
         before the test_nolist functions.
         """
-        ...
 
     async def test_always(self, op: OperationRequest, spec: Specs) -> None:
         """

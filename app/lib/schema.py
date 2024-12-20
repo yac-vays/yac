@@ -71,7 +71,6 @@ async def get(
             valid=True,
         )
     except jsonschema.ValidationError as error:
-        # TODO remove this line if line above works: except jsonschema.exceptions.ValidationError as error:
         return out.Schema(
             json_schema=json_schema,
             ui_schema=ui_schema,
@@ -104,7 +103,8 @@ async def handle_schema(
 
     for plug in plugin.get_sorted("json_schema", "processor", late=False):
         logger.debug(
-            f"Early json_schema plugin {plug.__class__.__name__} processing schema at {loc}"
+            f"Early json_schema plugin {plug.__class__.__name__} processing schema at"
+            f" {loc}"
         )
         json, cx = await plug.process(loc, json, cx, p)
         if isinstance(json, bool) or json is None:
@@ -112,7 +112,8 @@ async def handle_schema(
 
     for plug in plugin.get_sorted("ui_schema", "processor", late=False):
         logger.debug(
-            f"Early ui_schema plugin {plug.__class__.__name__} processing schema at {loc}"
+            f"Early ui_schema plugin {plug.__class__.__name__} processing schema at"
+            f" {loc}"
         )
         json, ui = await plug.process(loc, json, ui, p)
         if isinstance(json, bool) or json is None:
@@ -160,7 +161,8 @@ async def handle_schema(
 
     for plug in plugin.get_sorted("json_schema", "processor", late=True):
         logger.debug(
-            f"Late json_schema plugin {plug.__class__.__name__} processing schema at {loc}"
+            f"Late json_schema plugin {plug.__class__.__name__} processing schema at"
+            f" {loc}"
         )
         json, cx = await plug.process(loc, json, cx, p)
         if isinstance(json, bool) or json is None:
@@ -168,7 +170,8 @@ async def handle_schema(
 
     for plug in plugin.get_sorted("ui_schema", "processor", late=True):
         logger.debug(
-            f"Late ui_schema plugin {plug.__class__.__name__} processing schema at {loc}"
+            f"Late ui_schema plugin {plug.__class__.__name__} processing schema at"
+            f" {loc}"
         )
         json, ui = await plug.process(loc, json, ui, p)
         if isinstance(json, bool) or json is None:

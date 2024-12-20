@@ -28,7 +28,7 @@ router = APIRouter()
     status_code=status.HTTP_201_CREATED,
     responses=http_responses(),
 )
-async def add_entity(  # pylint: disable=too-many-arguments,dangerous-default-value
+async def add_entity(
     request: Request,
     user: User,
     type_name: PathType,

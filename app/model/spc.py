@@ -1,10 +1,8 @@
 from pydantic import BaseModel, Field
 from typing_extensions import Annotated
-from pydantic.config import Extra
+from pydantic.config import Extra  # pylint: disable=no-name-in-module
 
 from app.model import out
-
-# pylint: disable=too-few-public-methods
 
 
 class Request(BaseModel):

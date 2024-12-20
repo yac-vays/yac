@@ -5,7 +5,7 @@ Will only read the last kB if the file is bigger than 1kB. And only return the
 last 10 lines.
 
 Details:
-              
+
   path:        Absolute path to the log file
                type: format-string (with all props available)
                default: null -> required!
@@ -74,16 +74,17 @@ class FileLog(ILog):
         except OSError as error:
             if details.get("required", False):
                 raise LogError(f"Require log file {fn} not found/readable!") from error
-            else:
-                # Silently return to avoid non-sense errors in log if files are absent by design
-                return []
+            # Silently return to avoid non-sense errors in log if files are absent by design
+            return []
 
         encoding = details.get("encoding", "utf-8")
         result = []
         for l in lines:
             try:
                 line = (
-                    parse(details["line_format"], l.decode(encoding).rstrip("\r\n")).named  # type: ignore
+                    parse(
+                        details["line_format"], l.decode(encoding).rstrip("\r\n")
+                    ).named  # type: ignore
                     or {}
                 )
             except (KeyError, IndexError, ValueError, AttributeError) as error:

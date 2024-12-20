@@ -78,6 +78,7 @@ class GitRepo(IRepo):
     def __update(self, user: User | None, details: dict, dirty: bool, writing: bool):
         user_name = user.full_name if user is not None else "Unknown"
         user_email = user.email if user is not None else "<>"
+        self.fpath = details.get("file", "")
         self.dirty = dirty
         self.writing = writing
         self.repo = git.Repo(
@@ -86,7 +87,9 @@ class GitRepo(IRepo):
                 "EMAIL": user_email,
                 "GIT_AUTHOR_EMAIL": user_email,
                 "GIT_AUTHOR_NAME": f"{user_name} (via YAC)",
-                "GIT_SSH_COMMAND": f"ssh -o UserKnownHostsFile={KNOWN_HOSTS} -i {KEY_FILE}",
+                "GIT_SSH_COMMAND": (
+                    f"ssh -o UserKnownHostsFile={KNOWN_HOSTS} -i {KEY_FILE}"
+                ),
                 "LANG": "C",
             },
         )
@@ -225,7 +228,7 @@ class GitRepo(IRepo):
         common = path[:length]
         last_dir = common.rfind("/") + 1
         relative = path[last_dir:]
-        backpath = f"../" * relative.count("/")
+        backpath = "../" * relative.count("/")
         return f"{backpath}{relative}"
 
     async def __has_link(self, name: str) -> bool:

@@ -27,7 +27,7 @@ router = APIRouter()
     summary="Overwrite an existing entity",
     responses=http_responses(),
 )
-async def update_entity(  # pylint: disable=too-many-arguments,dangerous-default-value
+async def update_entity(
     request: Request,
     user: User,
     type_name: PathType,
@@ -82,7 +82,7 @@ async def update_entity(  # pylint: disable=too-many-arguments,dangerous-default
     summary="Change some data of an existing entity",
     responses=http_responses(),
 )
-async def change_entity(  # pylint: disable=too-many-arguments,dangerous-default-value
+async def change_entity(
     request: Request,
     user: User,
     type_name: PathType,

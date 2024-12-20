@@ -61,7 +61,7 @@ async def get_types(
     summary="List entities of a specific type",
     responses=http_responses(),
 )
-async def get_entities(  # pylint: disable=too-many-arguments
+async def get_entities(
     request: Request,
     user: User,
     type_name: PathType,

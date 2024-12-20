@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    del app
     async with repo.handler.reader(None, details={}):
         pass  # only initiate repo
     yield
@@ -44,7 +45,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 # API
 #
 
-app = FastAPI(
+yac = FastAPI(
     title=consts.TITLE,
     description=consts.DESCRIPTION,
     version=VERSION,
@@ -59,13 +60,13 @@ app = FastAPI(
     },
     swagger_ui_init_oauth={
         "scopes": "openid",
-        "clientId": consts.ENV.oidc_client_ids.split(",")[0],
+        "clientId": consts.ENV.oidc_client_ids.split(",", maxsplit=1)[0],
         "usePkceWithAuthorizationCodeGrant": True,
         "additionalQueryStringParams": {"nonce": 0},
     },
 )
 
-app.add_middleware(
+yac.add_middleware(
     CORSMiddleware,
     allow_origins=consts.ENV.cors_origins.split(","),
     allow_credentials=True,
@@ -73,15 +74,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(status.router, tags=["Status"])
-app.include_router(read.router, tags=["Entities"])
-app.include_router(create.router, tags=["Entities"])
-app.include_router(change.router, tags=["Entities"])
-app.include_router(delete.router, tags=["Entities"])
-app.include_router(arbitrary.router, tags=["Entities"])
-app.include_router(validate.router, tags=["Entities"])
+yac.include_router(status.router, tags=["Status"])
+yac.include_router(read.router, tags=["Entities"])
+yac.include_router(create.router, tags=["Entities"])
+yac.include_router(change.router, tags=["Entities"])
+yac.include_router(delete.router, tags=["Entities"])
+yac.include_router(arbitrary.router, tags=["Entities"])
+yac.include_router(validate.router, tags=["Entities"])
 
-app.add_exception_handler(YACError, error.handle_yac)  # type: ignore
-app.add_exception_handler(500, error.handle_all)
+yac.add_exception_handler(YACError, error.handle_yac)  # type: ignore
+yac.add_exception_handler(500, error.handle_all)
 
-app.openapi = hacks.get_openapi_schema_with_oidc_idtoken(app)
+yac.openapi = hacks.get_openapi_schema_with_oidc_idtoken(yac)

@@ -148,12 +148,12 @@ The following things are known to **not** work:
   - Adding/removing object properties conditionally
   - Changing default values conditionally
 
-### Keyword `not`
+### Keyword `not`
 
 YAC only supports the `not` keyword below the `if` keyword. Using `not` outside
 of that context may lead to strange behaviour.
 
-### Keyword `format`
+### Keyword `format`
 
 The following official formats are supported by YAC:
 

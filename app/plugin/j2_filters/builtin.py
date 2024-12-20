@@ -13,8 +13,8 @@ async def to_consts(lst: list[str]) -> list:
     return [{"const": l, "title": l} for l in lst]
 
 
-async def to_datetime(string, format="%Y-%m-%d %H:%M:%S"):
-    return datetime.datetime.strptime(string, format)
+async def to_datetime(string, fmt="%Y-%m-%d %H:%M:%S"):
+    return datetime.datetime.strptime(string, fmt)
 
 
 async def to_fqhn(ip: str) -> str:
@@ -51,7 +51,7 @@ async def next_int_by_regex(
         if r:
             try:
                 n.append(int(r.group(1)))
-            except:
+            except:  # pylint: disable=bare-except
                 pass  # accept matches that have no group 1 or cannot be casted to int
 
     result = max(n) + 1
