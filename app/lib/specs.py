@@ -7,7 +7,8 @@ import re
 
 from pydantic import ValidationError
 from anyio import open_file
-from async_lru import alru_cache
+
+# from async_lru import alru_cache
 
 from app import consts
 from app.version import VERSION

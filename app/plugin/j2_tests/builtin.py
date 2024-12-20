@@ -7,7 +7,7 @@ from async_lru import alru_cache
 
 
 @alru_cache(maxsize=1000, ttl=300)
-async def host_in_ip4ranges(hostname: str | None, ipranges: list[str]) -> bool:
+async def host_in_ip4ranges(hostname: str | None, ipranges: tuple[str]) -> bool:
     if hostname is None:
         return False
     # TODO switch to non-blocking https://github.com/aio-libs/aiodns

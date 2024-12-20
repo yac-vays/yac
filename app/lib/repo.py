@@ -67,9 +67,7 @@ async def get_entities(
                 f"Failed to parse YAML of {op.type_name} {old.name}: {error}"
             ) from error
 
-    old.perms = await perms.get_from_roles(op, specs, old.data or {}, new_name=False)
-    # we only use old data to render the perms!
-    new.perms = await perms.get_from_roles(op, specs, old.data or {}, new_name=True)
+    old.perms = await perms.get_from_roles(op, specs, old.data or {})
 
     return old, new
 

@@ -37,7 +37,7 @@ FROM build AS production
 # Enforce test run
 COPY --from=test /tmp/tested /dev/null
 
-ARG version=v0
+ARG version=v0.0
 RUN echo 'VERSION = "'${version#v}'"' > /code/app/version.py
 
 EXPOSE 80
