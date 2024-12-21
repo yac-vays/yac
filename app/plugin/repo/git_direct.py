@@ -6,11 +6,10 @@ mount a tmpfs at `/repo`, so all the data is always in memory.
 
 Details:
 
-  TODO switch to j2 syntax (here in code, in all specs files and in docs)
   file: The path for YAML files of this entity type.
-        type: format-string (with {name} as entity name)
-        default: null -> required!
-        example: path/to/{name}/yac_managed.yml
+        type: string (with "name" as j2 variable)
+        default: "" -> required!
+        example: path/to/{{ name }}/yac_data.yml
 
 Environment variables:
 
@@ -43,6 +42,7 @@ from parse import parse
 
 from app import consts
 from app.lib import git
+from app.lib import j2
 from app.model.err import RepoClientError
 from app.model.err import RepoConflict
 from app.model.err import RepoError
@@ -64,7 +64,7 @@ DIRTY_MAX = int(consts.ENV.repo.get("dirty_max_age", "0"))
 
 class GitRepo(IRepo):
     def __init__(self) -> None:
-        self.fpath: str = ""
+        self.file: str = ""
         self.dirty: bool = False
         self.writing: bool = False
         self.path: str = f"/repo/{getpid()}"
@@ -76,10 +76,12 @@ class GitRepo(IRepo):
         )
         self._writer_lock: asyncio.Lock = asyncio.Lock()
 
-    def __update(self, user: User | None, details: dict, dirty: bool, writing: bool):
+    async def __update(
+        self, user: User | None, details: dict, dirty: bool, writing: bool
+    ):
         user_name = user.full_name if user is not None else "Unknown"
         user_email = user.email if user is not None else "<>"
-        self.fpath = details.get("file", "")
+        await self.update_details(details)
         self.dirty = dirty
         self.writing = writing
         self.repo = git.Repo(
@@ -94,18 +96,12 @@ class GitRepo(IRepo):
                 "LANG": "C",
             },
         )
-        try:
-            self.fpath.format(name="*")
-        except (AttributeError, KeyError) as error:
-            raise RepoSpecsError(
-                "In type details: file does not contain {name}"
-            ) from error
 
     @asynccontextmanager
     async def reader(
         self, user: User | None, *, details: dict, dirty: bool = False
     ) -> AsyncGenerator[Self, None]:
-        self.__update(user, details, dirty, writing=False)
+        await self.__update(user, details, dirty, writing=False)
 
         logger.debug(f"Aquiring git reader lock for {self.repo.path}...")
         if not self.dirty or await self.__is_outdated():
@@ -138,7 +134,7 @@ class GitRepo(IRepo):
     async def writer(
         self, user: User | None, *, details: dict
     ) -> AsyncGenerator[Self, None]:
-        self.__update(user, details, dirty=False, writing=True)
+        await self.__update(user, details, dirty=False, writing=True)
 
         logger.debug(f"Aquiring git writer lock for {self.repo.path}...")
         async with self._writer_lock:
@@ -158,8 +154,12 @@ class GitRepo(IRepo):
                     self._reader_count = 0
                     self._no_readers.notify_all()
 
-    def update_details(self, details: dict) -> None:
-        self.fpath = details.get("file", "")
+    async def update_details(self, details: dict) -> None:
+        self.file = details.get("file", "")
+        try:
+            assert "*" in await j2.render_str(self.file, {"name": "*"})
+        except (AssertionError, j2.J2Error) as error:
+            raise RepoSpecsError(f"In type details.file: {error}") from error
 
     async def __is_outdated(self) -> bool:
         try:
@@ -233,7 +233,9 @@ class GitRepo(IRepo):
         return f"{backpath}{relative}"
 
     async def __has_link(self, name: str) -> bool:
-        file_name = "/".join([self.path, self.fpath.format(name=name)])
+        file_name = "/".join(
+            [self.path, await j2.render_str(self.file, {"name": name})]
+        )
         async for root, _, files in Path(dirname(file_name)).walk():
             for file in files:
                 file_path = Path(f"{root}/{file}")
@@ -262,11 +264,14 @@ class GitRepo(IRepo):
         return await self.repo.get_hash()
 
     async def list(self) -> list[str]:
-        glob = self.fpath.format(name="*")
+        glob = await j2.render_str(self.file, {"name": "*"})
         try:
             return sorted(
                 [
-                    parse(f"{self.path}/{self.fpath}", str(fn)).named["name"]  # type: ignore
+                    parse(
+                        f"{self.path}/{await j2.render_str(self.file, {'name': '{git_direct_internal_name}'})}",
+                        str(fn),
+                    ).named["git_direct_internal_name"]
                     async for fn in Path(self.path).glob(glob)
                 ]
             )
@@ -274,14 +279,14 @@ class GitRepo(IRepo):
             raise RepoError(f"Could not list files at {self.path}/{glob}") from error
 
     async def exists(self, name: str) -> bool:
-        file = "/".join([self.path, self.fpath.format(name=name)])
+        file = "/".join([self.path, await j2.render_str(self.file, {"name": name})])
         try:
             return await Path(file).exists()
         except OSError as error:
             raise RepoError(f"Could not read file {file}") from error
 
     async def is_link(self, name: str) -> bool:
-        file = "/".join([self.path, self.fpath.format(name=name)])
+        file = "/".join([self.path, await j2.render_str(self.file, {"name": name})])
         try:
             return await Path(file).is_symlink()
         except OSError as error:
@@ -292,7 +297,7 @@ class GitRepo(IRepo):
             raise RepoError(f"File {name} is not a link")
 
         base = str(await Path(self.path).resolve())
-        src = "/".join([base, self.fpath.format(name=name)])
+        src = "/".join([base, await j2.render_str(self.file, {"name": name})])
         dest = str(await Path(src).resolve())
 
         if not dest.startswith(base):
@@ -300,7 +305,10 @@ class GitRepo(IRepo):
 
         link = dest[(len(base) + 1) :]
         try:
-            return parse(self.fpath, link).named["name"]  # type: ignore
+            return parse(
+                await j2.render_str(self.file, {"name": "{git_direct_internal_name}"}),
+                link,
+            ).named["git_direct_internal_name"]
         except (AttributeError, KeyError) as error:
             raise RepoError(f"Link {src} has an illegal destination: {dest}") from error
 
@@ -308,13 +316,13 @@ class GitRepo(IRepo):
         return await self.__read(name, absolute=False)
 
     async def get(self, name: str) -> str:
-        file = "/".join([self.path, self.fpath.format(name=name)])
+        file = "/".join([self.path, await j2.render_str(self.file, {"name": name})])
         return await self.__read(file, absolute=True)
 
     async def write(
         self, name: str, content_old: str, content_new: str, msg: str
     ) -> Diff:
-        path = self.fpath.format(name=name)
+        path = await j2.render_str(self.file, {"name": name})
         file = f"{self.path}/{path}"
 
         if await self.exists(name):
@@ -351,8 +359,8 @@ class GitRepo(IRepo):
     async def write_rename(
         self, name_old: str, name_new: str, content_old: str, content_new: str, msg: str
     ) -> Diff:
-        path_old = self.fpath.format(name=name_old)
-        path_new = self.fpath.format(name=name_new)
+        path_old = await j2.render_str(self.file, {"name": name_old})
+        path_new = await j2.render_str(self.file, {"name": name_new})
         file_old = f"{self.path}/{path_old}"
         file_new = f"{self.path}/{path_new}"
 
@@ -398,8 +406,10 @@ class GitRepo(IRepo):
         if await self.exists(name_dest):
             raise RepoClientError("The file already exists")
 
-        path_dest = self.fpath.format(name=name_dest)
-        file_src = "/".join([self.path, self.fpath.format(name=name_src)])
+        path_dest = await j2.render_str(self.file, {"name": name_dest})
+        file_src = "/".join(
+            [self.path, await j2.render_str(self.file, {"name": name_src})]
+        )
         file_dest = f"{self.path}/{path_dest}"
 
         content = await self.__read(file_src, absolute=True)
@@ -428,9 +438,9 @@ class GitRepo(IRepo):
         if not await self.exists(name_src):
             raise RepoNotFound("The file does not exist")
 
-        path_link = self.fpath.format(name=name_link)
+        path_link = await j2.render_str(self.file, {"name": name_link})
         link = f"{self.path}/{path_link}"
-        src = "/".join([self.path, self.fpath.format(name=name_src)])
+        src = "/".join([self.path, await j2.render_str(self.file, {"name": name_src})])
 
         try:
             await Path(link).symlink_to(self.__make_relative(src, link))
@@ -458,7 +468,7 @@ class GitRepo(IRepo):
         if await self.__has_link(name):
             raise RepoClientError("The file must not be deleted because it is linked")
 
-        file = "/".join([self.path, self.fpath.format(name=name)])
+        file = "/".join([self.path, await j2.render_str(self.file, {"name": name})])
         try:
             await Path(file).unlink()
         except OSError as error:

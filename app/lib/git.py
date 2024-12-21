@@ -41,6 +41,8 @@ class Repo:
         except asyncio.TimeoutError as error:
             proc.kill()
             raise GitTimeoutError(f"Timeout of {timeout} seconds exceeded") from error
+        except Exception as error:
+            raise GitError(f"Git command failed with: {error}") from error
 
         if proc.returncode != 0:
             raise GitError(

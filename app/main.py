@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # Startup / Shutdown
 #
 
-# TODO update all yac specs to match the new j2-everywhere syntax (logs, actions and maybe repo)
+# TODO update all yac specs and docs to match the new j2-everywhere syntax (logs, actions, repo)
 
 
 @asynccontextmanager

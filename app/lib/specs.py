@@ -33,7 +33,7 @@ async def read(op: OperationRequest, rpo: IRepo) -> Specs:
         s = await read_from_file(op)
 
     if s.type is not None:
-        rpo.update_details(s.type.details)
+        await rpo.update_details(s.type.details)
 
     return s
 

@@ -45,7 +45,7 @@ class ShellAction(IAction):
 
         try:
             stdout, _ = await proc.communicate()
-        except Exception as error:  # TODO what to catch here!?
+        except Exception as error:
             raise ActionError(f"Shell command failed with: {error}") from error
 
         if proc.returncode in d.get("success", [0]):

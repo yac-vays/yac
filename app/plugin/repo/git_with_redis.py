@@ -24,8 +24,8 @@ class GitRedisRepo(IRepo):
         yield self
         # TODO
 
-    def update_details(self, details: dict) -> None:
-        self.fpath = details.get("file", "")  # TODO
+    async def update_details(self, details: dict) -> None:
+         # TODO
 
     async def get_hash(self) -> str:
         return ""  # TODO
