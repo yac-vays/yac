@@ -9,6 +9,7 @@ from app.model.inp import User as InpUser
 from app.model.out import Status
 from app.model.out import Meta
 from app.model.out import User as OutUser
+from app.model.err import SchemaSpecsError
 
 router = APIRouter()
 

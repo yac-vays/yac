@@ -6,6 +6,7 @@ handling, see the according `README.md` for details and the existing
 plugins for examples:
 
   - Type [action](../app/plugin/action)
+  - Type [format](../app/plugin/format)
   - Type [j2_filters](../app/plugin/j2_filters)
   - Type [j2_functions](../app/plugin/j2_functions)
   - Type [j2_tests](../app/plugin/j2_tests)

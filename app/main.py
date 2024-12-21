@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 import logging
+import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,7 @@ from app import consts
 from app.version import VERSION
 from app.lib import repo
 from app.lib import hacks
+from app.lib import plugin
 from app.model.err import YACError
 from app.router import arbitrary
 from app.router import change
@@ -19,11 +21,12 @@ from app.router import status
 from app.router import validate
 from app.router import error
 
-# TODO nice json logger
-logging.basicConfig(
-    level=consts.ENV.log_level.upper(),
-    format="[%(asctime)-s] %(levelname)-7s %(message)s",
+log_handler = logging.StreamHandler(sys.stdout)
+log_handler.setFormatter(
+    plugin.get_module("format", consts.ENV.format_plugin).formatter
 )
+
+logging.basicConfig(level=consts.ENV.log_level.upper(), handlers=[log_handler])
 
 logger = logging.getLogger(__name__)
 

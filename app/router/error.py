@@ -29,7 +29,6 @@ async def handle_yac(request: Request, exc: YACError) -> JSONResponse:
 
 
 async def handle_all(request: Request, exc: Exception) -> JSONResponse:
-    # TODO own stacktrace log call (to allow for different log-formats later)
     return hacks.add_cors_headers_to_response(
         request,
         JSONResponse(
