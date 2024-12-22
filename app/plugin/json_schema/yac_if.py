@@ -17,13 +17,15 @@ class YacIf(IJsonSchema):
         if "yac_if" not in json_schema:
             return json_schema, context
 
-        if not isinstance(json_schema["yac_if"], str):
-            raise SchemaSpecsError(f"{loc}/yac_if is not a string")
-
-        try:
-            condition = await j2.render_test(json_schema["yac_if"], props)
-        except j2.J2Error as error:
-            raise SchemaSpecsError(f"{loc}/yac_if: {error}") from error
+        if isinstance(json_schema["yac_if"], bool):
+            condition = json_schema["yac_if"]
+        elif isinstance(json_schema["yac_if"], str):
+            try:
+                condition = await j2.render_test(json_schema["yac_if"], props)
+            except j2.J2Error as error:
+                raise SchemaSpecsError(f"{loc}/yac_if: {error}") from error
+        else:
+            raise SchemaSpecsError(f"{loc}/yac_if is not a boolean or string")
 
         if not condition:
             return None, context

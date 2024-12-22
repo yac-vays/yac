@@ -1,4 +1,5 @@
 import logging
+import asyncio
 
 from fastapi import APIRouter
 from fastapi import Request
@@ -198,11 +199,15 @@ async def get_entity_logs(
         entity=None,
     )
 
-    # TODO run the validation lazyly
     async with repo.handler.reader(op.user, details={}, dirty=True) as rpo:
         s = await specs.read(op, rpo)
+
+        # request the logs before/while validating the request to optimize performance
+        logs = asyncio.create_task(log.get(op, s))
+        # return control to the loop so the task can start immediately
+        await asyncio.sleep(0)
+
         old, new = await repo.get_entities(rpo, op, s)
 
     await validator.test_all(op, s, old, new)
-
-    return await log.get(op, s)
+    return await logs

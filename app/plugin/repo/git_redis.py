@@ -25,7 +25,7 @@ class GitRedisRepo(IRepo):
         # TODO
 
     async def update_details(self, details: dict) -> None:
-         # TODO
+        pass  # TODO
 
     async def get_hash(self) -> str:
         return ""  # TODO

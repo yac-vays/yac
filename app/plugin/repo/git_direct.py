@@ -7,7 +7,7 @@ mount a tmpfs at `/repo`, so all the data is always in memory.
 Details:
 
   file: The path for YAML files of this entity type.
-        type: string (with "name" as j2 variable)
+        type: string (must contain "name" as j2 var and must not contain "*")
         default: "" -> required!
         example: path/to/{{ name }}/yac_data.yml
 
@@ -35,10 +35,10 @@ from typing import Self, AsyncGenerator
 import asyncio
 import logging
 import time
+import re
 
 from aioshutil import rmtree
 from anyio import Path, open_file
-from parse import parse
 
 from app import consts
 from app.lib import git
@@ -65,6 +65,7 @@ DIRTY_MAX = int(consts.ENV.repo.get("dirty_max_age", "0"))
 class GitRepo(IRepo):
     def __init__(self) -> None:
         self.file: str = ""
+        self.file_glob: str = ""
         self.dirty: bool = False
         self.writing: bool = False
         self.path: str = f"/repo/{getpid()}"
@@ -157,8 +158,15 @@ class GitRepo(IRepo):
     async def update_details(self, details: dict) -> None:
         self.file = details.get("file", "")
         try:
-            assert "*" in await j2.render_str(self.file, {"name": "*"})
-        except (AssertionError, j2.J2Error) as error:
+            self.file_glob = await j2.render_str(self.file, {"name": "*"})
+            assert "*" not in self.file
+            assert "*" in self.file_glob
+        except AssertionError as error:
+            raise RepoSpecsError(
+                "In type details.file: Must contain var 'name' and not contain any"
+                f" '*', which '{self.file}' does not!"
+            ) from error
+        except j2.J2Error as error:
             raise RepoSpecsError(f"In type details.file: {error}") from error
 
     async def __is_outdated(self) -> bool:
@@ -264,19 +272,19 @@ class GitRepo(IRepo):
         return await self.repo.get_hash()
 
     async def list(self) -> list[str]:
-        glob = await j2.render_str(self.file, {"name": "*"})
+        start, end = self.file_glob.split("*", maxsplit=1)
+        pattern = re.compile(rf"^{re.escape(start)}(.+){re.escape(end)}$")
         try:
             return sorted(
                 [
-                    parse(
-                        f"{self.path}/{await j2.render_str(self.file, {'name': '{git_direct_internal_name}'})}",
-                        str(fn),
-                    ).named["git_direct_internal_name"]
-                    async for fn in Path(self.path).glob(glob)
+                    pattern.findall(str(fn))[0]
+                    async for fn in Path(self.path).glob(self.file_glob)
                 ]
             )
         except (OSError, AttributeError, KeyError) as error:
-            raise RepoError(f"Could not list files at {self.path}/{glob}") from error
+            raise RepoError(
+                f"Could not list files at {self.path}/{self.file_glob}"
+            ) from error
 
     async def exists(self, name: str) -> bool:
         file = "/".join([self.path, await j2.render_str(self.file, {"name": name})])
@@ -304,11 +312,9 @@ class GitRepo(IRepo):
             raise RepoError(f"Link {src} has an illegal destination: {dest}")
 
         link = dest[(len(base) + 1) :]
+        start, end = self.file_glob.split("*", maxsplit=1)
         try:
-            return parse(
-                await j2.render_str(self.file, {"name": "{git_direct_internal_name}"}),
-                link,
-            ).named["git_direct_internal_name"]
+            return re.findall(rf"^{re.escape(start)}(.+){re.escape(end)}$", link)[0]
         except (AttributeError, KeyError) as error:
             raise RepoError(f"Link {src} has an illegal destination: {dest}") from error
 
