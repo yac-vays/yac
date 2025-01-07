@@ -14,9 +14,9 @@ netaddr
 passlib
 pydantic
 pydantic_settings
-python-jose
 python-ldap
 python-multipart
 PyYAML
+redis
 ruamel.yaml
 uvloop # to optimize uvicorn
