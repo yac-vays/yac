@@ -3,6 +3,7 @@
 #
 # - REGISTRY: hostname/path to the docker registry
 # - REGISTRY_CONF: b64 encoded docker config.json that allows pushing image(s)
+# - DEPLOY_URL: url to trigger the deployment
 #
 
 stages:
@@ -29,6 +30,7 @@ testing-build:
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG%%rc*}rc"
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG%%.*}rc"
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:testing"
+    - curl -X POST "${DEPLOY_URL}"
 
 # Stable versions like: v8.23 -> v8.23, v8, latest / v3.0 -> v3.0, v3, latest
 
@@ -51,3 +53,4 @@ latest-build:
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG}"
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG%%.*}"
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:latest"
+    - curl -X POST "${DEPLOY_URL}"
