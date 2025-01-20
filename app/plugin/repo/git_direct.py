@@ -156,7 +156,9 @@ class GitRepo(IRepo):
                     self._no_readers.notify_all()
 
     async def update_details(self, details: dict) -> None:
-        if "file" in details: # TODO get rid of this hack, must be able to rely on file!
+        if (
+            "file" in details
+        ):  # TODO get rid of this hack, must be able to rely on file!
             self.file = details.get("file", "")
             try:
                 self.file_glob = await j2.render_str(self.file, {"name": "*"})
@@ -274,7 +276,9 @@ class GitRepo(IRepo):
 
     async def list(self) -> list[str]:
         start, end = self.file_glob.split("*", maxsplit=1)
-        pattern = re.compile(rf"^{re.escape(start)}(.+){re.escape(end)}$")
+        pattern = re.compile(
+            rf"^{re.escape(self.path)}/{re.escape(start)}(.+){re.escape(end)}$"
+        )
         try:
             return sorted(
                 [
