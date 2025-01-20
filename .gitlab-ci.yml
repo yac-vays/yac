@@ -31,7 +31,6 @@ testing-build:
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG%%rc*}rc"
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG%%.*}rc"
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:testing"
-    - curl -X POST "$(echo ${DEPLOY_URL} |base64 -d)"
 
 # Stable versions like: v8.23 -> v8.23, v8, latest / v3.0 -> v3.0, v3, latest
 
@@ -54,7 +53,6 @@ latest-build:
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG}"
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG%%.*}"
       --destination "${REGISTRY}/${CI_PROJECT_NAME}:latest"
-    - curl -X POST "$(echo ${DEPLOY_URL} |base64 -d)"
 
 # Trigger deploy pipeline(s)
 
