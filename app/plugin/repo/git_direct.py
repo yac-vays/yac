@@ -156,18 +156,19 @@ class GitRepo(IRepo):
                     self._no_readers.notify_all()
 
     async def update_details(self, details: dict) -> None:
-        self.file = details.get("file", "")
-        try:
-            self.file_glob = await j2.render_str(self.file, {"name": "*"})
-            assert "*" not in self.file
-            assert "*" in self.file_glob
-        except AssertionError as error:
-            raise RepoSpecsError(
-                "In type details.file: Must contain var 'name' and not contain any"
-                f" '*', which '{self.file}' does not!"
-            ) from error
-        except j2.J2Error as error:
-            raise RepoSpecsError(f"In type details.file: {error}") from error
+        if "file" in details: # TODO get rid of this hack, must be able to rely on file!
+            self.file = details.get("file", "")
+            try:
+                self.file_glob = await j2.render_str(self.file, {"name": "*"})
+                assert "*" not in self.file
+                assert "*" in self.file_glob
+            except AssertionError as error:
+                raise RepoSpecsError(
+                    "In type details.file: Must contain var 'name' and not contain any"
+                    f" '*', which '{self.file}' does not!"
+                ) from error
+            except j2.J2Error as error:
+                raise RepoSpecsError(f"In type details.file: {error}") from error
 
     async def __is_outdated(self) -> bool:
         try:
