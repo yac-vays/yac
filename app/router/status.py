@@ -3,6 +3,7 @@ from fastapi import APIRouter, status, Request
 from app.lib import repo
 from app.lib import specs
 from app.version import VERSION
+from app.consts import ENV
 from app.model.err import http_responses
 from app.model.inp import OperationRequest
 from app.model.inp import User as InpUser
@@ -16,14 +17,14 @@ router = APIRouter()
 
 @router.get(
     "/meta",
-    summary="Test if the application is running",
+    summary="Meta data",
     responses=http_responses(),
 )
 async def get_meta() -> Meta:
     """
     Will return some meta data.
     """
-    return Meta(version=VERSION)
+    return Meta(version=VERSION, oidc_client_ids=ENV.oidc_client_ids.split(","))
 
 
 @router.get(
