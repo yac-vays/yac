@@ -24,7 +24,11 @@ async def get_meta() -> Meta:
     """
     Will return some meta data.
     """
-    return Meta(version=VERSION, oidc_client_ids=ENV.oidc_client_ids.split(","))
+    return Meta(
+        version=VERSION,
+        oidc_url=ENV.oidc_url,
+        oidc_client_ids=ENV.oidc_client_ids.split(","),
+    )
 
 
 @router.get(

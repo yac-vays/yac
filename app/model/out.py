@@ -461,6 +461,7 @@ class Type(BaseModel):
 
 class Meta(BaseModel):
     version: str
+    oidc_url: str
     oidc_client_ids: list[str]
 
 
