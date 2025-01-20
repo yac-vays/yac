@@ -42,6 +42,7 @@ def get_types(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
 
 def get_action(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     return {
+        "env": consts.ENV.env,
         "request": __request(op.request, request_spec),
         "user": dict(op.user),
         "operation": op.operation,
@@ -58,6 +59,7 @@ def get_action(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
 
 def get_log(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     return {
+        "env": consts.ENV.env,
         "request": __request(op.request, request_spec),
         "user": dict(op.user),
         "old": {
