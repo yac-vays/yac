@@ -10,4 +10,3 @@ class Entity(BaseModel):
     link: None | str = None
     yaml: None | str = None
     data: None | dict = None
-    perms: None | list[Permission | str] = None

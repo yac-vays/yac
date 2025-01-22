@@ -101,7 +101,7 @@ async def get_entities(
             except RepoError as error:
                 logger.warning(error)
                 continue  # skip the entities we have errors reading
-            if "see" not in (old.perms or []):
+            if "see" not in perms:
                 continue  # skip the entities we have no permissions
 
             result.append(repo.to_detailed_entity(old, perms, list_hash, s.type))
