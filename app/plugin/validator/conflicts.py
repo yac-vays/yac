@@ -44,6 +44,11 @@ class ConflictTester(IValidator):
             if isinstance(op.entity, ReplaceEntity):
                 if old.yaml != op.entity.yaml_old:
                     raise RequestConflict("The data has changed in the meantime")
+            else: # UpdateEntity
+                if op.entity.yaml_old is not None:
+                    if old.yaml != op.entity.yaml_old:
+                        raise RequestConflict("The data has changed in the meantime")
+
 
 
 tester = ConflictTester()

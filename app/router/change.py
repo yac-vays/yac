@@ -119,15 +119,17 @@ async def change_entity(
     except yaml.YAMLError as error:
         raise RepoError(f"Failed to parse YAML of {op.type_name} {old.name}") from error
 
+    yaml_old = (old.yaml or "") if entity.yaml_old is None else entity.yaml_old
+
     async with repo.handler.writer(
         op.user, details=s.type.details if s.type else {}
     ) as rpo:
         if entity_name == entity.name:
-            diff = await rpo.write(entity_name, old.yaml or "", yaml_new, msg)
+            diff = await rpo.write(entity_name, yaml_old, yaml_new, msg)
 
         else:
             diff = await rpo.write_rename(
-                entity_name, entity.name or entity_name, old.yaml or "", yaml_new, msg
+                entity_name, entity.name or entity_name, yaml_old, yaml_new, msg
             )
 
     await action.run(TypeActionHook.CHANGE_AFTER, op, s)
