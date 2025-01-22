@@ -27,7 +27,7 @@ handler: IRepo = repo_plugin.handler
 # TODO alru caching: from async_lru import alru_cache -> @alru_cache(maxsize=32, ttl=1)
 async def get_entities(
     rpo: IRepo, op: OperationRequest, specs: Specs
-) -> tuple[Entity, Entity]:
+) -> tuple[Entity, Entity, list[str]]:
     """
     Try to collect data about the entity refered in this OperationRequest.
     Should not fail even if the provided data is nonsense.
@@ -67,9 +67,9 @@ async def get_entities(
                 f"Failed to parse YAML of {op.type_name} {old.name}: {error}"
             ) from error
 
-    old.perms = await perms.get_from_roles(op, specs, old.data or {})
+    perms = await perms.get_from_roles(op, specs, old.data or {})
 
-    return old, new
+    return old, new, perms
 
 
 def to_detailed_entity(

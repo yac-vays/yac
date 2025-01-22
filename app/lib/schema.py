@@ -26,19 +26,20 @@ async def get(
     schema_spec: spc.Schema,
     request_spec: spc.Request,
     old_data: dict,
-    old_perms: list[str],
+    perms: list[str],
     new_data: dict,
 ) -> out.Schema:
-    schema_props = props.get_schema(op, request_spec, old_data, old_perms, new_data)
+    schema_props = props.get_schema(op, request_spec, old_data, perms, new_data)
 
     if (
         schema_props["operation"] == "create"
-        and "add" not in schema_props["old"]["perms"]
+        and "add" not in schema_props["user"]["perms"]
     ):
+        # TODO revisit! is it really required!?
         # We need to inject the add permission on create to allow having a complete schema
         # for the VAYS user. The add permission is also validated in
         # plugin/validators/perms.py as a whole, so this should be safe.
-        schema_props["old"]["perms"].append("add")
+        schema_props["user"]["perms"].append("add")
 
     try:
         json_schema = await j2.render(dict(schema_spec), schema_props)

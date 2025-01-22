@@ -23,12 +23,12 @@ class YacPerms(IJsonSchema):
         If inside object properties, yac_optional.py takes care of cleaning up the
         required list.
         """
-        # if props["operation"] == "read":
-        #    # Ignore permissions (to allow having a schema to display a VAYS from in read-only
-        #    # mode). The read operation guarantees that no write operations will happen.
-        #    if "yac_perms" in json_schema:
-        #        json_schema.pop("yac_perms")
-        #    return json_schema, context
+        if props["operation"] == "read":
+            # Ignore permissions (to allow having a schema to display a VAYS from in read-only
+            # mode). The read operation guarantees that no write operations will happen.
+            if "yac_perms" in json_schema:
+                json_schema.pop("yac_perms")
+            return json_schema, context
 
         if loc == "#":
             context["yac_perms"] = {"#": ["add", "edt"]}
@@ -54,7 +54,7 @@ class YacPerms(IJsonSchema):
 
         if (
             len(
-                set(props["old"]["perms"]).intersection(
+                set(props["user"]["perms"]).intersection(
                     set(context["yac_perms"][perms_loc])
                 )
             )

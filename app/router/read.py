@@ -97,7 +97,7 @@ async def get_entities(
 
             op.name = entity_name
             try:
-                old, _ = await repo.get_entities(rpo, op, s)
+                old, _, _ = await repo.get_entities(rpo, op, s)
             except RepoError as error:
                 logger.warning(error)
                 continue  # skip the entities we have errors reading
@@ -138,10 +138,10 @@ async def get_entity(
 
     async with repo.handler.reader(op.user, details={}) as rpo:
         s = await specs.read(op, rpo)
-        old, new = await repo.get_entities(rpo, op, s)
+        old, new, perms = await repo.get_entities(rpo, op, s)
         entity_hash = await rpo.get_hash()
 
-    await validator.test_all(op, s, old, new)
+    await validator.test_all(op, s, old, new, perms)
 
     return repo.to_detailed_entity(old, entity_hash, s.type)
 
@@ -170,9 +170,9 @@ async def get_entity_yaml(
 
     async with repo.handler.reader(op.user, details={}) as rpo:
         s = await specs.read(op, rpo)
-        old, new = await repo.get_entities(rpo, op, s)
+        old, new, perms = await repo.get_entities(rpo, op, s)
 
-    await validator.test_all(op, s, old, new)
+    await validator.test_all(op, s, old, new, perms)
 
     return PlainTextResponse(content=old.yaml, media_type="application/yaml")
 
@@ -207,7 +207,7 @@ async def get_entity_logs(
         # return control to the loop so the task can start immediately
         await asyncio.sleep(0)
 
-        old, new = await repo.get_entities(rpo, op, s)
+        old, new, perms = await repo.get_entities(rpo, op, s)
 
-    await validator.test_all(op, s, old, new)
+    await validator.test_all(op, s, old, new, perms)
     return await logs

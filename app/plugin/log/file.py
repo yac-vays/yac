@@ -18,13 +18,13 @@ Details:
   line_format: The format of each line
                type: regex-string (groups will be available later)
                default: "^(.*)$" -> required!
-               example: "^[([^]]*)] (.*)$" # for [timestamp] message
+               example: "^\\[([^]]*)\\] (.*)$" # for [timestamp] message
   time:        Timestamp of the log entry
                type: string (with all j2 props + the regex groups in var "log")
                default: ""
   message:     Message of the log entry
                type: string (with all j2 props + the regex groups in var "log")
-               default: "{{ log[1] }}"
+               default: "{{ log[0] }}"
   problem:     Does the log entry indicate a problem
                type: bool (with all j2 props + the regex groups in var "log")
                default: false
@@ -101,7 +101,7 @@ class FileLog(ILog):
             log_props.update({"log": match.groups()})
 
             time = await self.__render(d, "time", str, "", log_props)
-            message = await self.__render(d, "message", str, "{{ log[1] }}", log_props)
+            message = await self.__render(d, "message", str, "{{ log[0] }}", log_props)
 
             entry = out.Log(
                 name=facility,

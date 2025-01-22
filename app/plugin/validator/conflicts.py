@@ -15,7 +15,7 @@ class ConflictTester(IValidator):
         return True, 30
 
     async def test_nolist(
-        self, op: OperationRequest, spec: Specs, old: Entity, new: Entity
+        self, op: OperationRequest, spec: Specs, old: Entity, new: Entity, perms: list[str]
     ) -> None:
         """
         Test the operation for conflicts in existance of the entities/links.

@@ -18,7 +18,7 @@ from app.model.spc import Specs
 
 
 async def test_all(
-    op: OperationRequest, specs: Specs, old: Entity, new: Entity, *, raise_on_error=True
+    op: OperationRequest, specs: Specs, old: Entity, new: Entity, perms: list[str] = [], *, raise_on_error=True
 ) -> ValidationResult:
     """
     Will try to generate the schemas even with faulty data. It either throws a
@@ -52,7 +52,7 @@ async def test_all(
             specs.json_schema,
             specs.request,
             old.data or {},
-            old.perms or [],
+            perms,
             new_data,
         )
     else:
@@ -63,7 +63,7 @@ async def test_all(
         for p in plugin.get_sorted("validator", "tester", require=require, late=False):
             await p.test_always(op, specs)
         for p in plugin.get_sorted("validator", "tester", require=require, late=True):
-            await p.test_nolist(op, specs, old, new)
+            await p.test_nolist(op, specs, old, new, perms)
     except RequestError as error:
         if raise_on_error:
             raise error

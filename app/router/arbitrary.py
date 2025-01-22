@@ -46,8 +46,8 @@ async def run_action_on_entity(
 
     async with repo.handler.reader(op.user, details={}) as rpo:
         s = await specs.read(op, rpo)
-        old, new = await repo.get_entities(rpo, op, s)
+        old, new, perms = await repo.get_entities(rpo, op, s)
 
-    await validator.test_all(op, s, old, new)
+    await validator.test_all(op, s, old, new, perms)
 
     return await action.run(TypeActionHook.ARBITRARY, op, s)

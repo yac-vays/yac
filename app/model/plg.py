@@ -109,7 +109,7 @@ class IValidator(ISortable):
         )
 
     async def test_nolist(
-        self, op: OperationRequest, spec: Specs, old: Entity, new: Entity
+        self, op: OperationRequest, spec: Specs, old: Entity, new: Entity, perms: list[str]
     ) -> None:
         """
         This method is executed if order returns true (so it runs on every operation

@@ -43,7 +43,7 @@ class AddConsts(IJsonSchema):
                     else:
                         json_schema["properties"][key] = {
                             "const": data[key],
-                            "yac_optional": "cln" in props["old"]["perms"],
+                            "yac_optional": "cln" in props["user"]["perms"],
                         }
 
         return json_schema, context

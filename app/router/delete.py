@@ -48,9 +48,9 @@ async def delete_entity(
 
     async with repo.handler.reader(op.user, details={}) as rpo:
         s = await specs.read(op, rpo)
-        old, new = await repo.get_entities(rpo, op, s)
+        old, new, perms = await repo.get_entities(rpo, op, s)
 
-    await validator.test_all(op, s, old, new)
+    await validator.test_all(op, s, old, new, perms)
 
     await action.run(TypeActionHook.DELETE_BEFORE, op, s)
 

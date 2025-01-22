@@ -38,6 +38,6 @@ async def validate_operation(
 
     async with repo.handler.reader(op.user, details={}, dirty=True) as rpo:
         s = await specs.read(op, rpo)
-        old, new = await repo.get_entities(rpo, op, s)
+        old, new, perms = await repo.get_entities(rpo, op, s)
 
-    return await validator.test_all(op, s, old, new, raise_on_error=False)
+    return await validator.test_all(op, s, old, new, perms, raise_on_error=False)

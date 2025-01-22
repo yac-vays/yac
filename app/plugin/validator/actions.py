@@ -11,7 +11,7 @@ class ActionTester(IValidator):
         return True, 20
 
     async def test_nolist(
-        self, op: OperationRequest, spec: Specs, old: Entity, new: Entity
+        self, op: OperationRequest, spec: Specs, old: Entity, new: Entity, perms: list[str]
     ) -> None:
         """
         Test if the actions are valid for this operation and if the user has the

@@ -111,20 +111,19 @@ def get_schema(
     op: inp.OperationRequest,
     request_spec: spc.Request,
     old_data: None | dict,
-    old_perms: list[str],
+    perms: list[str],
     new_data: None | dict,
 ) -> dict:
     return {
         "env": consts.ENV.env,
         "request": __request(op.request, request_spec),
-        "user": dict(op.user),
+        "user": {**dict(op.user), "perms": perms},
         "operation": op.operation,
         "actions": op.actions,
         "type": op.type_name,
         "old": {
             "name": op.name,
             "data": old_data or {},
-            "perms": old_perms,
         },
         "new": {
             "name": None if op.entity is None else op.entity.name,
