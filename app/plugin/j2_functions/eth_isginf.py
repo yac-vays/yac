@@ -86,9 +86,9 @@ async def isginf_user_itc_in_ou(user: str, ou: str) -> bool:
     )
 
 
-async def isginf_get_user_ous(user: str) -> list[str]:
+async def isginf_get_user_ous(user: str, add_empty: bool = True) -> list[str]:
     pattern = re.compile(f"^cn={user},ou=users,ou=([^,]+),ou=inf,ou=auth,o=ethz,c=ch$")
-    ous = []
+    ous = ['Empty'] if add_empty else []
     for dn in await isginf_ldap_search(
         "ou=inf,ou=auth,o=ethz,c=ch", f"(cn={user})", "dn"
     ):
