@@ -97,14 +97,14 @@ async def get_entities(
 
             op.name = entity_name
             try:
-                old, _, _ = await repo.get_entities(rpo, op, s)
+                old, _, perms = await repo.get_entities(rpo, op, s)
             except RepoError as error:
                 logger.warning(error)
                 continue  # skip the entities we have errors reading
             if "see" not in (old.perms or []):
                 continue  # skip the entities we have no permissions
 
-            result.append(repo.to_detailed_entity(old, list_hash, s.type))
+            result.append(repo.to_detailed_entity(old, perms, list_hash, s.type))
 
             if (limit + skip) <= len(result):
                 break
@@ -143,7 +143,7 @@ async def get_entity(
 
     await validator.test_all(op, s, old, new, perms)
 
-    return repo.to_detailed_entity(old, entity_hash, s.type)
+    return repo.to_detailed_entity(old, perms, entity_hash, s.type)
 
 
 @router.get(

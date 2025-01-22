@@ -67,13 +67,13 @@ async def get_entities(
                 f"Failed to parse YAML of {op.type_name} {old.name}: {error}"
             ) from error
 
-    perms = await perms.get_from_roles(op, specs, old.data or {})
+    p = await perms.get_from_roles(op, specs, old.data or {})
 
-    return old, new, perms
+    return old, new, p
 
 
 def to_detailed_entity(
-    entity: Entity, entity_hash: str, type_spec: Type | None
+    entity: Entity, p: list[str], entity_hash: str, type_spec: Type | None
 ) -> DetailedEntity:
     options = {}
     if type_spec is not None:
@@ -87,7 +87,7 @@ def to_detailed_entity(
         options=options,
         data=entity.data or {},
         yaml=entity.yaml,
-        perms=entity.perms or [],
+        perms=p,
         hash=entity_hash,
     )
 
