@@ -39,7 +39,7 @@ class ActionTester(IValidator):
                 )
 
             perms_required = getattr(action_spec, "perms", ["act"])
-            if len(set(old.perms or []).intersection(set(perms_required))) <= 0:
+            if len(set(perms).intersection(set(perms_required))) <= 0:
                 if op.operation == "arbitrary" or not action_spec.force:
                     raise RequestForbidden(
                         "You need one of these permission to run this action(s): "
