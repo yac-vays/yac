@@ -38,7 +38,7 @@ async def render_print(print_str: str, props: dict, *, strict: bool = True) -> s
 
 
 async def render_str(s, props, *, allow_nonstr: bool = True, strict: bool = True):
-    nonstr = re.match(r"^\{\{.+\}\}$", s) and allow_nonstr
+    nonstr = re.match(r"^(\{\{|\{%).+(\}\}|%\})$", s) and allow_nonstr
     j2 = jinja2.Environment(
         enable_async=True,
         loader=jinja2.BaseLoader(),
