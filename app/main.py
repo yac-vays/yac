@@ -12,6 +12,7 @@ from app.lib import repo
 from app.lib import hacks
 from app.lib import plugin
 from app.model.err import YACError
+from app.router import auth
 from app.router import arbitrary
 from app.router import change
 from app.router import create
@@ -80,6 +81,7 @@ yac.add_middleware(
 )
 
 yac.include_router(status.router, tags=["Status"])
+yac.include_router(auth.router, tags=["User"])
 yac.include_router(read.router, tags=["Entities"])
 yac.include_router(create.router, tags=["Entities"])
 yac.include_router(change.router, tags=["Entities"])

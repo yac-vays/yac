@@ -21,6 +21,7 @@ QueryActions = Annotated[
 ]
 
 User = Annotated[out.User, Depends(auth.get_current_user)]
+Token = Annotated[out.User, Depends(auth.get_token)]
 
 
 class Entity(BaseModel):
@@ -93,7 +94,7 @@ class UpdateEntity(Entity):
     """
 
     data: dict
-    yaml_old: str|None = None
+    yaml_old: str | None = None
 
 
 class Operation(BaseModel):

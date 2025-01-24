@@ -2,9 +2,11 @@
 Raises: [app.model.err.AuthError]
 """
 
+from typing import Optional
+
 from authlib.common.errors import AuthlibBaseError
 from authlib.integrations.starlette_client import OAuth
-from fastapi import Depends
+from fastapi import Depends, Cookie, HTTPException, status
 from fastapi.security.open_id_connect_url import OpenIdConnect
 from typing_extensions import Annotated
 
@@ -25,7 +27,26 @@ fastapi_oauth2 = OpenIdConnect(
 )
 
 
-async def get_current_user(token: Annotated[str, Depends(fastapi_oauth2)]) -> User:
+async def get_current_user(
+    header_token: Optional[str] = Depends(fastapi_oauth2),
+    cookie_token: Optional[str] = Cookie(alias="token"),
+) -> User:
+    if header_token:
+        return await verify_token(header_token)
+    if cookie_token:
+        return await verify_token(cookie_token)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authorized"
+    )
+
+
+async def get_token(token: Annotated[str, Depends(fastapi_oauth2)]) -> str:
+    await verify_token(token)
+    return token
+
+
+async def verify_token(token: str) -> User:
     try:
         user = await authlib_oauth.oidc.parse_id_token(  # type: ignore
             token={"id_token": token[7:] if token[:7] == "Bearer " else token},
