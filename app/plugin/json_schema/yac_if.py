@@ -17,6 +17,7 @@ class YacIf(IJsonSchema):
         if "yac_if" not in json_schema:
             return json_schema, context
 
+        # TODO fix bug: sometimes not executed!! (see users_ou = Everybody -> users_subous)
         if isinstance(json_schema["yac_if"], bool):
             condition = json_schema["yac_if"]
         elif isinstance(json_schema["yac_if"], str):

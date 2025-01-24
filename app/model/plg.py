@@ -109,7 +109,12 @@ class IValidator(ISortable):
         )
 
     async def test_nolist(
-        self, op: OperationRequest, spec: Specs, old: Entity, new: Entity, perms: list[str]
+        self,
+        op: OperationRequest,
+        spec: Specs,
+        old: Entity,
+        new: Entity,
+        perms: list[str],
     ) -> None:
         """
         This method is executed if order returns true (so it runs on every operation
@@ -121,7 +126,7 @@ class IValidator(ISortable):
 
 
 class IRepo:
-
+    # TODO fix race condition (rarely details from wrong type are used)!! make details + operations type specific
     @asynccontextmanager
     @abstractmethod
     async def reader(

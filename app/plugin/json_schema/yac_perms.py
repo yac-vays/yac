@@ -46,6 +46,7 @@ class YacPerms(IJsonSchema):
             context["yac_perms"].update({loc: json_schema["yac_perms"]})
             json_schema.pop("yac_perms")
 
+        # TODO fix bug here: seems to get the wrong perms/loc sometimes!!
         perms_loc = locs.get_most_specific(loc, list(context["yac_perms"].keys()))
 
         if perms_loc is None:
