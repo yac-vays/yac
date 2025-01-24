@@ -35,7 +35,7 @@ async def get(
         schema_props["operation"] == "create"
         and "add" not in schema_props["user"]["perms"]
     ):
-        # TODO revisit! is it really required!?
+        # TODO revisit! is it really required!?
         # We need to inject the add permission on create to allow having a complete schema
         # for the VAYS user. The add permission is also validated in
         # plugin/validators/perms.py as a whole, so this should be safe.
@@ -151,12 +151,12 @@ async def handle_schema(
         if k in json:
             if not isinstance(json[k], list):
                 raise SchemaSpecsError(f"{loc}/{k} is not an array (of schemas)")
+            new_array = []
             for i, val in enumerate(json[k]):
                 s, ui, cx = await handle_schema(f"{loc}/{k}/{str(i)}", val, ui, cx, p)
-                if s is None:
-                    json[k].pop(i)
-                else:
-                    json[k][i] = s
+                if s is not None:
+                    new_array.append(s)
+            json[k] = new_array
 
     # post_order plugins
 
