@@ -336,10 +336,6 @@ class GitRepo(IRepo):
         path = await j2.render_str(self.file, {"name": name})
         file = f"{self.path}/{path}"
 
-        logger.info(
-            f"---------------- Old content: \n{content_old}\n----------------New content:\n{content_new}"
-        )
-
         if await self.exists(name):
             content = await self.get(name)
             if content != content_old:
