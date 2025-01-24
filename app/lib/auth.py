@@ -2,7 +2,7 @@
 Raises: [app.model.err.AuthError]
 """
 
-from typing import Optional
+import logging
 
 from authlib.common.errors import AuthlibBaseError
 from authlib.integrations.starlette_client import OAuth
@@ -13,6 +13,9 @@ from typing_extensions import Annotated
 from app import consts
 from app.model.err import AuthError
 from app.model.out import User
+
+logger = logging.getLogger(__name__)
+
 
 authlib_oauth = OAuth()
 authlib_oauth.register(
@@ -28,9 +31,12 @@ fastapi_oauth2 = OpenIdConnect(
 
 
 async def get_current_user(
-    header_token: Optional[str] = Depends(fastapi_oauth2),
-    cookie_token: Optional[str] = Cookie(alias="token"),
+    header_token: Annotated[str | None, Depends(fastapi_oauth2)] = None,
+    cookie_token: Annotated[str | None, Cookie(alias="token")] = None,
 ) -> User:
+    # TODO fix: this function is not executed with only the cookie, but correctly gets the cookie if both are set!
+    logger.info(f"header_token: {header_token}")
+    logger.info(f"cookie_token: {cookie_token}")
     if header_token:
         return await verify_token(header_token)
     if cookie_token:
