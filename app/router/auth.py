@@ -9,7 +9,7 @@ router = APIRouter()
 
 
 @router.post(
-    "/login",
+    "/token",
     summary="Set the token cookie",
     status_code=status.HTTP_204_NO_CONTENT,
     responses=http_responses(),
@@ -21,8 +21,8 @@ async def login(token: Token, response: Response) -> None:
     return
 
 
-@router.post(
-    "/logout",
+@router.delete(
+    "/token",
     summary="Unset the token cookie",
     status_code=status.HTTP_204_NO_CONTENT,
     responses=http_responses(),
@@ -33,8 +33,8 @@ async def logout(response: Response) -> None:
 
 
 @router.get(
-    "/me",
-    summary="Test the token for validity",
+    "/token",
+    summary="Test the token for validity and get its content",
     responses=http_responses(),
 )
 async def me(user: InpUser) -> OutUser:

@@ -3,18 +3,33 @@ Raises: [app.model.err.AuthError]
 """
 
 import logging
+from typing import Optional
+from typing_extensions import Annotated
 
 from authlib.common.errors import AuthlibBaseError
 from authlib.integrations.starlette_client import OAuth
-from fastapi import Depends, Cookie, HTTPException, status
+from fastapi import Depends, Cookie
 from fastapi.security.open_id_connect_url import OpenIdConnect
-from typing_extensions import Annotated
+from starlette.requests import Request
 
 from app import consts
 from app.model.err import AuthError
 from app.model.out import User
 
 logger = logging.getLogger(__name__)
+
+
+class OpenIdConnectOptional(OpenIdConnect):
+    """
+    Overwrite FastAPIs implementation to never raise but return None instead.
+    This is required to allow both, header or cookie authentication!
+    """
+
+    async def __call__(self, request: Request) -> Optional[str]:
+        authorization = request.headers.get("Authorization")
+        if not authorization:
+            return None
+        return authorization
 
 
 authlib_oauth = OAuth()
@@ -24,7 +39,7 @@ authlib_oauth.register(
     client_kwargs={"scope": "openid"},
 )
 
-fastapi_oauth2 = OpenIdConnect(
+fastapi_oauth2 = OpenIdConnectOptional(
     openIdConnectUrl=consts.ENV.oidc_url,
     scheme_name="OpenID Connect",
 )
@@ -32,19 +47,16 @@ fastapi_oauth2 = OpenIdConnect(
 
 async def get_current_user(
     header_token: Annotated[str | None, Depends(fastapi_oauth2)] = None,
-    cookie_token: Annotated[str | None, Cookie(alias="token")] = None,
+    cookie_token: Annotated[
+        str | None, Cookie(alias="token", include_in_schema=False)
+    ] = None,
 ) -> User:
-    # TODO fix: this function is not executed with only the cookie, but correctly gets the cookie if both are set!
-    logger.info(f"header_token: {header_token}")
-    logger.info(f"cookie_token: {cookie_token}")
     if header_token:
         return await verify_token(header_token)
     if cookie_token:
         return await verify_token(cookie_token)
 
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authorized"
-    )
+    raise AuthError("Authentication through header or cookie required!")
 
 
 async def get_token(token: Annotated[str, Depends(fastapi_oauth2)]) -> str:
