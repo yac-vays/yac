@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     root_path: str = "/"
     cors_origins: str = "https://localhost"  # comma separated string-list
+    cookie_domain: str = "ethz.ch"
     log_level: Literal["critical", "error", "warning", "info", "debug"] = "info"
     format_plugin: str = "plain"
     # ATTENTION: high risk of leaking secrets to the users, only use in dev environments!

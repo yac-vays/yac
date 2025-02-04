@@ -4,6 +4,7 @@ from app.model.err import http_responses
 from app.model.inp import Token
 from app.model.inp import User as InpUser
 from app.model.out import User as OutUser
+from app.consts import ENV
 
 router = APIRouter()
 
@@ -16,7 +17,13 @@ router = APIRouter()
 )
 async def login(token: Token, response: Response) -> OutUser:
     response.set_cookie(
-        "token", token[0], secure=True, httponly=True, samesite="none", max_age=86400
+        "token",
+        token[0],
+        secure=True,
+        httponly=True,
+        samesite="lax",
+        max_age=86400,
+        domain=ENV.cookie_domain,
     )
     return token[1]
 
