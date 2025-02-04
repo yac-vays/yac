@@ -59,9 +59,9 @@ async def get_current_user(
     raise AuthError("Authentication through header or cookie required!")
 
 
-async def get_token(token: Annotated[str, Depends(fastapi_oauth2)]) -> str:
-    await verify_token(token)
-    return token
+async def get_token(token: Annotated[str, Depends(fastapi_oauth2)]) -> tuple[str, User]:
+    user = await verify_token(token)
+    return token, user
 
 
 async def verify_token(token: str) -> User:

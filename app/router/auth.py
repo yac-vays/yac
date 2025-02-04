@@ -11,14 +11,14 @@ router = APIRouter()
 @router.post(
     "/token",
     summary="Set the token cookie",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
     responses=http_responses(),
 )
-async def login(token: Token, response: Response) -> None:
+async def login(token: Token, response: Response) -> OutUser:
     response.set_cookie(
-        "token", token, secure=True, httponly=True, samesite="strict", max_age=86400
+        "token", token[0], secure=True, httponly=True, samesite="none", max_age=86400
     )
-    return
+    return token[1]
 
 
 @router.delete(
