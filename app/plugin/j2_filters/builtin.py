@@ -2,6 +2,8 @@ import datetime
 import re
 import socket
 
+from jinja2 import pass_context
+
 from app.model.err import RequestError
 
 
@@ -31,8 +33,9 @@ async def re_escape(string: str) -> str:
     return re.escape(string)
 
 
+@pass_context
 async def next_int_by_regex(
-    names: list[str],
+    ctx: dict,
     pattern: str = r"^(.*)$",
     *,
     limit: int = 0,
@@ -46,7 +49,7 @@ async def next_int_by_regex(
 
     p = re.compile(pattern)
     n = []
-    for name in names:
+    for name in ctx.get("old", {}).get("list", []):
         r = p.search(name)
         if r:
             try:
