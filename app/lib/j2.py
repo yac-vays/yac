@@ -13,7 +13,7 @@ from app.model.err import RequestError
 
 class J2Error(Exception):
     def __init__(self, msg: str, *, loc: str = "#"):
-        super().__init(msg)
+        super().__init__(msg)
         self.loc = loc
 
 
