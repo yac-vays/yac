@@ -2,10 +2,6 @@ import datetime
 import re
 import socket
 
-from jinja2 import pass_context
-
-from app.model.err import RequestError
-
 
 async def rformat(string: str, pattern: str) -> str:
     return pattern % string
@@ -31,35 +27,3 @@ async def regex_replace(
 
 async def re_escape(string: str) -> str:
     return re.escape(string)
-
-
-@pass_context
-async def next_int_by_regex(
-    ctx: dict,
-    pattern: str = r"^(.*)$",
-    *,
-    limit: int = 0,
-) -> int:
-    """
-    Takes the list of existing names, filters them by the given regex
-    and increments the highest number by one.
-    If it fails or exceeds the limit (if defined !=0), it will raise a
-    RequestError error.
-    """
-
-    p = re.compile(pattern)
-    n = []
-    for name in ctx.get("old", {}).get("list", []):
-        r = p.search(name)
-        if r:
-            try:
-                n.append(int(r.group(1)))
-            except:  # pylint: disable=bare-except
-                pass  # accept matches that have no group 1 or cannot be casted to int
-
-    result = max(n) + 1
-
-    if limit != 0 and len(n) == limit:
-        raise RequestError(f"Maximum number of {limit} reached!")
-
-    return result
