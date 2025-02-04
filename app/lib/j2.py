@@ -12,7 +12,9 @@ from app.model.err import RequestError
 
 
 class J2Error(Exception):
-    loc = "#"
+    def __init__(self, msg: str, *, loc: str = "#"):
+        super().__init(msg)
+        self.loc = loc
 
 
 async def render(
