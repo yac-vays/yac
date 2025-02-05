@@ -68,44 +68,50 @@ class GitRedisRepo(IRepo):
     async def get_hash(self) -> str:
         return await self.redis.get("latest")
 
-    async def list(self) -> list[str]:
+    async def list(self, type: str) -> list[str]:
         return []  # TODO get from redis
 
-    async def exists(self, name: str) -> bool:
+    async def exists(self, type: str, name: str) -> bool:
         return True  # TODO get from redis
 
-    async def is_link(self, name: str) -> bool:
+    async def is_link(self, type: str, name: str) -> bool:
         return False  # TODO get from redis
 
-    async def get_link(self, name: str) -> str:
+    async def get_link(self, type: str, name: str) -> str:
         return ""  # TODO get from redis
 
     async def get_specs(self, name: str) -> str:
         return ""  # TODO get from redis
 
-    async def get(self, name: str) -> str:
+    async def get(self, type: str, name: str) -> str:
         return ""  # TODO get from redis
 
     async def update_details(self, details: dict) -> None:
         pass
 
     async def write(
-        self, name: str, content_old: str, content_new: str, msg: str
+        self, type: str, name: str, content_old: str, content_new: str, msg: str
     ) -> Diff:
         raise RepoError("Illegal function call!")
 
     async def write_rename(
-        self, name_old: str, name_new: str, content_old: str, content_new: str, msg: str
+        self,
+        type: str,
+        name_old: str,
+        name_new: str,
+        content_old: str,
+        content_new: str,
+        msg: str,
     ) -> Diff:
         raise RepoError("Illegal function call!")
 
-    async def copy(self, name_dest: str, name_src: str, msg: str) -> Diff:
+    async def copy(self, type: str, name_dest: str, name_src: str, msg: str) -> Diff:
         raise RepoError("Illegal function call!")
 
-    async def link(self, name_link: str, name_src: str, msg: str) -> Diff:
+    async def link(self, type: str, name_link: str, name_src: str, msg: str) -> Diff:
         raise RepoError("Illegal function call!")
 
-    async def delete(self, name: str, msg: str) -> None:
+    async def delete(self, type: str, name: str, msg: str) -> None:
         raise RepoError("Illegal function call!")
 
 

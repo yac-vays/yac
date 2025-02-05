@@ -21,9 +21,12 @@ class TypeAction(out.TypeAction):
 
 class Type(out.Type):
     name_generator: str = "uuid()"
-    details: dict = {}
     logs: list[TypeLog] = []
     actions: list[TypeAction] = []  # TODO fix (also see router.read.get_types())
+
+
+class Repo(BaseModel):
+    details: dict = {}
 
 
 class Role(BaseModel):
@@ -46,6 +49,7 @@ class Specs(BaseModel):
     request: Request = Request()
     types: list[Type]
     type: Type | None = None
+    repo: Repo = Repo()
     roles: list[Role] = []
     sets: Sets = Sets()
     json_schema: Annotated[Schema, Field(alias="schema")]

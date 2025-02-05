@@ -59,7 +59,7 @@ async def add_entity(
     await action.run(TypeActionHook.CREATE_BEFORE, op, s)
 
     async with repo.handler.writer(
-        op.user, details=s.type.details if s.type else {}
+        op.user, details=s.repo.details if s.type else {}
     ) as rpo:
         name = op.entity.name if op.entity else None
         if name is None:

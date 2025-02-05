@@ -103,6 +103,15 @@ async def __parse(specs: str, op: OperationRequest) -> Specs:
         raise SpecsError(f"In types at {error.loc}: {error}") from error
 
     try:
+        data["repo"] = await j2.render(
+            data.get("repo", {}),
+            props.get_types(op, request),
+            skip=["details"],
+        )
+    except j2.J2Error as error:
+        raise SpecsError(f"In repo at {error.loc}: {error}") from error
+
+    try:
         s = Specs.model_validate(data)
     except ValidationError as error:
         raise SpecsError(str(error)) from error

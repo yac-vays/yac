@@ -64,8 +64,7 @@ DIRTY_MAX = int(consts.ENV.repo.get("dirty_max_age", "0"))
 
 class GitRepo(IRepo):
     def __init__(self) -> None:
-        self.file: str = ""
-        self.file_glob: str = ""
+        self.details: dict = {}
         self.dirty: bool = False
         self.writing: bool = False
         self.path: str = f"/repo/{getpid()}"
@@ -155,22 +154,22 @@ class GitRepo(IRepo):
                     self._reader_count = 0
                     self._no_readers.notify_all()
 
+    # TODO get rid of this hack!!
     async def update_details(self, details: dict) -> None:
-        if (
-            "file" in details
-        ):  # TODO get rid of this hack, must be able to rely on file!
-            self.file = details.get("file", "")
-            try:
-                self.file_glob = await j2.render_str(self.file, {"name": "*"})
-                assert "*" not in self.file
-                assert "*" in self.file_glob
-            except AssertionError as error:
-                raise RepoSpecsError(
-                    "In type details.file: Must contain var 'name' and not contain any"
-                    f" '*', which '{self.file}' does not!"
-                ) from error
-            except j2.J2Error as error:
-                raise RepoSpecsError(f"In type details.file: {error}") from error
+        self.details = details
+        # if "file" in details:
+        #    self.file = details.get("file", "")
+        #    try:
+        #        self.file_glob = await j2.render_str(self.file, {"name": "*"})
+        #        assert "*" not in self.file
+        #        assert "*" in self.file_glob
+        #    except AssertionError as error:
+        #        raise RepoSpecsError(
+        #            "In type details.file: Must contain var 'name' and not contain any"
+        #            f" '*', which '{self.file}' does not!"
+        #        ) from error
+        #    except j2.J2Error as error:
+        #        raise RepoSpecsError(f"In type details.file: {error}") from error
 
     async def __is_outdated(self) -> bool:
         try:
@@ -243,9 +242,9 @@ class GitRepo(IRepo):
         backpath = "../" * relative.count("/")
         return f"{backpath}{relative}"
 
-    async def __has_link(self, name: str) -> bool:
+    async def __has_link(self, type: str, name: str) -> bool:
         file_name = "/".join(
-            [self.path, await j2.render_str(self.file, {"name": name})]
+            [self.path, await j2.render_str(self.details.get(type), {"name": name})]
         )
         async for root, _, files in Path(dirname(file_name)).walk():
             for file in files:
@@ -274,50 +273,55 @@ class GitRepo(IRepo):
     async def get_hash(self) -> str:
         return await self.repo.get_hash()
 
-    async def list(self) -> list[str]:
-        start, end = self.file_glob.split("*", maxsplit=1)
+    async def list(self, type: str) -> list[str]:
+        # TODO add error handling
+        glob = await j2.render_str(self.details.get(type), {"name": "*"})
+        start, end = glob.split("*", maxsplit=1)
         pattern = re.compile(
             rf"^{re.escape(self.path)}/{re.escape(start)}(.+){re.escape(end)}$"
         )
         try:
             return sorted(
-                [
-                    pattern.findall(str(fn))[0]
-                    async for fn in Path(self.path).glob(self.file_glob)
-                ]
+                [pattern.findall(str(fn))[0] async for fn in Path(self.path).glob(glob)]
             )
         except (OSError, AttributeError, KeyError) as error:
-            raise RepoError(
-                f"Could not list files at {self.path}/{self.file_glob}"
-            ) from error
+            raise RepoError(f"Could not list files at {self.path}/{glob}") from error
 
-    async def exists(self, name: str) -> bool:
-        file = "/".join([self.path, await j2.render_str(self.file, {"name": name})])
+    async def exists(self, type: str, name: str) -> bool:
+        file = "/".join(
+            [self.path, await j2.render_str(self.details.get(type), {"name": name})]
+        )
         try:
             return await Path(file).exists()
         except OSError as error:
             raise RepoError(f"Could not read file {file}") from error
 
-    async def is_link(self, name: str) -> bool:
-        file = "/".join([self.path, await j2.render_str(self.file, {"name": name})])
+    async def is_link(self, type: str, name: str) -> bool:
+        file = "/".join(
+            [self.path, await j2.render_str(self.details.get(type), {"name": name})]
+        )
         try:
             return await Path(file).is_symlink()
         except OSError as error:
             raise RepoError(f"Could not read file {file}") from error
 
-    async def get_link(self, name: str) -> str:
-        if not await self.is_link(name):
+    async def get_link(self, type: str, name: str) -> str:
+        if not await self.is_link(type, name):
             raise RepoError(f"File {name} is not a link")
 
         base = str(await Path(self.path).resolve())
-        src = "/".join([base, await j2.render_str(self.file, {"name": name})])
+        src = "/".join(
+            [base, await j2.render_str(self.details.get(type), {"name": name})]
+        )
         dest = str(await Path(src).resolve())
 
         if not dest.startswith(base):
             raise RepoError(f"Link {src} has an illegal destination: {dest}")
 
+        # TODO add error handling
+        glob = await j2.render_str(self.details.get(type), {"name": "*"})
         link = dest[(len(base) + 1) :]
-        start, end = self.file_glob.split("*", maxsplit=1)
+        start, end = glob.split("*", maxsplit=1)
         try:
             return re.findall(rf"^{re.escape(start)}(.+){re.escape(end)}$", link)[0]
         except (AttributeError, KeyError) as error:
@@ -326,23 +330,25 @@ class GitRepo(IRepo):
     async def get_specs(self, name: str) -> str:
         return await self.__read(name, absolute=False)
 
-    async def get(self, name: str) -> str:
-        file = "/".join([self.path, await j2.render_str(self.file, {"name": name})])
+    async def get(self, type: str, name: str) -> str:
+        file = "/".join(
+            [self.path, await j2.render_str(self.details.get(type), {"name": name})]
+        )
         return await self.__read(file, absolute=True)
 
     async def write(
-        self, name: str, content_old: str, content_new: str, msg: str
+        self, type: str, name: str, content_old: str, content_new: str, msg: str
     ) -> Diff:
-        path = await j2.render_str(self.file, {"name": name})
+        path = await j2.render_str(self.details.get(type), {"name": name})
         file = f"{self.path}/{path}"
 
-        if await self.exists(name):
-            content = await self.get(name)
+        if await self.exists(type, name):
+            content = await self.get(type, name)
             if content != content_old:
                 raise RepoConflict("The data has changed in the meantime")
             if content == content_new:
                 raise RepoClientError("Cannot write without changing anything")
-            if await self.is_link(name):
+            if await self.is_link(type, name):
                 raise RepoClientError("Modifying links is not allowed")
         elif len(content_old) > 0:
             raise RepoConflict("The file has been deleted in the meantime")
@@ -368,24 +374,30 @@ class GitRepo(IRepo):
         return Diff(name=name, hash=await self.get_hash(), patch=patch)
 
     async def write_rename(
-        self, name_old: str, name_new: str, content_old: str, content_new: str, msg: str
+        self,
+        type: str,
+        name_old: str,
+        name_new: str,
+        content_old: str,
+        content_new: str,
+        msg: str,
     ) -> Diff:
-        path_old = await j2.render_str(self.file, {"name": name_old})
-        path_new = await j2.render_str(self.file, {"name": name_new})
+        path_old = await j2.render_str(self.details.get(type), {"name": name_old})
+        path_new = await j2.render_str(self.details.get(type), {"name": name_new})
         file_old = f"{self.path}/{path_old}"
         file_new = f"{self.path}/{path_new}"
 
         if name_old == name_new:
             raise RepoClientError("Cannot rename without chaning the name")
-        if await self.exists(name_old):
-            content = await self.get(name_old)
+        if await self.exists(type, name_old):
+            content = await self.get(type, name_old)
             if content != content_old:
                 raise RepoConflict("The data has changed in the meantime")
-            if await self.is_link(name_old):
+            if await self.is_link(type, name_old):
                 raise RepoClientError("Modifying links is not allowed")
         else:
             raise RepoConflict("The file has been deleted in the meantime")
-        if await self.exists(name_new):
+        if await self.exists(type, name_new):
             raise RepoClientError("The file already exists")
 
         try:
@@ -413,13 +425,13 @@ class GitRepo(IRepo):
 
         return Diff(name=name_new, hash=await self.get_hash(), patch=patch)
 
-    async def copy(self, name_dest: str, name_src: str, msg: str) -> Diff:
-        if await self.exists(name_dest):
+    async def copy(self, type: str, name_dest: str, name_src: str, msg: str) -> Diff:
+        if await self.exists(type, name_dest):
             raise RepoClientError("The file already exists")
 
-        path_dest = await j2.render_str(self.file, {"name": name_dest})
+        path_dest = await j2.render_str(self.details.get(type), {"name": name_dest})
         file_src = "/".join(
-            [self.path, await j2.render_str(self.file, {"name": name_src})]
+            [self.path, await j2.render_str(self.details.get(type), {"name": name_src})]
         )
         file_dest = f"{self.path}/{path_dest}"
 
@@ -445,13 +457,15 @@ class GitRepo(IRepo):
 
         return Diff(name=name_dest, hash=await self.get_hash(), patch=patch)
 
-    async def link(self, name_link: str, name_src: str, msg: str) -> Diff:
-        if not await self.exists(name_src):
+    async def link(self, type: str, name_link: str, name_src: str, msg: str) -> Diff:
+        if not await self.exists(type, name_src):
             raise RepoNotFound("The file does not exist")
 
-        path_link = await j2.render_str(self.file, {"name": name_link})
+        path_link = await j2.render_str(self.details.get(type), {"name": name_link})
         link = f"{self.path}/{path_link}"
-        src = "/".join([self.path, await j2.render_str(self.file, {"name": name_src})])
+        src = "/".join(
+            [self.path, await j2.render_str(self.details.get(type), {"name": name_src})]
+        )
 
         try:
             await Path(link).symlink_to(self.__make_relative(src, link))
@@ -473,13 +487,15 @@ class GitRepo(IRepo):
 
         return Diff(name=name_link, hash=await self.get_hash(), patch=patch)
 
-    async def delete(self, name: str, msg: str) -> None:
-        if not await self.exists(name):
+    async def delete(self, type: str, name: str, msg: str) -> None:
+        if not await self.exists(type, name):
             raise RepoNotFound("The file does not exist")
-        if await self.__has_link(name):
+        if await self.__has_link(type, name):
             raise RepoClientError("The file must not be deleted because it is linked")
 
-        file = "/".join([self.path, await j2.render_str(self.file, {"name": name})])
+        file = "/".join(
+            [self.path, await j2.render_str(self.details.get(type), {"name": name})]
+        )
         try:
             await Path(file).unlink()
         except OSError as error:

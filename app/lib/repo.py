@@ -47,6 +47,8 @@ async def get_entities(
     else:  # read, delete, arbitrary
         old.name = op.name
 
+    rpo.update_details(specs.repo.details)
+
     if specs.type is not None:
         if old.name is not None:
             if await rpo.exists(old.name):

@@ -122,7 +122,7 @@ async def change_entity(
     yaml_old = (old.yaml or "") if entity.yaml_old is None else entity.yaml_old
 
     async with repo.handler.writer(
-        op.user, details=s.type.details if s.type else {}
+        op.user, details=s.repo.details if s.type else {}
     ) as rpo:
         if entity_name == entity.name:
             diff = await rpo.write(entity_name, yaml_old, yaml_new, msg)

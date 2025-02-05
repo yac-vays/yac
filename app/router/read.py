@@ -90,6 +90,7 @@ async def get_entities(
         s = await specs.read(op, rpo)
         await validator.test_ls(op, s)
 
+        rpo.update_details(s.repo.details)
         list_hash = await rpo.get_hash()
         for entity_name in await rpo.list():
             if not search in entity_name:

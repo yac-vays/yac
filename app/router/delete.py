@@ -55,7 +55,7 @@ async def delete_entity(
     await action.run(TypeActionHook.DELETE_BEFORE, op, s)
 
     async with repo.handler.writer(
-        op.user, details=s.type.details if s.type else {}
+        op.user, details=s.repo.details if s.type else {}
     ) as rpo:
         await rpo.delete(op.name or "", msg)
 
