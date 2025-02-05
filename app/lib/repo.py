@@ -51,15 +51,17 @@ async def get_entities(
 
     if specs.type is not None:
         if old.name is not None:
-            if await rpo.exists(old.name):
+            if await rpo.exists(op.type_name, old.name):
                 old.exists = True
-                old.is_link = await rpo.is_link(old.name)
-                old.link = await rpo.get_link(old.name) if old.is_link else None
-                old.yaml = await rpo.get(old.name)
+                old.is_link = await rpo.is_link(op.type_name, old.name)
+                old.link = (
+                    await rpo.get_link(op.type_name, old.name) if old.is_link else None
+                )
+                old.yaml = await rpo.get(op.type_name, old.name)
         if new.name is not None:
-            if await rpo.exists(new.name):
+            if await rpo.exists(op.type_name, new.name):
                 new.exists = True
-                new.is_link = await rpo.is_link(new.name)
+                new.is_link = await rpo.is_link(op.type_name, new.name)
 
     if old.yaml is not None:
         try:
