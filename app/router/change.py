@@ -62,9 +62,12 @@ async def update_entity(
         op.user, details=s.type.details if s.type else {}
     ) as rpo:
         if entity_name == entity.name:
-            diff = await rpo.write(entity_name, entity.yaml_old, entity.yaml_new, msg)
+            diff = await rpo.write(
+                type_name, entity_name, entity.yaml_old, entity.yaml_new, msg
+            )
         else:
             diff = await rpo.write_rename(
+                type_name,
                 entity_name,
                 entity.name or entity_name,
                 entity.yaml_old,
@@ -125,11 +128,16 @@ async def change_entity(
         op.user, details=s.repo.details if s.type else {}
     ) as rpo:
         if entity_name == entity.name:
-            diff = await rpo.write(entity_name, yaml_old, yaml_new, msg)
+            diff = await rpo.write(type_name, entity_name, yaml_old, yaml_new, msg)
 
         else:
             diff = await rpo.write_rename(
-                entity_name, entity.name or entity_name, yaml_old, yaml_new, msg
+                type_name,
+                entity_name,
+                entity.name or entity_name,
+                yaml_old,
+                yaml_new,
+                msg,
             )
 
     await action.run(TypeActionHook.CHANGE_AFTER, op, s)

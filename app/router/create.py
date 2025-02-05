@@ -68,11 +68,11 @@ async def add_entity(
             )
 
         if isinstance(op.entity, CopyEntity):
-            diff = await rpo.copy(name, op.entity.copy_name, msg)
+            diff = await rpo.copy(type_name, name, op.entity.copy_name, msg)
         elif isinstance(op.entity, LinkEntity):
-            diff = await rpo.link(name, op.entity.link_name, msg)
+            diff = await rpo.link(type_name, name, op.entity.link_name, msg)
         elif isinstance(op.entity, NewEntity):
-            diff = await rpo.write(name, "", op.entity.yaml, msg)
+            diff = await rpo.write(type_name, name, "", op.entity.yaml, msg)
         else:
             raise ServerError("Cannot happen!")
 
