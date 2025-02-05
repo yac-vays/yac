@@ -156,7 +156,8 @@ class GitRepo(IRepo):
 
     # TODO get rid of this hack!!
     async def update_details(self, details: dict) -> None:
-        self.details = details
+        if len(details) > 0:
+            self.details = details
         # if "file" in details:
         #    self.file = details.get("file", "")
         #    try:
@@ -318,7 +319,7 @@ class GitRepo(IRepo):
         if not dest.startswith(base):
             raise RepoError(f"Link {src} has an illegal destination: {dest}")
 
-        # TODO add error handling
+        # TODO add error handling (everywhere, handle not defined types)
         glob = await j2.render_str(self.details.get(type), {"name": "*"})
         link = dest[(len(base) + 1) :]
         start, end = glob.split("*", maxsplit=1)
