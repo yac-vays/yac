@@ -92,7 +92,7 @@ async def get_entities(
 
         rpo.update_details(s.repo.details)
         list_hash = await rpo.get_hash()
-        for entity_name in await rpo.list():
+        for entity_name in await rpo.list(type_name):
             if not search in entity_name:
                 continue  # skip the entities where search is not a substring
 

@@ -63,7 +63,9 @@ async def add_entity(
     ) as rpo:
         name = op.entity.name if op.entity else None
         if name is None:
-            name = await repo.gen_name(op, s, await rpo.list(), result.schemas.data)
+            name = await repo.gen_name(
+                op, s, await rpo.list(type_name), result.schemas.data
+            )
 
         if isinstance(op.entity, CopyEntity):
             diff = await rpo.copy(name, op.entity.copy_name, msg)
