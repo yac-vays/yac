@@ -41,13 +41,20 @@ def add_cors_headers_to_response(
     CORS headers are not automatically added to error handlers with FastAPI.
     Hack from: https://github.com/fastapi/fastapi/discussions/8027
     """
-    del request
     response.headers.update(
         {
             "Access-Control-Allow-Methods": "*",
             "Access-Control-Allow-Headers": "*",
             "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Origin": consts.ENV.cors_origins,
         }
     )
+
+    origin = request.headers.get("origin")
+    if origin in consts.ENV.cors_origins.split(","):
+        response.headers.update(
+            {
+                "Access-Control-Allow-Origin": origin,
+            }
+        )
+
     return response
