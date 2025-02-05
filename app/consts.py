@@ -14,10 +14,6 @@ We are using the OpenID Connect provider
 for authentication. You need to send a valid `id_token` via `Authorization: Bearer`
 header to all API endpoints that require authentication.
 
-Alternatively, you can set a cookie with `POST /token` (including the `id_token` in the
-`Authorization: Bearer` header) once. Then sending the cookie is sufficient for
-authentication.
-
 Only the following `client_id`s are accepted:
 `{'` `'.join(ENV.oidc_client_ids.split(","))}`
 

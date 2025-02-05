@@ -8,7 +8,8 @@ from app.model.err import http_responses
 from app.model.inp import OperationRequest
 from app.model.out import Status
 from app.model.out import Meta
-from app.model.out import User
+from app.model.inp import User as InpUser
+from app.model.out import User as OutUser
 
 router = APIRouter()
 
@@ -56,7 +57,7 @@ async def get_status(request: Request) -> Status:
 
     op = OperationRequest(
         request=request,
-        user=User(
+        user=OutUser(
             name="dummy-status-user",
             email="invalid",
             full_name="Dummy Status User",
@@ -71,3 +72,15 @@ async def get_status(request: Request) -> Status:
     async with repo.handler.reader(None, details={}) as rpo:
         _ = await specs.read(op, rpo)
         return Status(hash=await rpo.get_hash())
+
+
+@router.get(
+    "/me",
+    summary="Test the token for validity and get its content",
+    responses=http_responses(),
+)
+async def me(user: InpUser) -> OutUser:
+    """
+    Will validate the OpenID Connect ID Token and return some user data.
+    """
+    return user
