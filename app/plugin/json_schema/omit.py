@@ -15,7 +15,7 @@ class Omit(IJsonSchema):
         """
 
         for k, v in json_schema.items():
-            if not isinstance(str, v):
+            if not isinstance(v, str):
                 continue
             if v == OMIT:
                 del json_schema[k]
