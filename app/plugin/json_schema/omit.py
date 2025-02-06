@@ -14,7 +14,7 @@ class Omit(IJsonSchema):
         global j2 constant "omit".
         """
 
-        for k in json_schema.keys():
+        for k in list(json_schema.keys()):
             if not isinstance(json_schema[k], str):
                 continue
             if json_schema[k] == OMIT:
