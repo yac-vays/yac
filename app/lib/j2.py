@@ -7,6 +7,7 @@ import re
 
 import jinja2
 
+from app.consts import OMIT
 from app.lib import plugin
 from app.model.err import RequestError
 
@@ -53,6 +54,7 @@ async def render_str(
         finalize=json.dumps if nonstr else None,
     )
     j2.globals.update(plugin.get_functions("j2_functions"))
+    j2.globals["omit"] = OMIT
     j2.filters.update(plugin.get_functions("j2_filters"))
     j2.tests.update(plugin.get_functions("j2_tests"))
     try:
