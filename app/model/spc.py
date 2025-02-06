@@ -1,10 +1,8 @@
 from pydantic import BaseModel, Field
 from typing_extensions import Annotated
-from pydantic.config import Extra
+from pydantic.config import Extra  # pylint: disable=no-name-in-module
 
 from app.model import out
-
-# pylint: disable=too-few-public-methods
 
 
 class Request(BaseModel):
@@ -23,9 +21,12 @@ class TypeAction(out.TypeAction):
 
 class Type(out.Type):
     name_generator: str = "uuid()"
-    details: dict = {}
     logs: list[TypeLog] = []
-    actions: list[TypeAction] = []
+    actions: list[TypeAction] = []  # TODO fix (also see router.read.get_types())
+
+
+class Repo(BaseModel):
+    details: dict = {}
 
 
 class Role(BaseModel):
@@ -44,9 +45,11 @@ class Schema(BaseModel):
 
 
 class Specs(BaseModel):
+    version: int | None = None
     request: Request = Request()
     types: list[Type]
     type: Type | None = None
+    repo: Repo = Repo()
     roles: list[Role] = []
     sets: Sets = Sets()
     json_schema: Annotated[Schema, Field(alias="schema")]

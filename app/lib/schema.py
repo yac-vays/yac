@@ -3,6 +3,7 @@ Raises: [app.model.err.SchemaSpecsError]
 """
 
 import logging
+from typing import Any
 
 import jsonschema
 
@@ -20,31 +21,34 @@ from app.model.err import SchemaSpecsError
 logger = logging.getLogger(__name__)
 
 
-def get(
+async def get(
     op: inp.OperationRequest,
     schema_spec: spc.Schema,
     request_spec: spc.Request,
     old_data: dict,
-    old_perms: list[str],
+    perms: list[str],
     new_data: dict,
 ) -> out.Schema:
-    schema_props = props.get_schema(op, request_spec, old_data, old_perms, new_data)
+    schema_props = props.get_schema(op, request_spec, old_data, perms, new_data)
 
     if (
         schema_props["operation"] == "create"
-        and "add" not in schema_props["old"]["perms"]
+        and "add" not in schema_props["user"]["perms"]
     ):
+        # TODO revisit! is it really required!?
         # We need to inject the add permission on create to allow having a complete schema
         # for the VAYS user. The add permission is also validated in
         # plugin/validators/perms.py as a whole, so this should be safe.
-        schema_props["old"]["perms"].append("add")
+        schema_props["user"]["perms"].append("add")
 
     try:
-        json_schema = j2.render(dict(schema_spec), schema_props)
+        json_schema = await j2.render(dict(schema_spec), schema_props)
     except j2.J2Error as error:
         raise SchemaSpecsError(f"{error.loc}: {error}") from error
 
-    json_schema, ui_schema, _ = handle_schema("#", json_schema, {}, {}, schema_props)
+    json_schema, ui_schema, _ = await handle_schema(
+        "#", json_schema, {}, {}, schema_props
+    )
 
     # convert trivial cases into real schemas
     if json_schema is None or (isinstance(json_schema, bool) and not json_schema):
@@ -57,7 +61,6 @@ def get(
         logger.debug(f"Adding {name} format_checker {type(funct)}")
         format_checker.checks(name)(funct)
 
-    # TODO coordinate which validator to use with VAYS and update docs everywhere!
     validator = jsonschema.Draft7Validator(json_schema, format_checker=format_checker)
 
     try:
@@ -68,21 +71,21 @@ def get(
             data=new_data,
             valid=True,
         )
-    except jsonschema.exceptions.ValidationError as error:
+    except jsonschema.ValidationError as error:
         return out.Schema(
             json_schema=json_schema,
             ui_schema=ui_schema,
             data=new_data,
             valid=False,
             message=error.message,
-            validator=error.validator,
+            validator=str(error.validator),
             json_schema_loc="/".join(["#"] + [str(i) for i in list(error.schema_path)]),
             data_loc="/".join(["#"] + [str(i) for i in list(error.path)]),
         )
 
 
-def handle_schema(
-    loc: str, json_schema: dict | bool, ui_schema: dict, context: dict, prop: dict
+async def handle_schema(
+    loc: str, json_schema: dict | bool | Any, ui_schema: dict, context: dict, prop: dict
 ) -> tuple[dict | bool | None, dict, dict]:
 
     # pre-tests
@@ -99,19 +102,21 @@ def handle_schema(
 
     # pre_order plugins
 
-    for plug in plugin.get_modules_sorted("json_schema", late=False):
+    for plug in plugin.get_sorted("json_schema", "processor", late=False):
         logger.debug(
-            f"Early json_schema plugin {plug.__name__} processing schema at {loc}"
+            f"Early json_schema plugin {plug.__class__.__name__} processing schema at"
+            f" {loc}"
         )
-        json, cx = plug.process(loc, json, cx, p)
+        json, cx = await plug.process(loc, json, cx, p)
         if isinstance(json, bool) or json is None:
             return json, ui, cx
 
-    for plug in plugin.get_modules_sorted("ui_schema", late=False):
+    for plug in plugin.get_sorted("ui_schema", "processor", late=False):
         logger.debug(
-            f"Early ui_schema plugin {plug.__name__} processing schema at {loc}"
+            f"Early ui_schema plugin {plug.__class__.__name__} processing schema at"
+            f" {loc}"
         )
-        json, ui = plug.process(loc, json, ui, p)
+        json, ui = await plug.process(loc, json, ui, p)
         if isinstance(json, bool) or json is None:
             return json, ui, cx
 
@@ -119,7 +124,7 @@ def handle_schema(
 
     for k in SUBSCHEMAS:
         if k in json:
-            s, ui, cx = handle_schema(f"{loc}/{k}", json[k], ui, cx, p)
+            s, ui, cx = await handle_schema(f"{loc}/{k}", json[k], ui, cx, p)
             if s is None:
                 json.pop(k)
             else:
@@ -132,7 +137,9 @@ def handle_schema(
             if not isinstance(json[k], dict):
                 raise SchemaSpecsError(f"{loc}/{k} is not an object (of schemas)")
             for key in list(json[k].keys()):
-                s, ui, cx = handle_schema(f"{loc}/{k}/{key}", json[k][key], ui, cx, p)
+                s, ui, cx = await handle_schema(
+                    f"{loc}/{k}/{key}", json[k][key], ui, cx, p
+                )
                 if s is None:
                     json[k].pop(key)
                 else:
@@ -144,28 +151,30 @@ def handle_schema(
         if k in json:
             if not isinstance(json[k], list):
                 raise SchemaSpecsError(f"{loc}/{k} is not an array (of schemas)")
+            new_array = []
             for i, val in enumerate(json[k]):
-                s, ui, cx = handle_schema(f"{loc}/{k}/{str(i)}", val, ui, cx, p)
-                if s is None:
-                    json[k].pop(i)
-                else:
-                    json[k][i] = s
+                s, ui, cx = await handle_schema(f"{loc}/{k}/{str(i)}", val, ui, cx, p)
+                if s is not None:
+                    new_array.append(s)
+            json[k] = new_array
 
     # post_order plugins
 
-    for plug in plugin.get_modules_sorted("json_schema", late=True):
+    for plug in plugin.get_sorted("json_schema", "processor", late=True):
         logger.debug(
-            f"Late json_schema plugin {plug.__name__} processing schema at {loc}"
+            f"Late json_schema plugin {plug.__class__.__name__} processing schema at"
+            f" {loc}"
         )
-        json, cx = plug.process(loc, json, cx, p)
+        json, cx = await plug.process(loc, json, cx, p)
         if isinstance(json, bool) or json is None:
             return json, ui, cx
 
-    for plug in plugin.get_modules_sorted("ui_schema", late=True):
+    for plug in plugin.get_sorted("ui_schema", "processor", late=True):
         logger.debug(
-            f"Late ui_schema plugin {plug.__name__} processing schema at {loc}"
+            f"Late ui_schema plugin {plug.__class__.__name__} processing schema at"
+            f" {loc}"
         )
-        json, ui = plug.process(loc, json, ui, p)
+        json, ui = await plug.process(loc, json, ui, p)
         if isinstance(json, bool) or json is None:
             return json, ui, cx
 

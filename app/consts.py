@@ -22,9 +22,9 @@ dummy `nonce` parameter that won't be validated) is recommended. For
 automated login in scripts/software, use the `password` flow instead (therefore
 you will also need the `client_secret`).
 
-## Source and Issues
+## Source, Issues and Documentation
 
-Repository on [GitLab](https://gitlab.inf.ethz.ch/public-isg/yac-backend)
+Repository on [GitHub](https://github.com/yac-vays/yac)
 """
 CONTACT = {
     "name": "Manuel (isginf)",
@@ -81,3 +81,5 @@ SVG_ACTION = (
     "Zm28-90q21 0 35.5-14.5T832-700q0-21-14.5-35.5T782-750q-21 0-35.5 1"
     '4.5T732-700q0 21 14.5 35.5T782-650ZM362-200Z"/></svg>'
 )
+
+OMIT: str = "ff972494-7f6d-4550-a768-c044614a56dd-b8dc26ea-9c37-4768-89ea-bf56fac86c4c"

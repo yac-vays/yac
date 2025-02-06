@@ -19,9 +19,9 @@ def __request(request: Request, request_spec: spc.Request) -> dict:
             headers[key] = value
         else:
             headers[key] = spec.get("default", "")
-
+    host = request.client.host if request.client else ""
     return {
-        "ip": request.client.host,
+        "ip": host,
         "headers": headers,
     }
 
@@ -42,6 +42,7 @@ def get_types(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
 
 def get_action(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     return {
+        "env": consts.ENV.env,
         "request": __request(op.request, request_spec),
         "user": dict(op.user),
         "operation": op.operation,
@@ -52,16 +53,19 @@ def get_action(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
         "new": {
             "name": None if op.entity is None else op.entity.name,
         },
+        "name": op.entity.name if op.entity and op.entity.name else op.name,
     }
 
 
 def get_log(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     return {
+        "env": consts.ENV.env,
         "request": __request(op.request, request_spec),
         "user": dict(op.user),
         "old": {
             "name": op.name,
         },
+        "name": op.name,
     }
 
 
@@ -82,6 +86,7 @@ def get_roles(
         "new": {
             "name": None if op.entity is None else op.entity.name,
         },
+        "name": op.entity.name if op.entity and op.entity.name else op.name,
     }
 
 
@@ -106,23 +111,23 @@ def get_schema(
     op: inp.OperationRequest,
     request_spec: spc.Request,
     old_data: None | dict,
-    old_perms: list[str],
+    perms: list[str],
     new_data: None | dict,
 ) -> dict:
     return {
         "env": consts.ENV.env,
         "request": __request(op.request, request_spec),
-        "user": dict(op.user),
+        "user": {**dict(op.user), "perms": perms},
         "operation": op.operation,
         "actions": op.actions,
         "type": op.type_name,
         "old": {
             "name": op.name,
             "data": old_data or {},
-            "perms": old_perms,
         },
         "new": {
             "name": None if op.entity is None else op.entity.name,
             "data": new_data or {},
         },
+        "name": op.entity.name if op.entity and op.entity.name else op.name,
     }

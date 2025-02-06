@@ -5,6 +5,8 @@ in a GIT repository via UI/API. It allows versatile permission definitions on
 file and parameter/value level and generates a UI schema and a JSON schema to
 display a form and validate the input.
 
+For the full documentation, see: https://yac-vays.github.io
+
 ## Configuration
 
 Some basics like the repository are configured through environment variables.

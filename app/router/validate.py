@@ -36,14 +36,8 @@ async def validate_operation(
         entity=op.entity,
     )
 
-    s = None if specs.in_repo() else await specs.read_from_file(op)
-
     async with repo.handler.reader(op.user, details={}, dirty=True) as rpo:
-        if specs.in_repo():
-            s = await specs.read_from_repo(rpo, op)
-        if s is not None and s.type is not None:
-            rpo.update_details(s.type.details)
+        s = await specs.read(op, rpo)
+        old, new, perms = await repo.get_entities(rpo, op, s)
 
-        old, new = await repo.get_entities(rpo, op, s)
-
-    return validator.test_all(op, s, old, new, raise_on_error=False)
+    return await validator.test_all(op, s, old, new, perms, raise_on_error=False)

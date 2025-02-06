@@ -22,7 +22,6 @@ COPY ./app /code/app
 
 FROM build AS test
 
-# TODO enable pylint and enforce by removing --exit-zero
 RUN pip install --no-cache-dir --upgrade --compile pylint
 RUN pylint --rcfile /code/app/.pylintrc --exit-zero /code/app /code/app/plugin/*/*.py
 COPY ./tests /code/tests
@@ -38,8 +37,8 @@ FROM build AS production
 # Enforce test run
 COPY --from=test /tmp/tested /dev/null
 
-ARG version=v0
+ARG version=v0.0
 RUN echo 'VERSION = "'${version#v}'"' > /code/app/version.py
 
 EXPOSE 80
-ENTRYPOINT ["uvicorn", "--log-config", "app/uvicorn.yml", "--host", "0.0.0.0", "--port", "80", "app.main:app"]
+ENTRYPOINT ["uvicorn", "--log-config", "app/uvicorn.yml", "--host", "0.0.0.0", "--port", "80", "app.main:yac"]

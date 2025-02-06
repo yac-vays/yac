@@ -1,24 +1,12 @@
 # Validator Plugins
 
 Validator plugins are all processed according to their order. They are used to
-validate a request before the operation may happen.
+validate a request before the requested operation may happen.
 
-Each plugin must implement the following functions:
+Each plugin must implement the the `app.model.plg.IValidator` class and provide an
+instance of that class as `tester` variable.
 
-    def order() -> tuple[bool, int] # late, order
-    def test(op: app.model.inp.OperationRequest, spec: app.model.spc.Specs, old: app.model.rpo.Entity, new: app.model.rpo.Entity) -> None
-
-With:
-
-    late # if the plugin should run for all operations (false) or for all except
-           listing entities (true)
-    order # number to be sorted after, lower numbers run earlier
-    op # the operation requested to be executed
-    spec # the parsed specs
-    old # the old entity to operate on (if any)
-    new # the new entity to operate on (if any)
-
-The plugin **must** only raise the following exception:
+It may raise the following exceptions:
 
     app.model.err.RequestError # the request is not valid
     app.model.err.RequestConflict # the data has changed in the meantime

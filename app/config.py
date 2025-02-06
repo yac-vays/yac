@@ -1,4 +1,3 @@
-import logging
 from typing import Literal
 
 from pydantic_settings import BaseSettings
@@ -11,9 +10,11 @@ class Settings(BaseSettings):
     root_path: str = "/"
     cors_origins: str = "https://localhost"  # comma separated string-list
     log_level: Literal["critical", "error", "warning", "info", "debug"] = "info"
+    format_plugin: str = "plain"
     # ATTENTION: high risk of leaking secrets to the users, only use in dev environments!
     debug_mode: bool = False
 
+    # TODO move this all into specs!
     repo_plugin: str = "git_direct"
     repo: dict = {}  # repo_plugin env vars, see app/plugin/repo/*.py
 

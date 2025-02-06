@@ -1,17 +1,11 @@
 # Action Plugins
 
-Action plugins are referenced by filename.
+Action plugins are referenced by filename in the specs.
 
-Each plugin must implement the following function:
+Each plugin must implement the the `app.model.plg.IAction` class and provide an
+instance of that class as `action` variable.
 
-    async def run(*, details: dict, props: dict) -> None
-
-With:
-
-    details # plugin-specific configuration passed through from the specs
-    props # context vars according to ../../../docs/specs/general.md
-
-The plugin **must** only raise one of the following exceptions:
+It may raise the following exceptions:
 
     app.model.err.ActionClientError # with message for the user
     app.model.err.ActionError       # irrelevant for user, only log

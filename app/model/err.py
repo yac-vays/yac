@@ -1,7 +1,10 @@
 class YACError(Exception):
     code = 500
     title = "Internal Server Error"
-    default_message = "Please try again later or contact your administrator if the error does not disappear."
+    default_message = (
+        "Please try again later or contact your administrator if the error does not"
+        " disappear."
+    )
 
 
 #

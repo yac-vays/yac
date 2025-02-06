@@ -1,4 +1,5 @@
 import logging
+import asyncio
 
 from fastapi import APIRouter
 from fastapi import Request
@@ -48,15 +49,12 @@ async def get_types(
         entity=None,
     )
 
-    if specs.in_repo():
-        async with repo.handler.reader(op.user, details={}, dirty=True) as rpo:
-            s = await specs.read_from_repo(rpo, op)
-    else:
-        s = await specs.read_from_file(op)
+    async with repo.handler.reader(op.user, details={}, dirty=True) as rpo:
+        s = await specs.read(op, rpo)
 
     # List comprehension dict hack is required because otherwise pydantic 2.7.4
     # returns the whole object instead of reducing it to the values of out.Type.
-    return [t.dict() for t in s.types]
+    return [t.model_dump() for t in s.types]  # type: ignore
 
 
 @router.get(
@@ -64,7 +62,7 @@ async def get_types(
     summary="List entities of a specific type",
     responses=http_responses(),
 )
-async def get_entities(  # pylint: disable=too-many-arguments
+async def get_entities(
     request: Request,
     user: User,
     type_name: PathType,
@@ -87,32 +85,27 @@ async def get_entities(  # pylint: disable=too-many-arguments
         entity=None,
     )
 
-    s = None if specs.in_repo() else await specs.read_from_file(op)
-
     result = []
     async with repo.handler.reader(op.user, details={}) as rpo:
-        if specs.in_repo():
-            s = await specs.read_from_repo(rpo, op)
-        if s is not None and s.type is not None:
-            rpo.update_details(s.type.details)
+        s = await specs.read(op, rpo)
+        await validator.test_ls(op, s)
 
-        validator.test_ls(op, s)
-
+        rpo.update_details(s.repo.details)
         list_hash = await rpo.get_hash()
-        for entity_name in await rpo.list():
+        for entity_name in await rpo.list(type_name):
             if not search in entity_name:
                 continue  # skip the entities where search is not a substring
 
             op.name = entity_name
             try:
-                old, _ = await repo.get_entities(rpo, op, s)
+                old, _, perms = await repo.get_entities(rpo, op, s)
             except RepoError as error:
                 logger.warning(error)
                 continue  # skip the entities we have errors reading
-            if "see" not in (old.perms or []):
+            if "see" not in perms:
                 continue  # skip the entities we have no permissions
 
-            result.append(repo.to_detailed_entity(old, list_hash, s.type))
+            result.append(repo.to_detailed_entity(old, perms, list_hash, s.type))
 
             if (limit + skip) <= len(result):
                 break
@@ -144,26 +137,20 @@ async def get_entity(
         entity=None,
     )
 
-    s = None if specs.in_repo() else await specs.read_from_file(op)
-
     async with repo.handler.reader(op.user, details={}) as rpo:
-        if specs.in_repo():
-            s = await specs.read_from_repo(rpo, op)
-        if s is not None and s.type is not None:
-            rpo.update_details(s.type.details)
-
-        old, new = await repo.get_entities(rpo, op, s)
+        s = await specs.read(op, rpo)
+        old, new, perms = await repo.get_entities(rpo, op, s)
         entity_hash = await rpo.get_hash()
 
-    validator.test_all(op, s, old, new)
+    await validator.test_all(op, s, old, new, perms)
 
-    return repo.to_detailed_entity(old, entity_hash, s.type)
+    return repo.to_detailed_entity(old, perms, entity_hash, s.type)
 
 
 @router.get(
     "/entity/{type}/{name}/yaml",
     summary="Get the raw YAML data of a specific entity",
-    response_class=PlainTextResponse(media_type="application/yaml"),
+    response_class=PlainTextResponse,
     responses=http_responses(),
 )
 async def get_entity_yaml(
@@ -182,17 +169,11 @@ async def get_entity_yaml(
         entity=None,
     )
 
-    s = None if specs.in_repo() else await specs.read_from_file(op)
-
     async with repo.handler.reader(op.user, details={}) as rpo:
-        if specs.in_repo():
-            s = await specs.read_from_repo(rpo, op)
-        if s is not None and s.type is not None:
-            rpo.update_details(s.type.details)
+        s = await specs.read(op, rpo)
+        old, new, perms = await repo.get_entities(rpo, op, s)
 
-        old, new = await repo.get_entities(rpo, op, s)
-
-    validator.test_all(op, s, old, new)
+    await validator.test_all(op, s, old, new, perms)
 
     return PlainTextResponse(content=old.yaml, media_type="application/yaml")
 
@@ -219,17 +200,15 @@ async def get_entity_logs(
         entity=None,
     )
 
-    s = None if specs.in_repo() else await specs.read_from_file(op)
-
-    # TODO run the validation lazyly
     async with repo.handler.reader(op.user, details={}, dirty=True) as rpo:
-        if specs.in_repo():
-            s = await specs.read_from_repo(rpo, op)
-        if s is not None and s.type is not None:
-            rpo.update_details(s.type.details)
+        s = await specs.read(op, rpo)
 
-        old, new = await repo.get_entities(rpo, op, s)
+        # request the logs before/while validating the request to optimize performance
+        logs = asyncio.create_task(log.get(op, s))
+        # return control to the loop so the task can start immediately
+        await asyncio.sleep(0)
 
-    validator.test_all(op, s, old, new)
+        old, new, perms = await repo.get_entities(rpo, op, s)
 
-    return await log.get(op, s)
+    await validator.test_all(op, s, old, new, perms)
+    return await logs

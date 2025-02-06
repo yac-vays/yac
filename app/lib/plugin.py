@@ -77,8 +77,8 @@ def __sort(plugin1, plugin2) -> int:
 
 
 @lru_cache(maxsize=None)
-def get_modules_sorted(
-    kind: str, *, require: tuple[str] | None = None, late: bool = False
+def get_sorted(
+    kind: str, varname: str, *, require: tuple[str] | None = None, late: bool = False
 ) -> list[ModuleType]:
     """
     Modules of this kind need to implement a order() function that returns
@@ -86,16 +86,19 @@ def get_modules_sorted(
     for late (True) or early (False) execution and the int is a order number
     within the execution time (late/early), so a higher number runs later.
     """
-    modules = []
-    for module in sorted(get_modules(kind, require).values(), key=cmp_to_key(__sort)):
+    vars = []
+    for var in sorted(
+        [getattr(m, varname) for m in get_modules(kind, require).values()],
+        key=cmp_to_key(__sort),
+    ):
         try:
-            po, _ = module.order()
+            po, _ = var.order()
             assert isinstance(po, bool)
         except (AttributeError, AssertionError):
             po = False
         if po == late:
-            modules.append(module)
-    return modules
+            vars.append(var)
+    return vars
 
 
 @lru_cache(maxsize=None)

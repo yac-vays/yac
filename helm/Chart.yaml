@@ -1,4 +1,5 @@
 apiVersion: v2
-name: yac-backend
+name: yac
 type: application
-version: 0.0.1
+version: 1
+# TODO cleanup helm chart!

@@ -21,8 +21,7 @@ y.representer.add_representer(
 
 y_non_strict = ruamel.yaml.YAML(typ="rt")
 y_non_strict.allow_duplicate_keys = True
-
-YAMLSafeBase = ruamel.yaml.comments.CommentedBase
+YAMLSafeBase = ruamel.yaml.comments.CommentedBase  # type: ignore
 YAMLError = ruamel.yaml.YAMLError
 
 
@@ -54,8 +53,13 @@ def dump(data: dict | YAMLObject | None) -> str:
 def has_structural_changes(yaml_old: str, yaml_new: str) -> bool:
     old = load(yaml_old)
     new = load(yaml_new)
+
+    # ruamel cannot handle cases where one is None
     if old is None:
         return False
+    if new is None:
+        return True
+
     old.update(new)
     return dump(old) != dump(new)
 

@@ -2,15 +2,22 @@
 Raises: [app.model.err.AuthError]
 """
 
+import logging
+from typing import Optional
+from typing_extensions import Annotated
+
 from authlib.common.errors import AuthlibBaseError
 from authlib.integrations.starlette_client import OAuth
-from fastapi import Depends
+from fastapi import Depends, Cookie
 from fastapi.security.open_id_connect_url import OpenIdConnect
-from typing_extensions import Annotated
+from starlette.requests import Request
 
 from app import consts
 from app.model.err import AuthError
 from app.model.out import User
+
+logger = logging.getLogger(__name__)
+
 
 authlib_oauth = OAuth()
 authlib_oauth.register(
@@ -27,13 +34,13 @@ fastapi_oauth2 = OpenIdConnect(
 
 async def get_current_user(token: Annotated[str, Depends(fastapi_oauth2)]) -> User:
     try:
-        user = await authlib_oauth.oidc.parse_id_token(
+        user = await authlib_oauth.oidc.parse_id_token(  # type: ignore
             token={"id_token": token[7:] if token[:7] == "Bearer " else token},
             nonce=None,  # can be ignored because we're using PKCE
         )
         if user["aud"] not in consts.ENV.oidc_client_ids.split(","):
             raise AuthlibBaseError(f'"{user["aud"]}" is not an accepted client_id')
-    except AuthlibBaseError as error:
+    except (AttributeError, AuthlibBaseError) as error:
         raise AuthError(
             f"Supplied authentication could not be validated ({error})"
         ) from error

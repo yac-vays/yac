@@ -3,11 +3,12 @@ from fastapi import APIRouter, status, Request
 from app.lib import repo
 from app.lib import specs
 from app.version import VERSION
+from app.consts import ENV
 from app.model.err import http_responses
 from app.model.inp import OperationRequest
-from app.model.inp import User as InpUser
 from app.model.out import Status
 from app.model.out import Meta
+from app.model.inp import User as InpUser
 from app.model.out import User as OutUser
 
 router = APIRouter()
@@ -15,14 +16,18 @@ router = APIRouter()
 
 @router.get(
     "/meta",
-    summary="Test if the application is running",
+    summary="Meta data",
     responses=http_responses(),
 )
 async def get_meta() -> Meta:
     """
     Will return some meta data.
     """
-    return Meta(version=VERSION)
+    return Meta(
+        version=VERSION,
+        oidc_url=ENV.oidc_url,
+        oidc_client_ids=ENV.oidc_client_ids.split(","),
+    )
 
 
 @router.get(
@@ -64,19 +69,14 @@ async def get_status(request: Request) -> Status:
         entity=None,
     )
 
-    if not specs.in_repo():
-        _ = await specs.read_from_file(op)
-
     async with repo.handler.reader(None, details={}) as rpo:
-        if specs.in_repo():
-            _ = await specs.read_from_repo(rpo, op)
-
+        _ = await specs.read(op, rpo)
         return Status(hash=await rpo.get_hash())
 
 
 @router.get(
     "/me",
-    summary="Test the token for validity",
+    summary="Test the token for validity and get its content",
     responses=http_responses(),
 )
 async def me(user: InpUser) -> OutUser:

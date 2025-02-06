@@ -1,6 +1,6 @@
 from typing import Literal
 
-from fastapi import Query, Depends, Path
+from fastapi import Query, Depends, Path, Request
 from pydantic import BaseModel, Field
 from typing_extensions import Annotated
 
@@ -35,9 +35,7 @@ class LinkEntity(Entity):
     link_name: Annotated[
         str,
         Field(
-            description="""
-    Contains the name of the entity where this one is linked to
-    """,
+            description="Contains the name of the entity where this one is linked to",
             alias="link",
             pattern=consts.NAME_PATTERN,
         ),
@@ -52,9 +50,7 @@ class CopyEntity(Entity):
     copy_name: Annotated[
         str,
         Field(
-            description="""
-    Contains the name of the entity to copy
-    """,
+            description="Contains the name of the entity to copy",
             alias="copy",
             pattern=consts.NAME_PATTERN,
         ),
@@ -72,6 +68,9 @@ class NewEntity(Entity):
 class ReplaceEntity(Entity):
     """
     An existing entity with raw YAML data.
+
+    To ensure the entity was not modified in the meantime, you have to send the
+    old data in raw YAML.
     """
 
     yaml_old: str
@@ -88,9 +87,13 @@ class UpdateEntity(Entity):
     the other hand are completely replaced.
 
     **Hint:** The string "~undefined" will unset the whole object-key / list-item.
+
+    To ensure the entity was not modified in the meantime, you can send the old
+    data in raw YAML (optional).
     """
 
     data: dict
+    yaml_old: str | None = None
 
 
 class Operation(BaseModel):
@@ -104,5 +107,8 @@ class Operation(BaseModel):
 
 
 class OperationRequest(Operation):
-    request: object  # Request lets pydantic fail
+    class Config:
+        arbitrary_types_allowed = True
+
+    request: Request
     user: out.User

@@ -13,12 +13,12 @@ from app.model.inp import UpdateEntity
 from app.model.out import Request
 from app.model.out import Schema
 from app.model.out import ValidationResult
-from app.model.rpo import Entity
+from app.model.int import Entity
 from app.model.spc import Specs
 
 
-def test_all(
-    op: OperationRequest, specs: Specs, old: Entity, new: Entity, *, raise_on_error=True
+async def test_all(
+    op: OperationRequest, specs: Specs, old: Entity, new: Entity, perms: list[str] = [], *, raise_on_error=True
 ) -> ValidationResult:
     """
     Will try to generate the schemas even with faulty data. It either throws a
@@ -47,12 +47,12 @@ def test_all(
     if op.operation == "change" or (
         op.operation == "create" and isinstance(op.entity, NewEntity)
     ):
-        schemas = schema.get(
+        schemas = await schema.get(
             op,
             specs.json_schema,
             specs.request,
             old.data or {},
-            old.perms or [],
+            perms,
             new_data,
         )
     else:
@@ -60,10 +60,10 @@ def test_all(
 
     require = ("actions", "conflicts", "names", "operations", "perms", "type_spec")
     try:
-        for plug in plugin.get_modules_sorted("validator", require=require, late=False):
-            plug.test(op, specs)
-        for plug in plugin.get_modules_sorted("validator", require=require, late=True):
-            plug.test(op, specs, old, new)
+        for p in plugin.get_sorted("validator", "tester", require=require, late=False):
+            await p.test_always(op, specs)
+        for p in plugin.get_sorted("validator", "tester", require=require, late=True):
+            await p.test_nolist(op, specs, old, new, perms)
     except RequestError as error:
         if raise_on_error:
             raise error
@@ -77,7 +77,7 @@ def test_all(
     return ValidationResult(schemas=schemas, request=request)
 
 
-def test_ls(op: OperationRequest, specs: Specs) -> None:
+async def test_ls(op: OperationRequest, specs: Specs) -> None:
     require = ("names", "operations", "type_spec")
-    for plug in plugin.get_modules_sorted("validator", require=require, late=False):
-        plug.test(op, specs)
+    for p in plugin.get_sorted("validator", "tester", require=require, late=False):
+        await p.test_always(op, specs)

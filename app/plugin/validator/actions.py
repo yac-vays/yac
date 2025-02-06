@@ -1,43 +1,50 @@
 from app.model.err import RequestForbidden
 from app.model.err import RequestNotFound
 from app.model.inp import OperationRequest
-from app.model.rpo import Entity
+from app.model.int import Entity
 from app.model.spc import Specs
-
-# pylint: disable=unused-argument
-
-
-def order() -> tuple[bool, int]:
-    return True, 20
+from app.model.plg import IValidator
 
 
-def test(op: OperationRequest, spec: Specs, old: Entity, new: Entity) -> None:
-    """
-    Test if the actions are valid for this operation and if the user has the
-    permissions to execute them.
-    """
+class ActionTester(IValidator):
+    def order(self) -> tuple[bool, int]:
+        return True, 20
 
-    for action in op.actions:
-        action_spec = next(
-            (a for a in getattr(spec.type, "actions", []) if a.name == action), None
-        )
+    async def test_nolist(
+        self, op: OperationRequest, spec: Specs, old: Entity, new: Entity, perms: list[str]
+    ) -> None:
+        """
+        Test if the actions are valid for this operation and if the user has the
+        permissions to execute them.
+        """
+        del new
 
-        if action_spec is None:
-            raise RequestNotFound(f"Action {action} is not defined")
+        for action in op.actions:
+            action_spec = next(
+                (a for a in getattr(spec.type, "actions", []) if a.name == action), None
+            )
 
-        hooked = False
-        for hook in action_spec.hooks:
-            if hook.split(":")[0] == op.operation:
-                hooked = True
-                break
+            if action_spec is None:
+                raise RequestNotFound(f"Action {action} is not defined")
 
-        if not hooked:
-            raise RequestNotFound(f"Action {action} is not defined for this operation")
+            hooked = False
+            for hook in action_spec.hooks:
+                if hook.split(":")[0] == op.operation:
+                    hooked = True
+                    break
 
-        perms_required = getattr(action_spec, "perms", ["act"])
-        if len(set(old.perms or []).intersection(set(perms_required))) <= 0:
-            if op.operation == "arbitrary" or not action_spec.force:
-                raise RequestForbidden(
-                    f"You need one of these permission to run this action(s): "
-                    f'{", ".join(perms_required)}'
+            if not hooked:
+                raise RequestNotFound(
+                    f"Action {action} is not defined for this operation"
                 )
+
+            perms_required = getattr(action_spec, "perms", ["act"])
+            if len(set(perms).intersection(set(perms_required))) <= 0:
+                if op.operation == "arbitrary" or not action_spec.force:
+                    raise RequestForbidden(
+                        "You need one of these permission to run this action(s): "
+                        f"{', '.join(perms_required)}"
+                    )
+
+
+tester = ActionTester()
