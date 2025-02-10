@@ -18,7 +18,13 @@ from app.model.spc import Specs
 
 
 async def test_all(
-    op: OperationRequest, specs: Specs, old: Entity, new: Entity, perms: list[str] = [], *, raise_on_error=True
+    op: OperationRequest,
+    specs: Specs,
+    old: Entity,
+    new: Entity,
+    perms: list[str] = [],
+    *,
+    raise_on_error=True
 ) -> ValidationResult:
     """
     Will try to generate the schemas even with faulty data. It either throws a
@@ -51,6 +57,7 @@ async def test_all(
             op,
             specs.json_schema,
             specs.request,
+            specs.context,
             old.data or {},
             perms,
             new_data,

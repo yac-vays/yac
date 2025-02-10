@@ -47,6 +47,7 @@ class Schema(BaseModel):
 class Specs(BaseModel):
     version: int | None = None
     request: Request = Request()
+    context: dict = {}
     types: list[Type]
     type: Type | None = None
     repo: Repo = Repo()

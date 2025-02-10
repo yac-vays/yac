@@ -113,8 +113,10 @@ def get_schema(
     old_data: None | dict,
     perms: list[str],
     new_data: None | dict,
+    context: dict,
 ) -> dict:
     return {
+        "context": context,
         "env": consts.ENV.env,
         "request": __request(op.request, request_spec),
         "user": {**dict(op.user), "perms": perms},

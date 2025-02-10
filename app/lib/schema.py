@@ -25,11 +25,14 @@ async def get(
     op: inp.OperationRequest,
     schema_spec: spc.Schema,
     request_spec: spc.Request,
+    context: dict,
     old_data: dict,
     perms: list[str],
     new_data: dict,
 ) -> out.Schema:
-    schema_props = props.get_schema(op, request_spec, old_data, perms, new_data)
+    schema_props = props.get_schema(
+        op, request_spec, old_data, perms, new_data, context
+    )
 
     if (
         schema_props["operation"] == "create"
