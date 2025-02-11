@@ -1,7 +1,8 @@
 import enum
 from typing import Any
-from typing import Literal
+from typing import Literal, Callable
 from typing_extensions import Annotated
+from typing_extensions import Any
 
 from pydantic import BaseModel, Field
 
@@ -145,14 +146,15 @@ class Schema(BaseModel):
     **Note**: The schemata are generated upon the data, so they might change
     when data changes. So make sure you regenerate them for chaning data to
     always have the most correct schemata.
+
+    All `title` and `description` keys within the json_schema are markdown
+    formatted strings.
     """
 
     json_schema: Annotated[
         dict,
         Field(
-            description="""
-    The data structure (json-schema.org 2020-12)
-    """,
+            description="The data structure (json-schema.org 2020-12)",
             examples=[{"type": "object", "properties": {"owner": {"type": "string"}}}],
         ),
     ]
@@ -262,7 +264,7 @@ class TypeOption(BaseModel):
         ),
     ] = None
     aliases: Annotated[
-        dict,
+        dict[str, Annotated[str, Field(description="Markdown formatted string")]],
         Field(description="A key-value list of aliases to use for the options"),
     ] = {}
 
@@ -306,7 +308,7 @@ class TypeActionHook(str, enum.Enum):
 class TypeAction(BaseModel):
     name: Annotated[str, Field(examples=["install"])]
     title: Annotated[str, Field(examples=["Install"])]
-    description: str = ""
+    description: Annotated[str, Field(description="Markdown formatted string")] = ""
     dangerous: Annotated[
         bool,
         Field(
@@ -404,7 +406,7 @@ class Type(BaseModel):
         Literal["never", "optional", "enforced"],
         Field(description=consts.DESC_NAME_GENERATED),
     ] = "never"
-    description: str = ""
+    description: Annotated[str, Field(description="Markdown formatted string")] = ""
     create: Annotated[
         bool,
         Field(
