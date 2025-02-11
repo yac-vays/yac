@@ -59,7 +59,7 @@ async def update_entity(
     await action.run(TypeActionHook.CHANGE_BEFORE, op, s)
 
     async with repo.handler.writer(
-        op.user, details=s.type.details if s.type else {}
+        op.user, details=s.repo.details if s.type else {}
     ) as rpo:
         if entity_name == entity.name:
             diff = await rpo.write(
