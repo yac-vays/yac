@@ -36,7 +36,6 @@ class Formats(IJsonSchema):
         if json_schema["format"] in plugin.get_functions("schema_formats").keys():
             return json_schema, context
 
-        # TODO test if it works!
         raise SchemaSpecsError(
             f'{loc}/format validator "{json_schema["format"]}" is not defined'
         )

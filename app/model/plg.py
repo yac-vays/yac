@@ -126,7 +126,6 @@ class IValidator(ISortable):
 
 
 class IRepo:
-    # TODO fix race condition (rarely details from wrong type are used)!! make details + operations type specific
     @asynccontextmanager
     @abstractmethod
     async def reader(

@@ -34,7 +34,13 @@ logger = logging.getLogger(__name__)
 # Startup / Shutdown
 #
 
-# TODO update all yac specs and docs to match the new j2-everywhere syntax (logs, actions, repo)
+# TODO update docs to match the new j2-everywhere syntax (logs, actions, repo)
+
+if consts.ENV.debug_mode:
+    logger.warning(
+        "DEBUG_MODE is enabled! This is DANGEROUS and will leak sensitive data"
+        " to the user, so please only enable in development or testing environments!"
+    )
 
 
 @asynccontextmanager
