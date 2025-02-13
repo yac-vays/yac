@@ -49,7 +49,8 @@ async def delete_entity(
 
     async with repo.handler.reader(op.user, details={}) as rpo:
         s = await specs.read(op, rpo)
-        old, new, perms = await repo.get_entities(rpo, op, s)
+        hash = await rpo.get_hash()
+        old, new, perms = await repo.get_entities(hash, rpo, op, s)
 
     await validator.test_all(op, s, old, new, perms)
 
@@ -58,6 +59,6 @@ async def delete_entity(
     async with repo.handler.writer(
         op.user, details=s.repo.details if s.type else {}
     ) as rpo:
-        await rpo.delete(op.name or "", msg)
+        await rpo.delete(type_name, op.name or "", msg)
 
     await action.run(TypeActionHook.DELETE_AFTER, op, s)

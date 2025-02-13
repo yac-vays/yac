@@ -90,9 +90,10 @@ async def get_entities(
     result = []
     async with repo.handler.reader(op.user, details={}) as rpo:
         s = await specs.read(op, rpo)
+        hash = await rpo.get_hash()
         await validator.test_ls(op, s)
 
-        rpo.update_details(s.repo.details)
+        await rpo.update_details(s.repo.details)
         list_hash = await rpo.get_hash()
         for entity_name in await rpo.list(type_name):
             if not search in entity_name:
@@ -100,7 +101,7 @@ async def get_entities(
 
             op.name = entity_name
             try:
-                old, _, perms = await repo.get_entities(rpo, op, s)
+                old, _, perms = await repo.get_entities(hash, rpo, op, s)
             except RepoError as error:
                 logger.warning(error)
                 continue  # skip the entities we have errors reading
@@ -142,7 +143,8 @@ async def get_entity(
 
     async with repo.handler.reader(op.user, details={}) as rpo:
         s = await specs.read(op, rpo)
-        old, new, perms = await repo.get_entities(rpo, op, s)
+        hash = await rpo.get_hash()
+        old, new, perms = await repo.get_entities(hash, rpo, op, s)
         entity_hash = await rpo.get_hash()
 
     await validator.test_all(op, s, old, new, perms)
@@ -175,7 +177,8 @@ async def get_entity_yaml(
 
     async with repo.handler.reader(op.user, details={}) as rpo:
         s = await specs.read(op, rpo)
-        old, new, perms = await repo.get_entities(rpo, op, s)
+        hash = await rpo.get_hash()
+        old, new, perms = await repo.get_entities(hash, rpo, op, s)
 
     await validator.test_all(op, s, old, new, perms)
 
@@ -213,7 +216,8 @@ async def get_entity_logs(
         # return control to the loop so the task can start immediately
         await asyncio.sleep(0)
 
-        old, new, perms = await repo.get_entities(rpo, op, s)
+        hash = await rpo.get_hash()
+        old, new, perms = await repo.get_entities(hash, rpo, op, s)
 
     await validator.test_all(op, s, old, new, perms)
     return await logs

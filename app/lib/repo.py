@@ -8,6 +8,7 @@ from app.lib import perms
 from app.lib import plugin
 from app.lib import props
 from app.lib import yaml
+from app.lib.cache import partial_alru_cache
 from app.model.err import RepoClientError
 from app.model.err import RepoError
 from app.model.err import RepoSpecsError
@@ -24,9 +25,47 @@ repo_plugin = plugin.get_module("repo", consts.ENV.repo_plugin)
 handler: IRepo = repo_plugin.handler
 
 
-# TODO alru caching: from async_lru import alru_cache -> @alru_cache(maxsize=32, ttl=1)
+@partial_alru_cache("hash", "type_name", "old_name", "new_name", maxsize=10000)
+async def __lookup_entities(
+    hash: str,
+    type_name: str,
+    old_name: str | None,
+    new_name: str | None,
+    type_exists: bool,
+    rpo: IRepo,
+) -> tuple[Entity, Entity]:
+    del hash  # only required to flush the cache on repo changes
+
+    old = Entity(name=old_name)
+    new = Entity(name=new_name)
+
+    if type_exists:
+        if old.name is not None:
+            if await rpo.exists(type_name, old.name):
+                old.exists = True
+                old.is_link = await rpo.is_link(type_name, old.name)
+                old.link = (
+                    await rpo.get_link(type_name, old.name) if old.is_link else None
+                )
+                old.yaml = await rpo.get(type_name, old.name)
+        if new.name is not None:
+            if await rpo.exists(type_name, new.name):
+                new.exists = True
+                new.is_link = await rpo.is_link(type_name, new.name)
+
+    if old.yaml is not None:
+        try:
+            old.data = yaml.load_as_dict(old.yaml, strict=False)
+        except yaml.YAMLError as error:
+            raise RepoError(
+                f"Failed to parse YAML of {type_name} {old.name}: {error}"
+            ) from error
+
+    return old, new
+
+
 async def get_entities(
-    rpo: IRepo, op: OperationRequest, specs: Specs
+    hash: str, rpo: IRepo, op: OperationRequest, specs: Specs
 ) -> tuple[Entity, Entity, list[str]]:
     """
     Try to collect data about the entity refered in this OperationRequest.
@@ -35,46 +74,26 @@ async def get_entities(
 
     await rpo.update_details(specs.repo.details)
 
-    old = Entity()
-    new = Entity()
+    old_name = None
+    new_name = None
 
     if op.operation == "create":
-        new.name = None if op.entity is None else op.entity.name
+        new_name = None if op.entity is None else op.entity.name
         if op.entity and isinstance(op.entity, CopyEntity):
-            old.name = op.entity.copy_name
+            old_name = op.entity.copy_name
         if op.entity and isinstance(op.entity, LinkEntity):
-            old.name = op.entity.link_name
+            old_name = op.entity.link_name
     elif op.operation == "change":
-        old.name = op.name
-        new.name = None if op.entity is None else op.entity.name
+        old_name = op.name
+        new_name = None if op.entity is None else op.entity.name
     else:  # read, delete, arbitrary
-        old.name = op.name
+        old_name = op.name
 
-    if specs.type is not None:
-        if old.name is not None:
-            if await rpo.exists(op.type_name, old.name):
-                old.exists = True
-                old.is_link = await rpo.is_link(op.type_name, old.name)
-                old.link = (
-                    await rpo.get_link(op.type_name, old.name) if old.is_link else None
-                )
-                old.yaml = await rpo.get(op.type_name, old.name)
-        if new.name is not None:
-            if await rpo.exists(op.type_name, new.name):
-                new.exists = True
-                new.is_link = await rpo.is_link(op.type_name, new.name)
-
-    if old.yaml is not None:
-        try:
-            old.data = yaml.load_as_dict(old.yaml, strict=False)
-        except yaml.YAMLError as error:
-            raise RepoError(
-                f"Failed to parse YAML of {op.type_name} {old.name}: {error}"
-            ) from error
-
+    old, new = await __lookup_entities(
+        hash, op.type_name, old_name, new_name, specs.type is not None, rpo
+    )
     role_props = props.get_roles(op, specs.request, old.data or {})
     p = await perms.get_from_roles(op.type_name, specs, role_props)
-
     return old, new, p
 
 
