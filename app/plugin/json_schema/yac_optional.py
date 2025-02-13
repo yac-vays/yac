@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class YacOptional(IJsonSchema):
     def order(self) -> tuple[bool, int]:
-        return True, 100
+        return True, 110
 
     async def process(
         self, loc: str, json_schema: dict, context: dict, props: dict

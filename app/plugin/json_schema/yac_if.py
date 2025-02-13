@@ -11,13 +11,14 @@ class YacIf(IJsonSchema):
         self, loc: str, json_schema: dict, context: dict, props: dict
     ) -> tuple[dict | bool | None, dict]:
         """
-        Removes subschemas where yac_if evaluates to false. (If inside object
-        properties, yac_optional.py takes care of cleaning up the required list.)
+        Removes subschemas where yac_if evaluates to false.
+
+        Also see the yac_if_cleanup plugin, which will do the actual cleanup.
         """
         if "yac_if" not in json_schema:
             return json_schema, context
 
-        # TODO fix bug: sometimes not executed!! (see users_ou = Everybody -> users_subous)
+        # TODO fix bug: sometimes not executed!! (see users_ou = Everybody -> users_subous)
         if isinstance(json_schema["yac_if"], bool):
             condition = json_schema["yac_if"]
         elif isinstance(json_schema["yac_if"], str):
@@ -29,9 +30,11 @@ class YacIf(IJsonSchema):
             raise SchemaSpecsError(f"{loc}/yac_if is not a boolean or string")
 
         if not condition:
-            return None, context
+            json_schema["yac_if"] = False
+            # will be cleaned up in the yac_if_cleanup plugin!
+        else:
+            json_schema.pop("yac_if")
 
-        json_schema.pop("yac_if")
         return json_schema, context
 
 
