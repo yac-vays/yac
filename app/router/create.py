@@ -41,7 +41,8 @@ async def add_entity(
     requested, run actions.
     """
     op = OperationRequest(
-        request=request,
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
         user=user,
         operation="create",
         type=type_name,

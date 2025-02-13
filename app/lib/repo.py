@@ -32,6 +32,9 @@ async def get_entities(
     Try to collect data about the entity refered in this OperationRequest.
     Should not fail even if the provided data is nonsense.
     """
+
+    await rpo.update_details(specs.repo.details)
+
     old = Entity()
     new = Entity()
 
@@ -46,8 +49,6 @@ async def get_entities(
         new.name = None if op.entity is None else op.entity.name
     else:  # read, delete, arbitrary
         old.name = op.name
-
-    rpo.update_details(specs.repo.details)
 
     if specs.type is not None:
         if old.name is not None:
@@ -71,7 +72,8 @@ async def get_entities(
                 f"Failed to parse YAML of {op.type_name} {old.name}: {error}"
             ) from error
 
-    p = await perms.get_from_roles(op, specs, old.data or {})
+    role_props = props.get_roles(op, specs.request, old.data or {})
+    p = await perms.get_from_roles(op.type_name, specs, role_props)
 
     return old, new, p
 

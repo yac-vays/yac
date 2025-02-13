@@ -41,7 +41,8 @@ async def update_entity(
     configured and/or requested, run actions.
     """
     op = OperationRequest(
-        request=request,
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
         user=user,
         operation="change",
         type=type_name,
@@ -100,7 +101,8 @@ async def change_entity(
     if configured and/or requested, run actions.
     """
     op = OperationRequest(
-        request=request,
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
         user=user,
         operation="change",
         type=type_name,

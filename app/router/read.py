@@ -40,7 +40,8 @@ async def get_types(
     Lists all available entity types with their complete specifications.
     """
     op = OperationRequest(
-        request=request,
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
         user=user,
         operation="read",
         type="does-not-exist",
@@ -76,7 +77,8 @@ async def get_entities(
     permissions ('see' is required implicitly in any case).
     """
     op = OperationRequest(
-        request=request,
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
         user=user,
         operation="read",
         type=type_name,
@@ -128,7 +130,8 @@ async def get_entity(
     Lists all data of a specific entity including the raw YAML data and logs.
     """
     op = OperationRequest(
-        request=request,
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
         user=user,
         operation="read",
         type=type_name,
@@ -160,7 +163,8 @@ async def get_entity_yaml(
     entity_name: PathName,
 ):
     op = OperationRequest(
-        request=request,
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
         user=user,
         operation="read",
         type=type_name,
@@ -191,7 +195,8 @@ async def get_entity_logs(
 ) -> list[Log]:
 
     op = OperationRequest(
-        request=request,
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
         user=user,
         operation="read",
         type=type_name,

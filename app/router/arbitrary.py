@@ -35,7 +35,8 @@ async def run_action_on_entity(
     """
 
     op = OperationRequest(
-        request=request,
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
         user=user,
         operation="arbitrary",
         type=type_name,

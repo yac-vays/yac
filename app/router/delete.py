@@ -37,7 +37,8 @@ async def delete_entity(
     """
 
     op = OperationRequest(
-        request=request,
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
         user=user,
         operation="delete",
         type=type_name,

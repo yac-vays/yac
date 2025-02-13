@@ -27,7 +27,8 @@ async def validate_operation(
     """
 
     op = OperationRequest(
-        request=request,
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
         user=user,
         operation=op.operation,
         type=op.type_name,

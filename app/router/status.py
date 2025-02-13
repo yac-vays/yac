@@ -56,7 +56,8 @@ async def get_status(request: Request) -> Status:
     """
 
     op = OperationRequest(
-        request=request,
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
         user=OutUser(
             name="dummy-status-user",
             email="invalid",

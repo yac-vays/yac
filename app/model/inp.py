@@ -110,5 +110,6 @@ class OperationRequest(Operation):
     class Config:
         arbitrary_types_allowed = True
 
-    request: Request
+    request_headers: dict
+    request_ip: str
     user: out.User
