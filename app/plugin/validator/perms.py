@@ -1,3 +1,5 @@
+import logging
+
 from app.lib import yaml
 from app.model.err import RequestError
 from app.model.err import RequestForbidden
@@ -9,6 +11,8 @@ from app.model.inp import UpdateEntity
 from app.model.int import Entity
 from app.model.spc import Specs
 from app.model.plg import IValidator
+
+logger = logging.getLogger(__name__)
 
 
 class PermissionTester(IValidator):
@@ -22,11 +26,20 @@ class PermissionTester(IValidator):
         return True, 10
 
     async def test_nolist(
-        self, op: OperationRequest, spec: Specs, old: Entity, new: Entity, perms: list[str]
+        self,
+        op: OperationRequest,
+        spec: Specs,
+        old: Entity,
+        new: Entity,
+        perms: list[str],
     ) -> None:
         """
         Test if the user has the correct permissions for the requested operation.
         """
+
+        logger.warning(
+            f"PERMS TO BE TESTED BY PERM VALIDATOR: {perms}"
+        )  # TODO delete (debugging)
 
         if op.operation == "read":
             self.__assert_perm("see", perms)
