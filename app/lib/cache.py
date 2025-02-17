@@ -3,15 +3,11 @@ import hashlib
 import contextvars
 import functools
 import inspect
-import logging
 
 from functools import wraps
 from async_lru import alru_cache
 
-logger = logging.getLogger(__name__)
 
-
-# TODO use in more strategic good places!
 def pickled_alru_cache(**alru_kwargs):
     def decorator(func):
         """
@@ -72,7 +68,6 @@ def partial_alru_cache(*argument_names, **alru_kwargs):
             It retrieves the full set of bound arguments from the ContextVar for
             this coroutine call, then calls the actual 'func'.
             """
-            logger.warning(f"running cached function with keys: {keys_tuple}")
             del keys_tuple
             bound_args = _current_bound_args.get()
             return await func(*bound_args.args, **bound_args.kwargs)
