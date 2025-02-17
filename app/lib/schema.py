@@ -38,10 +38,10 @@ async def get(
         schema_props["operation"] == "create"
         and "add" not in schema_props["user"]["perms"]
     ):
-        # TODO revisit! is it really required!?
         # We need to inject the add permission on create to allow having a complete schema
         # for the VAYS user. The add permission is also validated in
         # plugin/validators/perms.py as a whole, so this should be safe.
+        schema_props["user"]["perms"] = perms.copy()  # do not modify them globally!
         schema_props["user"]["perms"].append("add")
 
     try:
