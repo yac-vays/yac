@@ -139,3 +139,10 @@ def test():
     assert yaml.load_as_dict('null') == {}
     assert yaml.load_as_dict('false') == {}
     assert yaml.load_as_dict('a: b') == {'a': 'b'}
+
+    assert yaml.load_as_dict('date: 2025-01-02') == {'date': '2025-01-02'}
+    assert yaml.load_as_dict('datetime: 2023-10-15T14:30:00') == {'datetime': '2023-10-15T14:30:00'}
+    assert yaml.load_as_dict('bin: !!binary YWJj') == {'bin': b'abc'}
+    assert yaml.load_as_dict('pairs: !!pairs [a: b, c: d]') == {'pairs': [('a', 'b'), ('c', 'd')]}
+    assert yaml.load_as_dict('omap: !!omap [{z: first}, {a: last}]') == {'omap': {'z': 'first', 'a': 'last'}}
+    assert yaml.load_as_dict('set: !!set {a, b, c}') == {'set': set(['a', 'b', 'c'])}

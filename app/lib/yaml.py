@@ -18,6 +18,9 @@ y.representer.add_representer(
     type(None),
     lambda self, data: self.represent_scalar("tag:yaml.org,2002:null", "null"),
 )
+y.constructor.add_constructor(
+    "tag:yaml.org,2002:timestamp", lambda self, data: self.construct_scalar(data)
+)
 
 y_non_strict = ruamel.yaml.YAML(typ="rt")
 y_non_strict.allow_duplicate_keys = True
