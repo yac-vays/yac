@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter
 from fastapi import Request
 from fastapi import status
@@ -20,6 +22,8 @@ from app.model.out import Diff
 from app.model.out import TypeActionHook
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -56,6 +60,9 @@ async def add_entity(
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
 
+    logger.warning(
+        f"Perms for create of {new.name}: {perms}"
+    )  # TODO remove (debugging)
     result = await validator.test_all(op, s, old, new, perms)
 
     await action.run(TypeActionHook.CREATE_BEFORE, op, s)
