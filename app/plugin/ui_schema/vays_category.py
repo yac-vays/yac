@@ -5,7 +5,7 @@ from app.lib import uischema
 
 class VaysCategory(IUiSchema):
     def order(self) -> tuple[bool, int]:
-        return True, 20
+        return True, 150
 
     async def process(
         self, loc: str, json_schema: dict, ui_schema: dict, props: dict
