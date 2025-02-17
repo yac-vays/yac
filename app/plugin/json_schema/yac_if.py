@@ -29,7 +29,7 @@ class YacIf(IJsonSchema):
             raise SchemaSpecsError(f"{loc}/yac_if is not a boolean or string")
 
         if not condition:
-            json_schema["yac_if"] = False
+            json_schema = {"yac_if": False, "not": {}}
             # will be cleaned up in the yac_if_cleanup plugin!
         else:
             json_schema.pop("yac_if")
