@@ -39,6 +39,7 @@ import re
 
 from aioshutil import rmtree
 from anyio import Path, open_file
+from pydantic.type_adapter import TypeAdapterT
 
 from app import consts
 from app.lib import git
@@ -61,10 +62,13 @@ KEY_FILE = consts.ENV.repo.get("ssh_key_file", "/root/.ssh/id_rsa")
 KNOWN_HOSTS = consts.ENV.repo.get("ssh_known_hosts_file", "/root/.ssh/known_hosts")
 DIRTY_MAX = int(consts.ENV.repo.get("dirty_max_age", "0"))
 
+# TODO fix potential locking bug: listing the entities does not seem to release the exclusive lock when done with the pull
+
 
 class GitRepo(IRepo):
     def __init__(self) -> None:
         self.details: dict = {}
+        self.globs: dict = {}
         self.dirty: bool = False
         self.writing: bool = False
         self.path: str = f"/repo/{getpid()}"
@@ -275,18 +279,27 @@ class GitRepo(IRepo):
         return await self.repo.get_hash()
 
     async def list(self, type: str) -> list[str]:
-        # TODO add error handling
-        glob = await j2.render_str(self.details.get(type), {"name": "*"})
-        start, end = glob.split("*", maxsplit=1)
+        if type not in self.globs:
+            # TODO add error handling (everywhere, handle not defined types)
+            self.globs[type] = await j2.render_str(
+                self.details.get(type), {"name": "*"}
+            )
+
+        start, end = self.globs[type].split("*", maxsplit=1)
         pattern = re.compile(
             rf"^{re.escape(self.path)}/{re.escape(start)}(.+){re.escape(end)}$"
         )
         try:
             return sorted(
-                [pattern.findall(str(fn))[0] async for fn in Path(self.path).glob(glob)]
+                [
+                    pattern.findall(str(fn))[0]
+                    async for fn in Path(self.path).glob(self.globs[type])
+                ]
             )
         except (OSError, AttributeError, KeyError) as error:
-            raise RepoError(f"Could not list files at {self.path}/{glob}") from error
+            raise RepoError(
+                f"Could not list files at {self.path}/{self.globs[type]}"
+            ) from error
 
     async def exists(self, type: str, name: str) -> bool:
         file = "/".join(
@@ -319,10 +332,13 @@ class GitRepo(IRepo):
         if not dest.startswith(base):
             raise RepoError(f"Link {src} has an illegal destination: {dest}")
 
-        # TODO add error handling (everywhere, handle not defined types)
-        glob = await j2.render_str(self.details.get(type), {"name": "*"})
+        if type not in self.globs:
+            # TODO add error handling (everywhere, handle not defined types)
+            self.globs[type] = await j2.render_str(
+                self.details.get(type), {"name": "*"}
+            )
         link = dest[(len(base) + 1) :]
-        start, end = glob.split("*", maxsplit=1)
+        start, end = self.globs[type].split("*", maxsplit=1)
         try:
             return re.findall(rf"^{re.escape(start)}(.+){re.escape(end)}$", link)[0]
         except (AttributeError, KeyError) as error:
