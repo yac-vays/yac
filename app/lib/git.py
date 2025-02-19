@@ -39,7 +39,10 @@ class Repo:
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError as error:
-            proc.kill()
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass  # it finished in the meantime!
             raise GitTimeoutError(f"Timeout of {timeout} seconds exceeded") from error
         except Exception as error:
             raise GitError(f"Git command failed with: {error}") from error
@@ -52,7 +55,7 @@ class Repo:
 
     async def load(self) -> None:
         try:
-            await self.__run("rev-parse", timeout=1)
+            await self.__run("rev-parse", timeout=2)
         except FileNotFoundError as error:
             raise GitError(f"Directory {self.path} does not exist") from error
         self.loaded = True
