@@ -1,4 +1,3 @@
-import datetime
 import re
 import socket
 import uuid as module_uuid
@@ -17,10 +16,6 @@ async def regex_replace(
     value: str = "", pattern: str = "", replacement: str = ""
 ) -> str:
     return re.sub(pattern, replacement, value)
-
-
-async def now():
-    return datetime.datetime.now()
 
 
 async def uuid() -> str:

@@ -11,8 +11,12 @@ async def to_consts(lst: list[str]) -> list:
     return [{"const": l, "title": l} for l in lst]
 
 
-async def to_datetime(string, fmt="%Y-%m-%d %H:%M:%S"):
+async def to_datetime(string, fmt="%Y-%m-%d %H:%M:%S") -> datetime.datetime:
     return datetime.datetime.strptime(string, fmt)
+
+
+async def to_datestr(date: datetime.datetime, fmt="%Y-%m-%d %H:%M:%S"):
+    return date.strftime(fmt)
 
 
 async def to_fqhn(ip: str) -> str:
