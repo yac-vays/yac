@@ -50,7 +50,7 @@ async def test_all(
         request.valid = False
         request.message = str(error)
 
-    if op.operation == "change" or (
+    if op.operation in ["read", "change"] or (
         op.operation == "create" and isinstance(op.entity, NewEntity)
     ):
         schemas = await schema.get(
