@@ -177,10 +177,9 @@ def get_most_specific(loc: str, loc_list: list[str]) -> str | None:
     with the given loc or None if there is no match at all.
     """
     prefix = 0
-    maxlen = len(loc)
     result = None
     for l in loc_list:
-        if len(l) > maxlen:
+        if not loc.startswith(l):
             continue
         pf = len(os.path.commonpath([loc, l]))
         if prefix < pf:

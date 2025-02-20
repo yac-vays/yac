@@ -14,3 +14,5 @@ def test():
     assert locs.get_most_specific('#/a/b/c',       ['#', '#/a/b/c', '#/c/a', '#/a/b/d']) == '#/a/b/c'
     assert locs.get_most_specific('#/a/b/d/f/g/h', ['#', '#/a/b/c', '#/c/a', '#/a/b/d']) == '#/a/b/d'
     assert locs.get_most_specific('a/#',           ['#', '#/a/b/c', '#/c/a', '#/a/b/d']) == None
+    assert locs.get_most_specific('#/abc/zzzzzzz', ['#', '#/abc/aa/bb']) == '#'
+    assert locs.get_most_specific('#/abc/ab',      ['#', '#/abc/aa/bb', '#/abc', '#/abc/abc']) == '#/abc'
