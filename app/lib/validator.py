@@ -24,7 +24,8 @@ async def test_all(
     new: Entity,
     perms: list[str] = [],
     *,
-    raise_on_error=True
+    raise_on_error=True,
+    schema_on_read=False
 ) -> ValidationResult:
     """
     Will try to generate the schemas even with faulty data. It either throws a
@@ -50,8 +51,10 @@ async def test_all(
         request.valid = False
         request.message = str(error)
 
-    if op.operation in ["read", "change"] or (
-        op.operation == "create" and isinstance(op.entity, NewEntity)
+    if (
+        op.operation == "change"
+        or (op.operation == "create" and isinstance(op.entity, NewEntity))
+        or (op.operation == "read" and schema_on_read)
     ):
         schemas = await schema.get(
             op,

@@ -42,4 +42,6 @@ async def validate_operation(
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
 
-    return await validator.test_all(op, s, old, new, perms, raise_on_error=False)
+    return await validator.test_all(
+        op, s, old, new, perms, raise_on_error=False, schema_on_read=True
+    )
