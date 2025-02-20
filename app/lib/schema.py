@@ -35,6 +35,14 @@ async def get(
     )
 
     if (
+        schema_props["operation"] == "read"
+        and "add" not in schema_props["user"]["perms"]
+    ):
+        # We need to inject the add permission on read to allow having a complete schema
+        # for the VAYS user. TODO review for more elegant solution
+        schema_props["user"]["perms"] = perms.copy()  # do not modify them globally!
+        schema_props["user"]["perms"].append("add")
+    elif (
         schema_props["operation"] == "create"
         and "add" not in schema_props["user"]["perms"]
     ):
