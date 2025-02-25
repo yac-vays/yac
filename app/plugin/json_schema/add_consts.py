@@ -41,6 +41,8 @@ class AddConsts(IJsonSchema):
                             "due to existing subschema"
                         )
                     else:
+                        if "properties" not in json_schema:
+                            json_schema["properties"] = {}
                         json_schema["properties"][key] = {
                             "const": data[key],
                             "yac_optional": "cln" in props["user"]["perms"],

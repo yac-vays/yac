@@ -147,8 +147,7 @@ class Schema(BaseModel):
     when data changes. So make sure you regenerate them for chaning data to
     always have the most correct schemata.
 
-    All `title` and `description` keys within the json_schema are markdown
-    formatted strings.
+    All `description` keys within the json_schema are markdown formatted strings.
     """
 
     json_schema: Annotated[
