@@ -30,6 +30,14 @@ class YacPerms(IJsonSchema):
                 json_schema.pop("yac_perms")
             return json_schema, context
 
+        if props["operation"] == "create":
+            # We need to inject the add permission on create to allow having a complete schema
+            # for the VAYS user. The add permission is also validated in
+            # plugin/validators/perms.py as a whole, so this should be safe.
+            user_perms = set(props["user"]["perms"] + ["add"])
+        else:
+            user_perms = set(props["user"]["perms"])
+
         if loc == "#":
             context["yac_perms"] = {"#": ["add", "edt"]}
 
@@ -52,14 +60,7 @@ class YacPerms(IJsonSchema):
             logger.warning(f"removed {loc} from schema due to undefined perms")
             return None, context
 
-        if (
-            len(
-                set(props["user"]["perms"]).intersection(
-                    set(context["yac_perms"][perms_loc])
-                )
-            )
-            <= 0
-        ):
+        if len(user_perms.intersection(set(context["yac_perms"][perms_loc]))) <= 0:
             logger.info(
                 f"removed {loc} from schema due to missing perms (requires one of: "
                 f'{context["yac_perms"][perms_loc]})'

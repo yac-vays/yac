@@ -158,7 +158,7 @@ async def __parse(specs: str, op: OperationRequest) -> Specs:
         data["types"] = await j2.render(
             data.get("types", []),
             props.get_types(op, request),
-            skip=["name_generator", "details"],
+            skip=r"^#/\d+/(name_generator|(logs|actions)/\d+/details/.*)$",
         )
         data["type"] = next(
             (
@@ -175,7 +175,7 @@ async def __parse(specs: str, op: OperationRequest) -> Specs:
         data["repo"] = await j2.render(
             data.get("repo", {}),
             props.get_types(op, request),
-            skip=["details"],
+            skip=r"^#/details/.*$",
         )
     except j2.J2Error as error:
         raise SpecsError(f"In repo at {error.loc}: {error}") from error

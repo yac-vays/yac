@@ -19,7 +19,7 @@ class J2Error(Exception):
 
 
 async def render(
-    o, props: dict, *, skip: list[str] = [], strict: bool = True, loc: str = "#"
+    o, props: dict, *, skip: str | None = None, strict: bool = True, loc: str = "#"
 ):
     if isinstance(o, dict):
         return await __render_dict(o, props, skip=skip, strict=strict, loc=loc)
@@ -77,12 +77,12 @@ async def render_str(
 
 
 async def __render_dict(
-    d, props, *, skip: list[str], strict: bool = True, loc: str = "#"
+    d, props, *, skip: str | None, strict: bool = True, loc: str = "#"
 ):
     r = {}
     for k, v in d.items():
         k_loc = f"{loc}/{k}"
-        if k in skip:
+        if skip and re.match(skip, k_loc):
             r.update({k: v})
         elif isinstance(v, dict):
             r.update(
@@ -100,12 +100,14 @@ async def __render_dict(
 
 
 async def __render_list(
-    l, props, *, skip: list[str], strict: bool = True, loc: str = "#"
+    l, props, *, skip: str | None, strict: bool = True, loc: str = "#"
 ):
     r = []
     for v in l:
         v_loc = f"{loc}/{len(r)}"
-        if isinstance(v, dict):
+        if skip and re.match(skip, v_loc):
+            r.append(v)
+        elif isinstance(v, dict):
             r.append(await __render_dict(v, props, skip=skip, strict=strict, loc=v_loc))
         elif isinstance(v, list):
             r.append(await __render_list(v, props, skip=skip, strict=strict, loc=v_loc))

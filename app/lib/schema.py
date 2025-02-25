@@ -34,19 +34,12 @@ async def get(
         op, request_spec, old_data, perms, new_data, context
     )
 
-    if (
-        schema_props["operation"] == "create"
-        and "add" not in schema_props["user"]["perms"]
-    ):
-        # We need to inject the add permission on create to allow having a complete schema
-        # for the VAYS user. The add permission is also validated in
-        # plugin/validators/perms.py as a whole, so this should be safe.
-        # TODO move logic to yac_perms plugin
-        schema_props["user"]["perms"] = perms.copy()  # do not modify them globally!
-        schema_props["user"]["perms"].append("add")
-
     try:
-        json_schema = await j2.render(dict(schema_spec), schema_props)
+        json_schema = await j2.render(
+            dict(schema_spec),
+            schema_props,
+            skip=rf"^.*/(({'|'.join(SUBSCHEMAS)})|({'|'.join(SUBSCHEMA_ARRAYS)})/\d+|({'|'.join(SUBSCHEMA_OBJECTS)})/[^/]+)/description$",
+        )
     except j2.J2Error as error:
         raise SchemaSpecsError(f"{error.loc}: {error}") from error
 
@@ -55,10 +48,10 @@ async def get(
     )
 
     # convert trivial cases into real schemas
-    if json_schema is None or (isinstance(json_schema, bool) and not json_schema):
+    if json_schema is None:
         json_schema = {"not": {}}
-    elif isinstance(json_schema, bool) and json_schema:
-        json_schema = {}
+    elif isinstance(json_schema, bool):
+        json_schema = {} if json_schema else {"not": {}}
 
     format_checker = jsonschema.FormatChecker()
     for name, funct in plugin.get_functions("schema_formats").items():

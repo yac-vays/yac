@@ -58,7 +58,9 @@ class FileLog(ILog):
     ) -> list[out.Log]:
         try:
             d = await j2.render(
-                details, props, skip=["time", "message", "problem", "progress"]
+                details,
+                props,
+                skip=r"^#/(time|message|problem|progress)$",
             )
             assert isinstance(d, dict)
         except (AssertionError, j2.J2Error) as error:
