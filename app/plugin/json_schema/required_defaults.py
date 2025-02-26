@@ -21,6 +21,7 @@ class RequiredDefaults(IJsonSchema):
         - Required booleans without default value get a default = false
         - Required consts without default value get a default = const value
         """
+        # TODO remove defaults if operation==read
         del props
         if json_schema.get("type", "") != "object":
             return json_schema, context
