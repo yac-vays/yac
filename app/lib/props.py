@@ -141,7 +141,7 @@ def get_schema(
         },
         "new": {
             "name": None if op.entity is None else op.entity.name,
-            "data": old_data or {} if op.operation == "read" else new_data or {},
+            "data": new_data or {},
         },
         "name": op.entity.name if op.entity and op.entity.name else op.name,
     }

@@ -14,6 +14,7 @@ class YacChangable(IJsonSchema):
         (If inside object properties, yac_optional.py takes care of cleaning up the required
         list.)
         """
+        # TODO IDEA: instead of removing: add const to the schema and update all vays renderers to make them disabled when there is a const in the subschema
         if "yac_changable" not in json_schema:
             return json_schema, context
 

@@ -42,6 +42,8 @@ async def test_all(
             new_data = yaml.load_as_dict(op.entity.yaml_new)
         elif isinstance(op.entity, UpdateEntity):
             new_data = yaml.load_as_dict(yaml.update(old.yaml or "", op.entity.data))
+        elif op.entity is None and op.operation == "read":
+            new_data = old.data or {}
         else:
             new_data = {}
     except yaml.YAMLError as error:
