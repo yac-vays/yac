@@ -57,6 +57,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 #
 
 yac = FastAPI(
+    lifespan=lifespan,
     title=consts.TITLE,
     description=consts.DESCRIPTION,
     version=VERSION,
