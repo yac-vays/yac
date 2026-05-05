@@ -48,6 +48,13 @@ class PermissionTester(IValidator):
             if isinstance(op.entity, UpdateEntity):
                 if not op.entity.data:
                     has_changes = False
+                try:
+                    yaml_old = old.yaml or ""
+                    yaml_new = yaml.update(yaml_old, op.entity.data)
+                    if yaml.has_structural_changes(yaml_old, yaml_new):
+                        self.__assert_perm("cln", perms)
+                except yaml.YAMLError as error:
+                    raise RequestError(str(error)) from error
             elif isinstance(op.entity, ReplaceEntity):
                 if op.entity.yaml_old == op.entity.yaml_new:
                     has_changes = False

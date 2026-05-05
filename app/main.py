@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 import logging
+import os
+import shutil
 import sys
 
 from fastapi import FastAPI
@@ -43,9 +45,33 @@ if consts.ENV.debug_mode:
     )
 
 
+def _cleanup_stale_repo_dirs() -> None:
+    """
+    Remove /repo/<pid> directories left behind by previous workers (e.g. after
+    SIGKILL). The current worker keeps its own directory.
+    """
+    base = "/repo"
+    if not os.path.isdir(base):
+        return
+    my_pid = str(os.getpid())
+    for name in os.listdir(base):
+        if name == my_pid or not name.isdigit():
+            continue
+        pid_path = f"/proc/{name}"
+        if os.path.isdir(pid_path):
+            continue  # owner still alive
+        stale = os.path.join(base, name)
+        try:
+            shutil.rmtree(stale)
+            logger.info(f"Cleaned up stale repo dir {stale}")
+        except OSError as error:
+            logger.warning(f"Could not clean up stale repo dir {stale}: {error}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     del app
+    _cleanup_stale_repo_dirs()
     async with repo.handler.reader(None, details={}):
         pass  # only initiate repo
     yield

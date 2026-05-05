@@ -1,6 +1,8 @@
 import datetime
 import re
+import shlex
 import socket
+import urllib.parse
 
 
 async def rformat(string: str, pattern: str) -> str:
@@ -31,3 +33,11 @@ async def regex_replace(
 
 async def re_escape(string: str) -> str:
     return re.escape(string)
+
+
+async def shell_quote(string: str) -> str:
+    return shlex.quote(str(string))
+
+
+async def url_quote(string: str) -> str:
+    return urllib.parse.quote(str(string), safe="")

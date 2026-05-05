@@ -1,3 +1,6 @@
+import asyncio
+import time
+
 from fastapi import APIRouter, status, Request
 
 from app.lib import repo
@@ -12,6 +15,10 @@ from app.model.inp import User as InpUser
 from app.model.out import User as OutUser
 
 router = APIRouter()
+
+_STATUS_TTL_SECONDS = 10
+_status_cache: dict = {"hash": None, "expires_at": 0.0}
+_status_cache_lock = asyncio.Lock()
 
 
 @router.get(
@@ -55,24 +62,37 @@ async def get_status(request: Request) -> Status:
     It will then return some status information.
     """
 
-    op = OperationRequest(
-        request_headers=dict(request.headers),
-        request_ip=request.client.host if request.client else "",
-        user=OutUser(
-            name="dummy-status-user",
-            email="invalid",
-            full_name="Dummy Status User",
-        ),
-        operation="read",
-        type="does-not-exist",
-        name=None,
-        actions=[],
-        entity=None,
-    )
+    now = time.monotonic()
+    if _status_cache["hash"] is not None and now < _status_cache["expires_at"]:
+        return Status(hash=_status_cache["hash"])
 
-    async with repo.handler.reader(None, details={}) as rpo:
-        _ = await specs.read(op, rpo)
-        return Status(hash=await rpo.get_hash())
+    async with _status_cache_lock:
+        now = time.monotonic()
+        if _status_cache["hash"] is not None and now < _status_cache["expires_at"]:
+            return Status(hash=_status_cache["hash"])
+
+        op = OperationRequest(
+            request_headers=dict(request.headers),
+            request_ip=request.client.host if request.client else "",
+            user=OutUser(
+                name="dummy-status-user",
+                email="invalid",
+                full_name="Dummy Status User",
+            ),
+            operation="read",
+            type="does-not-exist",
+            name=None,
+            actions=[],
+            entity=None,
+        )
+
+        async with repo.handler.reader(None, details={}) as rpo:
+            _ = await specs.read(op, rpo)
+            h = await rpo.get_hash()
+
+        _status_cache["hash"] = h
+        _status_cache["expires_at"] = time.monotonic() + _STATUS_TTL_SECONDS
+        return Status(hash=h)
 
 
 @router.get(

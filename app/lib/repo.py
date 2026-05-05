@@ -2,6 +2,8 @@
 Raises: [app.model.err.RepoError, app.model.err.RepoSpecsError]
 """
 
+import re
+
 from app import consts
 from app.lib import j2
 from app.lib import perms
@@ -124,6 +126,20 @@ async def gen_name(
     if s.type is None:
         raise RepoClientError("Type is not defined")
     try:
-        return await j2.render_print(s.type.name_generator, namegen_props)
+        name = await j2.render_print(s.type.name_generator, namegen_props)
     except j2.J2Error as error:
         raise RepoSpecsError(f"In types name_generator: {error}") from error
+
+    if not re.fullmatch(consts.NAME_PATTERN, name) or not re.fullmatch(
+        s.type.name_pattern, name
+    ):
+        raise RepoSpecsError(
+            f"Generated name '{name}' does not match the type's name_pattern"
+            f" '{s.type.name_pattern}'"
+        )
+    if name in old_list:
+        raise RepoSpecsError(
+            f"Generated name '{name}' already exists for type {op.type_name}"
+        )
+
+    return name

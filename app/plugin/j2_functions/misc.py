@@ -46,9 +46,7 @@ async def re_next_int(
             except:  # pylint: disable=bare-except
                 pass  # accept matches that have no group 1 or cannot be casted to int
 
-    result = max(n) + 1
-
     if limit != 0 and len(n) == limit:
         raise RequestError(f"Maximum number of {limit} reached!")
 
-    return result
+    return max(n) + 1 if n else 1

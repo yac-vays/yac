@@ -3,11 +3,14 @@ Raises: [app.lib.yaml.YAMLError, app.model.err.RequestConflict]
 """
 
 import io
+import logging
 from typing import Any
 
 import ruamel.yaml
 
 from app.model.err import RequestConflict
+
+logger = logging.getLogger(__name__)
 
 y = ruamel.yaml.YAML(typ="rt")
 y.indent(mapping=2, sequence=4, offset=2)
@@ -34,10 +37,17 @@ class YAMLObject(ruamel.yaml.YAMLObject):
 
 def load(yaml: str, *, strict: bool = True) -> YAMLObject | None:
     if strict:
-        data = y.load(yaml)
-    else:
-        data = y_non_strict.load(yaml)
-    return data
+        return y.load(yaml)
+
+    # Non-strict: probe with allow_duplicate_keys=False so ruamel surfaces a
+    # DuplicateKeyError, log a warning, then accept the duplicate (last-wins).
+    try:
+        return y.load(yaml)
+    except ruamel.yaml.constructor.DuplicateKeyError as error:
+        logger.warning(
+            f"Duplicate YAML key in non-strict load (last value wins): {error}"
+        )
+        return y_non_strict.load(yaml)
 
 
 def load_as_dict(yaml: str, *, strict: bool = True) -> dict:

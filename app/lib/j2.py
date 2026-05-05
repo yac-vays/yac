@@ -6,6 +6,7 @@ import json
 import re
 
 import jinja2
+from jinja2.sandbox import SandboxedEnvironment
 
 from app.consts import OMIT
 from app.lib import plugin
@@ -46,7 +47,7 @@ async def render_str(
     s, props, *, allow_nonstr: bool = True, strict: bool = True, loc: str = "#"
 ):
     nonstr = re.match(r"^(\{\{|\{%).+(\}\}|%\})$", s) and allow_nonstr
-    j2 = jinja2.Environment(
+    j2 = SandboxedEnvironment(
         enable_async=True,
         loader=jinja2.BaseLoader(),
         undefined=jinja2.StrictUndefined if strict else jinja2.DebugUndefined,

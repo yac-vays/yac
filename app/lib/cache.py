@@ -15,6 +15,10 @@ def pickled_alru_cache(**alru_kwargs):
         both the function arguments and return values via pickle.
         This allows caching calls to async functions that accept or return
         non-hashable objects.
+
+        SAFETY: pickle.loads is only ever called on data this process pickled
+        itself one line earlier — it never deserializes attacker-controlled
+        bytes. Do not generalize this to accept external pickle input.
         """
 
         @alru_cache(**alru_kwargs)

@@ -5,7 +5,7 @@ Raises: [app.model.err.SpecsError]
 import logging
 import re
 from typing import Any
-from os.path import dirname
+from os.path import dirname, abspath, realpath
 
 from pydantic import ValidationError
 from anyio import open_file
@@ -80,14 +80,23 @@ async def __process_includes(data: Any, base_path: str) -> Any:
         if isinstance(includes, str):
             includes = [includes]
 
+        base_real = realpath(abspath(base_path))
+
         for inc_file in includes:
             inc_file_path = f"{base_path}/{inc_file}"
+            inc_real = realpath(abspath(inc_file_path))
+
+            if inc_real != base_real and not inc_real.startswith(base_real + "/"):
+                raise SpecsError(
+                    f"Included specs file at {inc_file_path} is outside of the"
+                    f" specs base directory {base_path}"
+                )
 
             try:
                 async with await open_file(
-                    inc_file_path, mode="r", encoding="utf-8"
+                    inc_real, mode="r", encoding="utf-8"
                 ) as file:
-                    logger.debug(f"Reading file {inc_file_path}")
+                    logger.debug(f"Reading file {inc_real}")
                     content = await file.read()
             except OSError as error:
                 raise SpecsError(

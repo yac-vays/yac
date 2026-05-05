@@ -29,6 +29,7 @@ async def handle_yac(request: Request, exc: YACError) -> JSONResponse:
 
 
 async def handle_all(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled exception in request handler", exc_info=exc)
     return hacks.add_cors_headers_to_response(
         request,
         JSONResponse(

@@ -34,6 +34,7 @@ from os.path import dirname
 from typing import Self, AsyncGenerator
 import asyncio
 import logging
+import os
 import time
 import re
 
@@ -234,18 +235,22 @@ class GitRepo(IRepo):
             await self.__pull()
 
     def __make_relative(self, path: str, path2: str) -> str:
-        length = 0
-        for i in range(min(len(path), len(path2))):
-            if path[i] == path2[i]:
-                length += 1
-            else:
-                break
+        # Use os.path.relpath: returns a path from path2's directory to path,
+        # correctly handling component boundaries.
+        return os.path.relpath(path, os.path.dirname(path2))
 
-        common = path[:length]
-        last_dir = common.rfind("/") + 1
-        relative = path[last_dir:]
-        backpath = "../" * relative.count("/")
-        return f"{backpath}{relative}"
+    async def __assert_inside_repo(self, file: str) -> None:
+        base = str(await Path(self.path).resolve())
+        # Resolve the parent of the target (the target itself may not exist yet
+        # for write/create operations) and assert it stays under base.
+        try:
+            parent = str(await Path(dirname(file) or self.path).resolve())
+        except OSError as error:
+            raise RepoError(f"Could not resolve path {file}") from error
+        if parent != base and not parent.startswith(base + "/"):
+            raise RepoClientError(
+                f"Resolved path escapes the repository: {file}"
+            )
 
     async def __has_link(self, type: str, name: str) -> bool:
         file_name = "/".join(
@@ -358,6 +363,7 @@ class GitRepo(IRepo):
     ) -> Diff:
         path = await j2.render_str(self.details.get(type), {"name": name})
         file = f"{self.path}/{path}"
+        await self.__assert_inside_repo(file)
 
         if await self.exists(type, name):
             content = await self.get(type, name)
@@ -403,6 +409,8 @@ class GitRepo(IRepo):
         path_new = await j2.render_str(self.details.get(type), {"name": name_new})
         file_old = f"{self.path}/{path_old}"
         file_new = f"{self.path}/{path_new}"
+        await self.__assert_inside_repo(file_old)
+        await self.__assert_inside_repo(file_new)
 
         if name_old == name_new:
             raise RepoClientError("Cannot rename without chaning the name")
@@ -451,6 +459,8 @@ class GitRepo(IRepo):
             [self.path, await j2.render_str(self.details.get(type), {"name": name_src})]
         )
         file_dest = f"{self.path}/{path_dest}"
+        await self.__assert_inside_repo(file_src)
+        await self.__assert_inside_repo(file_dest)
 
         content = await self.__read(file_src, absolute=True)
 
@@ -483,6 +493,8 @@ class GitRepo(IRepo):
         src = "/".join(
             [self.path, await j2.render_str(self.details.get(type), {"name": name_src})]
         )
+        await self.__assert_inside_repo(link)
+        await self.__assert_inside_repo(src)
 
         try:
             await Path(link).symlink_to(self.__make_relative(src, link))
@@ -513,6 +525,7 @@ class GitRepo(IRepo):
         file = "/".join(
             [self.path, await j2.render_str(self.details.get(type), {"name": name})]
         )
+        await self.__assert_inside_repo(file)
         try:
             await Path(file).unlink()
         except OSError as error:
