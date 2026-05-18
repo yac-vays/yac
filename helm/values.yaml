@@ -1,16 +1,103 @@
 ---
-hostname: ""
-path: /
-image: ""
-env:
-  plain: {}
-  secrets: {} # must be b64 encoded
-files: {} # key: file in ./files, val: mount path
-deploy:
-  replicas: 2
-  cpu_limit: 1
-  memory_limit: 1Gi
-  ingress_class: nginx
-build:
-  job: unknown
-  commit: unknown
+
+replicaCount: 2
+
+image: "registry.inf.ethz.ch/public-isg/yac-vays/yac:v0"
+imagePullPolicy: Always
+
+# Extra command-line args appended to the container ENTRYPOINT (uvicorn).
+args: ["--forwarded-allow-ips", "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"]
+
+# ----------------------------------------------------------------------------
+# YAC configuration (mapped into env vars — see https://yac-vays.github.io/yac/env)
+# All values below are written into a Kubernetes Secret and exposed to the
+# pod via `envFrom: secretRef`.
+# ----------------------------------------------------------------------------
+
+# Authentication (OpenID Connect)
+oidc:
+  url: ""                 # YAC_OIDC_URL
+  clientIds: []           # YAC_OIDC_CLIENT_IDS (comma-joined)
+  jwt:
+    name: "{name}"                                  # YAC_OIDC_JWT_NAME
+    fullName: "{givenName} {surname}"               # YAC_OIDC_JWT_FULL_NAME
+    fullNameFallback: "{name}"                      # YAC_OIDC_JWT_FULL_NAME_FALLBACK
+    email: "{mail}"                                 # YAC_OIDC_JWT_EMAIL
+    emailFallback: "{name}@localhost"               # YAC_OIDC_JWT_EMAIL_FALLBACK
+
+# CORS — list of allowed origins (comma-joined into YAC_CORS_ORIGINS).
+corsOrigins: []
+
+# Custom env vars exposed to the specs file as `env.<key>` (one map entry
+# becomes one `YAC_ENV__<KEY>` env var).  Use this for tokens, LDAP
+# passwords, etc. that the specs need to template into actions/logs.
+#
+# Keys are used verbatim; uppercase them to follow convention.
+#
+# Example:
+#   customEnv:
+#     API_TOKEN: "secret-token"
+#     LDAP_BIND_PW: "..."
+customEnv: {}
+
+# Any additional YAC_* env vars not covered by the typed values above.
+# Map of raw `YAC_*` keys to values — written verbatim into the Secret.
+#
+# Example:
+#   env:
+#     YAC_LOG_LEVEL: debug
+#     YAC_DEBUG_MODE: "true"
+#     YAC_SPECS: /yac.yml
+#     YAC_REPO__URL: https://user:pass@git.example.com/my/repo.git
+#     YAC_REPO__BRANCH: main
+env: {}
+
+# ----------------------------------------------------------------------------
+# Files / volumes / pod
+# ----------------------------------------------------------------------------
+
+# Files to expose to the container via a ConfigMap.
+# Keys are filenames in the chart's `files/` directory, values are absolute
+# container paths.  Use this for plugins and an externally provided specs file.
+#
+# Example:
+#   files:
+#     ethos.py: /code/app/plugin/j2_functions/ethos.py
+#     yac.yml: /yac.yml
+files: {}
+
+# Additional volumes / volume mounts (e.g. SSH keys for the git repo).
+extraVolumes: []
+extraVolumeMounts: []
+
+# Annotations on the Pod template (e.g. for triggering restarts).
+podAnnotations: {}
+
+# Annotations on the generated Secret (e.g. for sealed-secrets controllers).
+secretAnnotations: {}
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 200Mi
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  annotations: {}
+  className: ""
+  hosts:
+    - host: yac.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts: [yac.example.com]
+      secretName: yac-tls

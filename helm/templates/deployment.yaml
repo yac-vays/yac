@@ -1,84 +1,115 @@
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $.Release.Name }}
+  name: {{ include "fullname" . }}
+  labels:
+    app: {{ include "name" . }}
+    chart: {{ include "chart" . }}
 spec:
-  selector:
-    matchLabels:
-      app: {{ $.Release.Name }}
-  replicas: {{ $.Values.deploy.replicas }}
+  replicas: {{ .Values.replicaCount }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
       maxUnavailable: 0
       maxSurge: 1
+  selector:
+    matchLabels:
+      app: {{ include "name" . }}
   template:
     metadata:
       labels:
-        app: {{ $.Release.Name }}
-        role: {{ $.Release.Name }}
-        ci-commit: {{ $.Values.build.commit }}
-        ci-job: {{ $.Values.build.job }}
+        app: {{ include "name" . }}
       annotations:
-        rollme: {{ randAlphaNum 5 | quote }}
+        # Roll the pods when the secret or files change
+        checksum/env: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if .Values.files }}
+        checksum/files: {{ tpl (toYaml .Values.files) . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: false
       containers:
-        - name: {{ $.Release.Name }}
-          image: {{ $.Values.image }}
-          imagePullPolicy: Always
-          args: ["--forwarded-allow-ips", "*"]
-          envFrom:
-          - secretRef:
-              name: {{ $.Release.Name }}-secret
-          env:
-          {{- range $key, $val := $.Values.env.plain }}
-          - name: {{ $key }}
-            value: {{ quote $val }}
+        - name: {{ include "fullname" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            capabilities:
+              drop: [ALL]
+          image: {{ .Values.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- if .Values.args }}
+          args:
+          {{- range $arg := $.Values.args }}
+            - {{ $arg | quote }}
           {{- end }}
-          - name: YAC_ROOT_PATH
-            value: {{ $.Values.path }}
+          {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "fullname" . }}-env
           ports:
-            - containerPort: 80
-          resources:
-            limits:
-              cpu: {{ $.Values.deploy.cpu_limit }}
-              memory: {{ $.Values.deploy.memory_limit }}
-            requests:
-              cpu: 200m
-              memory: 200Mi
+            - name: http
+              containerPort: 8080
+              protocol: TCP
           livenessProbe:
             httpGet:
               path: /status
-              port: 80
+              port: http
             timeoutSeconds: 5
             failureThreshold: 2
             periodSeconds: 300
           startupProbe:
             httpGet:
               path: /health
-              port: 80
+              port: http
             timeoutSeconds: 2
             failureThreshold: 20
-            periodSeconds: 3 
+            periodSeconds: 3
           lifecycle:
             preStop:
               exec:
                 # Give the load balancer time to remove the
                 # pod before terminating (for zero downtime)
                 command: ["/bin/sh", "-c", "sleep 20"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
-          {{- range $key, $val := $.Values.files }}
-          - name: files-configmap
-            subPath: {{ $key }}
-            mountPath: {{ $val }}
-          {{- end }}
-          - mountPath: /repo
-            name: repo-tmpfs
+            - name: repo
+              mountPath: /repo
+            - name: tmp
+              mountPath: /tmp
+            {{- range $key, $val := .Values.files }}
+            - name: files
+              subPath: {{ $key }}
+              mountPath: {{ $val }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
       volumes:
-      - name: files-configmap
-        configMap:
-          name: {{ $.Release.Name }}-configmap
-      - name: repo-tmpfs
-        emptyDir:
-          medium: Memory
+        - name: repo
+          emptyDir:
+            medium: Memory
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.files }}
+        - name: files
+          configMap:
+            name: {{ include "fullname" . }}-files
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

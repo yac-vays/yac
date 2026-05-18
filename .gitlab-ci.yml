@@ -1,66 +1,41 @@
-#
-# The following variables need to be defined in the GitLab Project:
-#
-# - REGISTRY: hostname/path to the docker registry
-# - REGISTRY_CONF: b64 encoded docker config.json that allows pushing image(s)
-# - DEPLOY_URL: b64 encoded url to trigger the deployment
-#
+---
+
+include:
+  - project: public-isg/pipelines
+    ref: main
+    file:
+      - deploy-docker-image.yml
+      - deploy-helm-chart.yml
 
 stages:
-  - build
-  - deploy
+  - docker
+  - helm
 
-# Testing versions like: v2.739rc35 -> v2.739rc, v2rc, testing / v32.0rc1 -> v32.0rc, v32rc, testing
-
-testing-build:
-  stage: build
+# Testing versions like: v2.739rc35 -> v2.739rc35, v2.739rc, v2rc, testing / v32.0rc1 -> v32.0rc1, v32.0rc, v32rc, testing
+deploy-docker-image-test:
+  extends: .deploy-docker-image
+  stage: docker
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+rc[0-9]+$/
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  script:
-    - mkdir -p /kaniko/.docker
-    - echo "${REGISTRY_CONF}" |base64 -d > /kaniko/.docker/config.json
-    - export TAG="${CI_COMMIT_TAG}"
-    - >-
-      /kaniko/executor
-      --context "${CI_PROJECT_DIR}"
-      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
-      --build-arg "version=${CI_COMMIT_TAG}"
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG%%rc*}rc"
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG%%.*}rc"
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:testing"
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+rc[0-9]+$/'
+  variables:
+    DOCKER_TAG: "testing"
+  before_script:
+    - export DOCKER_TAG_ADDITIONAL1="${CI_COMMIT_TAG%%rc*}rc"
+    - export DOCKER_TAG_ADDITIONAL2="${CI_COMMIT_TAG%.*}rc"
 
-# Stable versions like: v8.23 -> v8.23, v8, latest / v3.0 -> v3.0, v3, latest
-
-latest-build:
-  stage: build
+# Production versions like: v8.23 -> v8.23, v8, latest / v3.0 -> v3.0, v3, latest
+deploy-docker-image-prod:
+  extends: .deploy-docker-image
+  stage: docker
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+$/
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  script:
-    - mkdir -p /kaniko/.docker
-    - echo "${REGISTRY_CONF}" |base64 -d > /kaniko/.docker/config.json
-    - export TAG="${CI_COMMIT_TAG}"
-    - >-
-      /kaniko/executor
-      --context "${CI_PROJECT_DIR}"
-      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
-      --build-arg "version=${CI_COMMIT_TAG}"
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG}"
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:${TAG%%.*}"
-      --destination "${REGISTRY}/${CI_PROJECT_NAME}:latest"
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+$/'
+  variables:
+    DOCKER_TAG: "latest"
+  before_script:
+    - export DOCKER_TAG_ADDITIONAL1="${CI_COMMIT_TAG%%.*}"
 
-# Trigger deploy pipeline(s)
-
-deploy:
-  stage: deploy
+deploy-helm-chart:
+  extends: .deploy-helm-chart
+  stage: helm
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+rc[0-9]+$/
-    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+$/
-  image: alpine/curl:latest
-  script:
-    - curl -X POST "$(echo ${DEPLOY_URL} | base64 -d)"
+    - changes: ["helm/**/*"]

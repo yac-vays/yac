@@ -40,5 +40,15 @@ COPY --from=test /tmp/tested /dev/null
 ARG version=v0.0
 RUN echo 'VERSION = "'${version#v}'"' > /code/app/version.py
 
-EXPOSE 80
-ENTRYPOINT ["uvicorn", "--log-config", "app/uvicorn.yml", "--host", "0.0.0.0", "--port", "80", "app.main:yac"]
+# Create non-root user (UID/GID 1000); the home dir holds the default SSH
+# key/known_hosts location and is the only writable path inside the image
+# (besides the /repo and /tmp volumes the user provides at runtime).
+RUN addgroup -g 1000 yac && \
+    adduser -D -u 1000 -G yac -h /home/yac yac && \
+    mkdir -p /home/yac/.ssh && \
+    chown -R yac:yac /home/yac /code
+
+USER 1000
+
+EXPOSE 8080
+ENTRYPOINT ["uvicorn", "--log-config", "app/uvicorn.yml", "--host", "0.0.0.0", "--port", "8080", "app.main:yac"]

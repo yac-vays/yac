@@ -1,5 +1,5 @@
 apiVersion: v2
 name: yac
 type: application
-version: 1
-# TODO cleanup helm chart!
+version: 2.0.0
+description: YAC - Yet Another Configurator
