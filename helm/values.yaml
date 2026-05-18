@@ -16,14 +16,14 @@ args: ["--forwarded-allow-ips", "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.
 
 # Authentication (OpenID Connect)
 oidc:
-  url: ""                 # YAC_OIDC_URL
-  clientIds: []           # YAC_OIDC_CLIENT_IDS (comma-joined)
+  url: ""        # YAC_OIDC_URL
+  clientIds: []  # YAC_OIDC_CLIENT_IDS (comma-joined)
   jwt:
-    name: "{name}"                                  # YAC_OIDC_JWT_NAME
-    fullName: "{givenName} {surname}"               # YAC_OIDC_JWT_FULL_NAME
-    fullNameFallback: "{name}"                      # YAC_OIDC_JWT_FULL_NAME_FALLBACK
-    email: "{mail}"                                 # YAC_OIDC_JWT_EMAIL
-    emailFallback: "{name}@localhost"               # YAC_OIDC_JWT_EMAIL_FALLBACK
+    name: "{name}"                     # YAC_OIDC_JWT_NAME
+    fullName: "{givenName} {surname}"  # YAC_OIDC_JWT_FULL_NAME
+    fullNameFallback: "{name}"         # YAC_OIDC_JWT_FULL_NAME_FALLBACK
+    email: "{mail}"                    # YAC_OIDC_JWT_EMAIL
+    emailFallback: "{name}@localhost"  # YAC_OIDC_JWT_EMAIL_FALLBACK
 
 # CORS — list of allowed origins (comma-joined into YAC_CORS_ORIGINS).
 corsOrigins: []
@@ -52,28 +52,11 @@ customEnv: {}
 #     YAC_REPO__BRANCH: main
 env: {}
 
-# ----------------------------------------------------------------------------
-# Files / volumes / pod
-# ----------------------------------------------------------------------------
-
-# Files to expose to the container via a ConfigMap.
-# Keys are filenames in the chart's `files/` directory, values are absolute
-# container paths.  Use this for plugins and an externally provided specs file.
-#
-# Example:
-#   files:
-#     ethos.py: /code/app/plugin/j2_functions/ethos.py
-#     yac.yml: /yac.yml
-files: {}
-
-# Additional volumes / volume mounts (e.g. SSH keys for the git repo).
+# Additional volumes / mounts (e.g. for specs file, plugins or SSH keys for the git repo).
 extraVolumes: []
 extraVolumeMounts: []
 
-# Annotations on the Pod template (e.g. for triggering restarts).
 podAnnotations: {}
-
-# Annotations on the generated Secret (e.g. for sealed-secrets controllers).
 secretAnnotations: {}
 
 resources:
