@@ -9,6 +9,7 @@ from app.lib import log
 from app.lib import repo
 from app.lib import specs
 from app.lib import validator
+from app.lib.auth import CurrentUser
 from app.model.err import RepoError
 from app.model.err import http_responses
 from app.model.inp import OperationRequest
@@ -17,7 +18,6 @@ from app.model.inp import PathType
 from app.model.inp import QueryLimit
 from app.model.inp import QuerySearch
 from app.model.inp import QuerySkip
-from app.model.inp import User
 from app.model.out import DetailedEntity
 from app.model.out import EntityList
 from app.model.out import Log
@@ -34,7 +34,7 @@ router = APIRouter()
 )
 async def get_types(
     request: Request,
-    user: User,
+    user: CurrentUser,
 ) -> list[Type]:
     """
     Lists all available entity types with their complete specifications.
@@ -64,7 +64,7 @@ async def get_types(
 )
 async def get_entities(
     request: Request,
-    user: User,
+    user: CurrentUser,
     type_name: PathType,
     search: QuerySearch = "",
     skip: QuerySkip = 0,
@@ -121,7 +121,7 @@ async def get_entities(
 )
 async def get_entity(
     request: Request,
-    user: User,
+    user: CurrentUser,
     type_name: PathType,
     entity_name: PathName,
 ) -> DetailedEntity:
@@ -159,7 +159,7 @@ async def get_entity(
 )
 async def get_entity_yaml(
     request: Request,
-    user: User,
+    user: CurrentUser,
     type_name: PathType,
     entity_name: PathName,
 ):
@@ -192,7 +192,7 @@ async def get_entity_yaml(
 )
 async def get_entity_logs(
     request: Request,
-    user: User,
+    user: CurrentUser,
     type_name: PathType,
     entity_name: PathName,
 ) -> list[Log]:

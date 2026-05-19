@@ -1,11 +1,10 @@
 from typing import Literal
 
-from fastapi import Query, Depends, Path, Request
+from fastapi import Query, Path
 from pydantic import BaseModel, Field
 from typing_extensions import Annotated
 
 from app import consts
-from app.lib import auth
 from app.model import out
 
 PathType = Annotated[str, Path(alias="type", pattern=consts.TYPE_PATTERN)]
@@ -19,8 +18,6 @@ QueryLimit = Annotated[int, Query(gt=0, le=10000)]
 QueryActions = Annotated[
     list[Annotated[str, Field(pattern=consts.ACTION_PATTERN)]], Query()
 ]
-
-User = Annotated[out.User, Depends(auth.get_current_user)]
 
 
 class Entity(BaseModel):

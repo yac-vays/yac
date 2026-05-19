@@ -6,6 +6,7 @@ from app.lib import action
 from app.lib import repo
 from app.lib import specs
 from app.lib import validator
+from app.lib.auth import CurrentUser
 from app.model.err import ServerError
 from app.model.err import http_responses
 from app.model.inp import CopyEntity
@@ -15,7 +16,6 @@ from app.model.inp import OperationRequest
 from app.model.inp import PathType
 from app.model.inp import QueryActions
 from app.model.inp import QueryMsg
-from app.model.inp import User
 from app.model.out import Diff
 from app.model.out import TypeActionHook
 
@@ -30,7 +30,7 @@ router = APIRouter()
 )
 async def add_entity(
     request: Request,
-    user: User,
+    user: CurrentUser,
     type_name: PathType,
     entity: NewEntity | CopyEntity | LinkEntity,
     msg: QueryMsg = "Create",

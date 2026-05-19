@@ -6,6 +6,7 @@ from app.lib import repo
 from app.lib import specs
 from app.lib import validator
 from app.lib import yaml
+from app.lib.auth import CurrentUser
 from app.model.err import RepoError
 from app.model.err import http_responses
 from app.model.inp import OperationRequest
@@ -15,7 +16,6 @@ from app.model.inp import QueryActions
 from app.model.inp import QueryMsg
 from app.model.inp import ReplaceEntity
 from app.model.inp import UpdateEntity
-from app.model.inp import User
 from app.model.out import Diff
 from app.model.out import TypeActionHook
 
@@ -29,7 +29,7 @@ router = APIRouter()
 )
 async def update_entity(
     request: Request,
-    user: User,
+    user: CurrentUser,
     type_name: PathType,
     entity_name: PathName,
     entity: ReplaceEntity,
@@ -89,7 +89,7 @@ async def update_entity(
 )
 async def change_entity(
     request: Request,
-    user: User,
+    user: CurrentUser,
     type_name: PathType,
     entity_name: PathName,
     entity: UpdateEntity,

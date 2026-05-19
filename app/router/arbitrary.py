@@ -6,12 +6,12 @@ from app.lib import action
 from app.lib import repo
 from app.lib import specs
 from app.lib import validator
+from app.lib.auth import CurrentUser
 from app.model.err import http_responses
 from app.model.inp import OperationRequest
 from app.model.inp import PathAction
 from app.model.inp import PathName
 from app.model.inp import PathType
-from app.model.inp import User
 from app.model.out import TypeActionHook
 
 router = APIRouter()
@@ -25,7 +25,7 @@ router = APIRouter()
 )
 async def run_action_on_entity(
     request: Request,
-    user: User,
+    user: CurrentUser,
     type_name: PathType,
     entity_name: PathName,
     run: PathAction,

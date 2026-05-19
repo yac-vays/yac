@@ -72,3 +72,6 @@ async def get_current_user(token: Annotated[str, Depends(fastapi_oauth2)]) -> Us
         email=email,
         token=user,
     )
+
+
+CurrentUser = Annotated[User, Depends(get_current_user)]

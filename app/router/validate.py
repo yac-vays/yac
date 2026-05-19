@@ -4,10 +4,10 @@ from fastapi import Request
 from app.lib import repo
 from app.lib import specs
 from app.lib import validator
+from app.lib.auth import CurrentUser
 from app.model.err import http_responses
 from app.model.inp import Operation
 from app.model.inp import OperationRequest
-from app.model.inp import User
 from app.model.out import ValidationResult
 
 router = APIRouter()
@@ -19,7 +19,7 @@ router = APIRouter()
     responses=http_responses(),
 )
 async def validate_operation(
-    request: Request, user: User, op: Operation
+    request: Request, user: CurrentUser, op: Operation
 ) -> ValidationResult:
     """
     **Note** that the schema is not static but generated and thus may change
