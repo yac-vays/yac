@@ -7,8 +7,6 @@ from the raw, untemplated YAML at import time.
 Raises: [app.model.err.SpecsError]
 """
 
-import asyncio
-import concurrent.futures
 import copy
 import hashlib
 import logging
@@ -186,17 +184,17 @@ def _render_at_startup(
     Render `block` once at startup. Fails fast on template errors — the
     section is static and the pod should not come up with a broken config.
 
-    Runs on a worker thread with its own event loop so this works whether
-    or not the importer already has a running loop (uvicorn imports the
-    app inside its asyncio loop).
+    Uses `j2.render_sync`, which exposes only the basic Jinja surface
+    (no plugin functions/filters/tests). The scope is env-only by
+    convention, so `{{ env.* }}` substitutions work but anything
+    fancier is intentionally unavailable here — uvicorn imports the
+    app inside its asyncio loop, so we cannot await async plugin code
+    at module import.
     """
     if not block:
         return block
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            return executor.submit(
-                lambda: asyncio.run(j2.render(block, props_, skip=skip))
-            ).result()
+        return j2.render_sync(block, props_, skip=skip)
     except j2.J2Error as error:
         logger.critical(f"In {section} at {error.loc}: {error}")
         sys.exit(1)

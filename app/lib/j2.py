@@ -67,6 +67,37 @@ def _get_template(strict: bool, nonstr: bool, source: str):
     return _get_env(strict, nonstr).from_string(source)
 
 
+# Sync variant for startup-time rendering of small env-only blocks (auth,
+# repo.plugin, repo.connection). Intentionally minimal: no plugin
+# functions/filters/tests are registered — the only thing beyond plain
+# Jinja is `omit`. This keeps the early surface free of async code so the
+# FastAPI app can be constructed before its lifespan runs.
+
+_SYNC_ENV_VARIANTS: dict[bool, SandboxedEnvironment] = {}
+
+
+def _build_sync_env(nonstr: bool) -> SandboxedEnvironment:
+    env = SandboxedEnvironment(
+        loader=jinja2.BaseLoader(),
+        undefined=jinja2.StrictUndefined,
+        trim_blocks=not nonstr,
+        finalize=json.dumps if nonstr else None,
+    )
+    env.globals["omit"] = OMIT
+    return env
+
+
+def _get_sync_env(nonstr: bool) -> SandboxedEnvironment:
+    if nonstr not in _SYNC_ENV_VARIANTS:
+        _SYNC_ENV_VARIANTS[nonstr] = _build_sync_env(nonstr)
+    return _SYNC_ENV_VARIANTS[nonstr]
+
+
+@lru_cache(maxsize=1000)
+def _get_sync_template(nonstr: bool, source: str):
+    return _get_sync_env(nonstr).from_string(source)
+
+
 async def render(
     o, props: dict, *, skip: str | None = None, strict: bool = True, loc: str = "#"
 ):
@@ -152,6 +183,72 @@ async def __render_list(
             r.append(await __render_list(v, props, skip=skip, strict=strict, loc=v_loc))
         elif isinstance(v, str):
             r.append(await render_str(v, props, strict=strict, loc=v_loc))
+        else:
+            r.append(v)
+    return r
+
+
+def render_sync(o, props: dict, *, skip: str | None = None, loc: str = "#"):
+    """
+    Synchronous rendering for startup-only blocks (auth, repo.plugin,
+    repo.connection). Plugin filters/functions/tests are NOT available
+    here — only basic Jinja plus `omit`. Always strict.
+    """
+    if isinstance(o, dict):
+        return __render_sync_dict(o, props, skip=skip, loc=loc)
+    if isinstance(o, list):
+        return __render_sync_list(o, props, skip=skip, loc=loc)
+    if isinstance(o, str):
+        return render_sync_str(o, props, loc=loc)
+    return o
+
+
+def render_sync_str(s, props, *, allow_nonstr: bool = True, loc: str = "#"):
+    nonstr = bool(re.match(r"^(\{\{|\{%).+(\}\}|%\})$", s)) and allow_nonstr
+    template = _get_sync_template(nonstr, s)
+    try:
+        result = template.render({"loc": loc} | props)
+    except (jinja2.exceptions.UndefinedError, Exception) as error:
+        raise J2Error(f'Templating str "{s}" failed with: {error}', loc=loc) from error
+    if nonstr:
+        try:
+            return json.loads(result)
+        except ValueError as error:
+            raise J2Error(
+                f'Templating str "{s}" caused a value error: {error}', loc=loc
+            ) from error
+    return result
+
+
+def __render_sync_dict(d, props, *, skip: str | None, loc: str = "#"):
+    r = {}
+    for k, v in d.items():
+        k_loc = f"{loc}/{k}"
+        if skip and re.match(skip, k_loc):
+            r[k] = v
+        elif isinstance(v, dict):
+            r[k] = __render_sync_dict(v, props, skip=skip, loc=k_loc)
+        elif isinstance(v, list):
+            r[k] = __render_sync_list(v, props, skip=skip, loc=k_loc)
+        elif isinstance(v, str):
+            r[k] = render_sync_str(v, props, loc=k_loc)
+        else:
+            r[k] = v
+    return r
+
+
+def __render_sync_list(l, props, *, skip: str | None, loc: str = "#"):
+    r = []
+    for v in l:
+        v_loc = f"{loc}/{len(r)}"
+        if skip and re.match(skip, v_loc):
+            r.append(v)
+        elif isinstance(v, dict):
+            r.append(__render_sync_dict(v, props, skip=skip, loc=v_loc))
+        elif isinstance(v, list):
+            r.append(__render_sync_list(v, props, skip=skip, loc=v_loc))
+        elif isinstance(v, str):
+            r.append(render_sync_str(v, props, loc=v_loc))
         else:
             r.append(v)
     return r

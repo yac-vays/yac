@@ -38,8 +38,6 @@ logger = logging.getLogger(__name__)
 # Startup / Shutdown
 #
 
-# TODO update docs to match the new j2-everywhere syntax (logs, actions, repo)
-
 if consts.ENV.debug_mode:
     logger.warning(
         "DEBUG_MODE is enabled! This is DANGEROUS and will leak sensitive data"
