@@ -8,6 +8,7 @@ Raises: [app.model.err.SpecsError]
 """
 
 import asyncio
+import concurrent.futures
 import copy
 import hashlib
 import logging
@@ -184,11 +185,18 @@ def _render_at_startup(
     """
     Render `block` once at startup. Fails fast on template errors — the
     section is static and the pod should not come up with a broken config.
+
+    Runs on a worker thread with its own event loop so this works whether
+    or not the importer already has a running loop (uvicorn imports the
+    app inside its asyncio loop).
     """
     if not block:
         return block
     try:
-        return asyncio.run(j2.render(block, props_, skip=skip))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(
+                lambda: asyncio.run(j2.render(block, props_, skip=skip))
+            ).result()
     except j2.J2Error as error:
         logger.critical(f"In {section} at {error.loc}: {error}")
         sys.exit(1)
