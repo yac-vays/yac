@@ -9,32 +9,43 @@ For the full documentation, see: https://yac-vays.github.io
 
 ## Configuration
 
-Some basics like the repository are configured through environment variables.
-All available environment variables are defined in `app/config.py` in
-`Settings` (like `log_level` which maps to the env variable `YAC_LOG_LEVEL`).
+The bulk of YAC's configuration lives in the specs file (a static YAML
+mounted into the container — by default at `/yac.yml`). It defines the
+repository plugin and its connection details, entity types, roles and
+schemas, and supports Jinja2 templating in values. Environment variables
+cover only host-level settings (logging, OIDC, custom `env.*` values);
+see `app/config.py` (`Settings`) for the full list.
 
-In addition, you're free to set any `YAC_ENV__*` environment variable and
-access it in the specs-file as `env.*` (e.g. `YAC_ENV__MY_VAR` -> `env.my_var`).
+You're free to set any `YAC_ENV__*` environment variable and access it
+in the specs-file as `env.*` (e.g. `YAC_ENV__MY_VAR` -> `env.my_var`).
 
-Everything else is configured through the specs-file (see `docs/specs/general.md`).
-The specs-file is a YAML file where you can use jinja2-templating in values.
+Because the specs file is loaded once at process startup, any change to
+it (including the repo connection config) requires a pod/container
+restart.
 
 ## Deployment
 
-Prepare a minimal specs file and commit it into a git repository (you can also
-mount it into the container as a file and point the env var `YAC_SPECS_FILE` to
-it):
+Prepare a minimal specs file:
 
-    cat <<__EOF__ > /path/to/repo/yac.yml
+    cat <<__EOF__ > /path/to/yac.yml
     ---
+    repo:
+      plugin: git_direct
+      connection:
+        url: https://user:pass@git.example.com/my/repo.git
+        branch: main
+      details:
+        file: "files/{{ name }}.yml"
+    auth:
+      oidc:
+        url: https://example.com/.well-known/openid-configuration
+        client_ids: [my-client-id]
     types:
       - name: file
         title: File
-        details:
-          file: files/{name}.yml
         name_pattern: '^[a-z0-9]{1,10}$'
     roles:
-      - all:file:all: "user.name == 'user1'"
+      - file:all:all: "user.name == 'user1'"
     schema:
       type: object
       properties:
@@ -50,16 +61,14 @@ it):
           default: false
     __EOF__
 
-This minimal specs-file will allow a local user `user1`  to add/change/delete
-all YAML files in the repo in `files/`. The YAML files are allowed to have the
-properties `my_message` (string) and `worked` (boolean).
+This minimal specs-file will allow a local user `user1` to add/change/delete
+all YAML files in the repo's `files/` directory. The YAML files are allowed
+to have the properties `my_message` (string) and `worked` (boolean).
 
-With this specs-file, write access to a git repository and an Open ID Connect
-auth provider, you can start the YAC container:
-    
+With this specs-file mounted into the container, you can start YAC:
+
     docker run --rm --name yac -p 8080:80 \
-        --env YAC_REPO__URL="https://user@pass:git.example.com/my/repo.git" \
-        --env YAC_OIDC_URL="https://example.com/.well-known/openid-configuration" \
+        -v /path/to/yac.yml:/yac.yml:ro \
         yacvays/yac:latest
 
 You should be able to access the API and the documentation at:

@@ -26,6 +26,18 @@ def get_request() -> dict:
     }
 
 
+def get_repo() -> dict:
+    return {
+        "env": consts.ENV.env,
+    }
+
+
+def get_auth() -> dict:
+    return {
+        "env": consts.ENV.env,
+    }
+
+
 def get_types(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     return {
         "env": consts.ENV.env,

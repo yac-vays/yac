@@ -6,10 +6,11 @@ from fastapi.responses import JSONResponse
 from fastapi.openapi.utils import get_openapi
 
 from app import consts
+from app.lib import specs
 from app.version import VERSION
 
 
-def get_openapi_schema_with_oidc_idtoken(app: FastAPI) -> Callable:
+def get_openapi_schema_with_oidc_idtoken(app: FastAPI, description: str) -> Callable:
     """
     Hack from: https://github.com/fastapi/fastapi/discussions/8557
     """
@@ -19,7 +20,7 @@ def get_openapi_schema_with_oidc_idtoken(app: FastAPI) -> Callable:
             return app.openapi_schema
         openapi_schema = get_openapi(
             title=consts.TITLE,
-            description=consts.DESCRIPTION,
+            description=description,
             version=VERSION,
             contact=consts.CONTACT,
             license_info=consts.LICENSE,
@@ -50,7 +51,7 @@ def add_cors_headers_to_response(
     )
 
     origin = request.headers.get("origin")
-    if origin in consts.ENV.cors_origins.split(","):
+    if origin in specs.AUTH.cors.origins:
         response.headers.update(
             {
                 "Access-Control-Allow-Origin": origin,

@@ -8,6 +8,8 @@ from app.lib import plugin
 from app.model.out import Diff
 from app.model.out import User
 from app.model.plg import IRepo
+from app.model.plg import IRepoSession
+from app.model.plg import IRepoUntyped
 from app.model.err import RepoError
 
 # TODO max_age_seconds and redis_url from ENV
@@ -26,7 +28,13 @@ from app.model.err import RepoError
 # TODO disconnect on shutdown!?
 
 
-class GitRedisRepo(IRepo):
+class GitRedisRepo(IRepo, IRepoUntyped, IRepoSession):
+    """
+    Stub Redis-backed repo plugin. Currently incomplete: most methods return
+    placeholder values and `redis_url`/`max_age_seconds` are not wired to env
+    yet. Yields `self` from `reader` / `writer`, so the same instance plays
+    both `IRepoUntyped` and `IRepoSession` roles.
+    """
 
     def __init__(self):
         self.git_direct = plugin.get_module("repo", "git_direct").handler
@@ -34,7 +42,7 @@ class GitRedisRepo(IRepo):
 
     @asynccontextmanager
     async def reader(
-        self, user: User | None, *, details: dict, dirty: bool = False
+        self, user: User | None, *, dirty: bool = False
     ) -> AsyncGenerator[Self, None]:
         await self.__init_redis()
         now = datetime.now().timestamp()
@@ -42,27 +50,30 @@ class GitRedisRepo(IRepo):
             # Update the synced-timestamp early to avoid simulatneous git pulls; this way we
             # accept that synced is updated before the latest field points to the new hash!
             await self.redis.set("synced", now)
-            async with self.git_direct.reader(
-                user, details=details, dirty=False
-            ) as rpo:
+            async with self.git_direct.reader(user, dirty=False) as rpo:
                 await self.__update_redis(rpo)
         # TODO check if current entity type (or specs!!?) is in cache already, if not -> __update_redis(rpo)!!
         yield self
 
     @asynccontextmanager
     async def writer(
-        self, user: User | None, *, details: dict
+        self, user: User | None
     ) -> AsyncGenerator[Self, None]:
-        async with self.git_direct.writer(user, details=details) as rpo:
+        async with self.git_direct.writer(user) as rpo:
             yield rpo
             await self.__update_redis(rpo)
+
+    def session(self, details: dict) -> IRepoSession:
+        # Stub plugin: same instance plays both untyped and typed roles.
+        del details
+        return self
 
     async def __init_redis(self) -> None:
         if self.redis is not None:
             return
         self.redis = redis.from_url(redis_url)
 
-    async def __update_redis(self, git_direct: IRepo) -> None:
+    async def __update_redis(self, git_direct: IRepoUntyped) -> None:
         pass  # TODO use git_direct to get the data and write it into redis cache, update latest field and delete old data!
 
     async def get_hash(self) -> str:
@@ -80,14 +91,8 @@ class GitRedisRepo(IRepo):
     async def get_link(self, type: str, name: str) -> str:
         return ""  # TODO get from redis
 
-    async def get_specs(self, name: str) -> str:
-        return ""  # TODO get from redis
-
     async def get(self, type: str, name: str) -> str:
         return ""  # TODO get from redis
-
-    async def update_details(self, details: dict) -> None:
-        pass
 
     async def write(
         self, type: str, name: str, content_old: str, content_new: str, msg: str

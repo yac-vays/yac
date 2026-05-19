@@ -4,6 +4,7 @@ Raises: [app.lib.j2.J2Error, app.model.err.RequestError]
 
 import json
 import re
+from functools import lru_cache
 
 import jinja2
 from jinja2.sandbox import SandboxedEnvironment
@@ -17,6 +18,53 @@ class J2Error(Exception):
     def __init__(self, msg: str, *, loc: str = "#"):
         super().__init__(msg)
         self.loc = loc
+
+
+# A SandboxedEnvironment is built once per (strict, nonstr) combination and
+# the plugin globals/filters/tests are registered once on first use. Compiled
+# templates are LRU-cached by source per environment.
+
+_ENV_VARIANTS: dict[tuple[bool, bool], SandboxedEnvironment] = {}
+_envs_initialized = False
+
+
+def _build_env(strict: bool, nonstr: bool) -> SandboxedEnvironment:
+    return SandboxedEnvironment(
+        enable_async=True,
+        loader=jinja2.BaseLoader(),
+        undefined=jinja2.StrictUndefined if strict else jinja2.DebugUndefined,
+        trim_blocks=not nonstr,
+        finalize=json.dumps if nonstr else None,
+    )
+
+
+def _ensure_envs_initialized() -> None:
+    global _envs_initialized
+    if _envs_initialized:
+        return
+    j2_functions = plugin.get_functions("j2_functions")
+    j2_filters = plugin.get_functions("j2_filters")
+    j2_tests = plugin.get_functions("j2_tests")
+    for strict in (True, False):
+        for nonstr in (True, False):
+            env = _build_env(strict, nonstr)
+            env.globals.update(j2_functions)
+            env.globals["omit"] = OMIT
+            env.filters.update(j2_filters)
+            env.tests.update(j2_tests)
+            _ENV_VARIANTS[(strict, nonstr)] = env
+    _envs_initialized = True
+
+
+def _get_env(strict: bool, nonstr: bool) -> SandboxedEnvironment:
+    if not _envs_initialized:
+        _ensure_envs_initialized()
+    return _ENV_VARIANTS[(strict, nonstr)]
+
+
+@lru_cache(maxsize=10000)
+def _get_template(strict: bool, nonstr: bool, source: str):
+    return _get_env(strict, nonstr).from_string(source)
 
 
 async def render(
@@ -46,20 +94,10 @@ async def render_print(print_str: str, props: dict, *, strict: bool = True) -> s
 async def render_str(
     s, props, *, allow_nonstr: bool = True, strict: bool = True, loc: str = "#"
 ):
-    nonstr = re.match(r"^(\{\{|\{%).+(\}\}|%\})$", s) and allow_nonstr
-    j2 = SandboxedEnvironment(
-        enable_async=True,
-        loader=jinja2.BaseLoader(),
-        undefined=jinja2.StrictUndefined if strict else jinja2.DebugUndefined,
-        trim_blocks=not nonstr,
-        finalize=json.dumps if nonstr else None,
-    )
-    j2.globals.update(plugin.get_functions("j2_functions"))
-    j2.globals["omit"] = OMIT
-    j2.filters.update(plugin.get_functions("j2_filters"))
-    j2.tests.update(plugin.get_functions("j2_tests"))
+    nonstr = bool(re.match(r"^(\{\{|\{%).+(\}\}|%\})$", s)) and allow_nonstr
+    template = _get_template(strict, nonstr, s)
     try:
-        result = await j2.from_string(s).render_async({"loc": loc} | props)
+        result = await template.render_async({"loc": loc} | props)
     except RequestError as error:
         # Allow plugins to generate user errors
         raise error

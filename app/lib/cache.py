@@ -1,96 +1,84 @@
-import pickle
-import hashlib
-import contextvars
-import functools
-import inspect
+"""
+Async LRU+TTL caching keyed by an explicit `key_fn`.
 
+The codebase needs to cache async functions whose arguments include
+non-hashable objects (Pydantic models, IRepo handlers, dicts). Rather than
+serialising the entire call (which is expensive on hits and risks aliasing
+mutable returns), the caller declares which arguments contribute to identity
+via a small projection function.
+
+Use `copy_result=True` for cached values that callers may mutate.
+"""
+
+import asyncio
+import copy
+import time
+from collections import OrderedDict
 from functools import wraps
-from async_lru import alru_cache
+from typing import Any, Callable
 
 
-def pickled_alru_cache(**alru_kwargs):
+def stable_key(value: Any) -> Any:
+    """
+    Convert a (possibly nested) dict/list into a hashable, order-insensitive
+    structure that can be used as part of a cache key.
+    """
+    if isinstance(value, dict):
+        return tuple(sorted((k, stable_key(v)) for k, v in value.items()))
+    if isinstance(value, (list, tuple)):
+        return tuple(stable_key(v) for v in value)
+    if isinstance(value, set):
+        return tuple(sorted(stable_key(v) for v in value))
+    return value
+
+
+def keyed_alru_cache(
+    key_fn: Callable[..., Any],
+    *,
+    maxsize: int = 1024,
+    ttl: float | None = None,
+    copy_result: bool = False,
+):
+    """
+    Decorator that LRU+TTL-caches an async function using `key_fn(*args, **kwargs)`
+    to derive a hashable cache key.
+
+    - `maxsize`: maximum number of entries; least-recently-used are evicted.
+    - `ttl`: optional time-to-live in seconds; expired entries are recomputed.
+    - `copy_result`: deep-copy on hit so callers cannot corrupt cached entries.
+    """
+
     def decorator(func):
-        """
-        A decorator that uses alru_cache under the hood but serializes
-        both the function arguments and return values via pickle.
-        This allows caching calls to async functions that accept or return
-        non-hashable objects.
-
-        SAFETY: pickle.loads is only ever called on data this process pickled
-        itself one line earlier — it never deserializes attacker-controlled
-        bytes. Do not generalize this to accept external pickle input.
-        """
-
-        @alru_cache(**alru_kwargs)
-        async def internal(key, pickled_args):
-            # Deserialize the original args, kwargs
-            args, kwargs = pickle.loads(pickled_args)
-            # Call the original function
-            result = await func(*args, **kwargs)
-            # Return the pickled result so that it can be properly cached
-            return pickle.dumps(result)
+        cache: "OrderedDict[Any, tuple[float, Any]]" = OrderedDict()
+        lock = asyncio.Lock()
 
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Pickle the arguments (positional + keyword)
-            pickled_args = pickle.dumps((args, kwargs))
+            key = key_fn(*args, **kwargs)
+            now = time.monotonic()
 
-            # Create a hash key from the pickled arguments
-            # This string key ensures it is hashable for the cache dictionary
-            key = hashlib.md5(pickled_args).hexdigest()
+            async with lock:
+                hit = cache.get(key)
+                if hit is not None:
+                    expires, value = hit
+                    if ttl is None or expires > now:
+                        cache.move_to_end(key)
+                        return copy.deepcopy(value) if copy_result else value
+                    cache.pop(key, None)
 
-            # Fetch or compute the pickled result from the internal cached function
-            pickled_result = await internal(key, pickled_args)
-            # Unpickle the actual return value before returning
-            return pickle.loads(pickled_result)
+            value = await func(*args, **kwargs)
 
-        return wrapper
+            async with lock:
+                expires = (now + ttl) if ttl is not None else float("inf")
+                cache[key] = (expires, value)
+                cache.move_to_end(key)
+                while len(cache) > maxsize:
+                    cache.popitem(last=False)
 
-    return decorator
+            return copy.deepcopy(value) if copy_result else value
 
-
-# A context variable for storing bound arguments during each function call.
-# Because each asyncio Task has its own context, simultaneous calls
-# can safely store different bound arguments without interfering.
-_current_bound_args = contextvars.ContextVar("_current_bound_args")
-
-
-def partial_alru_cache(*argument_names, **alru_kwargs):
-    """
-    Decorator factory that returns a decorator which caches the result of
-    the decorated async function using only the values of the specified
-    argument_names as the cache key—ignoring all other (possibly unhashable) arguments.
-    """
-
-    def decorator(func):
-        signature = inspect.signature(func)
-
-        @alru_cache(**alru_kwargs)
-        async def internal(keys_tuple):
-            """
-            Internal function seen by alru_cache, receiving only a tuple of key values.
-            It retrieves the full set of bound arguments from the ContextVar for
-            this coroutine call, then calls the actual 'func'.
-            """
-            del keys_tuple
-            bound_args = _current_bound_args.get()
-            return await func(*bound_args.args, **bound_args.kwargs)
-
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
-            bound_args = signature.bind(*args, **kwargs)
-            bound_args.apply_defaults()
-
-            key_tuple = tuple(
-                bound_args.arguments[arg_name] for arg_name in argument_names
-            )
-
-            token = _current_bound_args.set(bound_args)
-            try:
-                return await internal(key_tuple)
-            finally:
-                _current_bound_args.reset(token)
-
+        wrapper.cache_clear = cache.clear  # type: ignore[attr-defined]
+        wrapper.cache_size = lambda: len(cache)  # type: ignore[attr-defined]
         return wrapper
 
     return decorator

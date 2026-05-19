@@ -20,10 +20,12 @@ spec:
       labels:
         app: {{ include "name" . }}
       annotations:
-        # Roll the pods when the secret or files change
+        # Roll the pods when the secret or specs change
+        {{- if or .Values.env .Values.customEnv }}
         checksum/env: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
-        {{- if .Values.files }}
-        checksum/files: {{ tpl (toYaml .Values.files) . | sha256sum }}
+        {{- end }}
+        {{- if .Values.specs }}
+        checksum/specs: {{ .Values.specs | sha256sum }}
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -56,9 +58,22 @@ spec:
             - {{ $arg | quote }}
           {{- end }}
           {{- end }}
+          env:
+            - name: YAC_ROOT_PATH
+              value: {{ include "rootPath" . | quote }}
+            - name: YAC_FORMAT_PLUGIN
+              value: "json_lines"
+          {{- if or (or .Values.env .Values.customEnv) .Values.extraEnvSecret }}
           envFrom:
+            {{- if or .Values.env .Values.customEnv }}
             - secretRef:
                 name: {{ include "fullname" . }}-env
+            {{- end }}
+            {{- if .Values.extraEnvSecret }}
+            - secretRef:
+                name: {{ .Values.extraEnvSecret }}
+            {{- end }}
+          {{- end }}
           ports:
             - name: http
               containerPort: 8080
@@ -90,10 +105,10 @@ spec:
               mountPath: /repo
             - name: tmp
               mountPath: /tmp
-            {{- range $key, $val := .Values.files }}
-            - name: files
-              subPath: {{ $key }}
-              mountPath: {{ $val }}
+            {{- if .Values.specs }}
+            - name: specs
+              subPath: yac.yml
+              mountPath: /yac.yml
               readOnly: true
             {{- end }}
             {{- with .Values.extraVolumeMounts }}
@@ -105,10 +120,10 @@ spec:
             medium: Memory
         - name: tmp
           emptyDir: {}
-        {{- if .Values.files }}
-        - name: files
+        {{- if .Values.specs }}
+        - name: specs
           configMap:
-            name: {{ include "fullname" . }}-files
+            name: {{ include "fullname" . }}-specs
         {{- end }}
         {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}

@@ -5,47 +5,45 @@ Raises: []
 import logging
 
 from app.model import spc
-from app.model import inp
-from app.lib import props
 from app.lib import j2
-from app.lib.cache import pickled_alru_cache
+from app.lib.cache import keyed_alru_cache, stable_key
 
 logger = logging.getLogger(__name__)
 
 
+_PERM_EXPANSIONS: dict[str, list[str]] = {
+    "all": ["see", "add", "rnm", "cpy", "lnk", "edt", "cln", "del", "act"],
+    "adm": ["see", "add", "rnm", "cpy", "lnk", "edt", "cln", "del", "act", "adm"],
+    "cln": ["see", "cln"],
+    "edt": ["see", "edt"],
+    "lnk": ["see", "lnk"],
+    "cpy": ["see", "cpy"],
+    "rnm": ["see", "rnm"],
+    "add": ["see", "add"],
+}
+
+
 def __expand_perms(p: list[str]) -> list[str]:
-    res = []
-    _ = [res.extend(q.split("+")) for q in p]
+    parts: list[str] = []
+    for q in p:
+        parts.extend(q.split("+"))
 
-    result = []
-    for r in res:
-        if r == "all":
-            result.extend(
-                ["see", "add", "rnm", "cpy", "lnk", "edt", "cln", "del", "act"]
-            )
-        elif r == "adm":
-            result.extend(
-                ["see", "add", "rnm", "cpy", "lnk", "edt", "cln", "del", "act", "adm"]
-            )
-        elif r == "cln":
-            result.extend(["see", "cln"])
-        elif r == "edt":
-            result.extend(["see", "edt"])
-        elif r == "lnk":
-            result.extend(["see", "lnk"])
-        elif r == "cpy":
-            result.extend(["see", "cpy"])
-        elif r == "rnm":
-            result.extend(["see", "rnm"])
-        elif r == "add":
-            result.extend(["see", "add"])
-        else:
-            result.append(r)
-
-    return sorted(list(set(result)))
+    expanded: set[str] = set()
+    for r in parts:
+        expanded.update(_PERM_EXPANSIONS.get(r, [r]))
+    return sorted(expanded)
 
 
-@pickled_alru_cache(maxsize=10000, ttl=3600)
+@keyed_alru_cache(
+    key_fn=lambda type_name, specs, role_props: (
+        type_name,
+        specs._signature,
+        stable_key(role_props),
+    ),
+    maxsize=10000,
+    ttl=3600,
+    copy_result=True,
+)
 async def get_from_roles(
     type_name: str, specs: spc.Specs, role_props: dict
 ) -> list[str]:

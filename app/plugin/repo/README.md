@@ -1,6 +1,8 @@
 # Repo Plugins
 
-The repo plugin is referenced by filename in the env variable YAC_REPO_PLUGIN.
+The repo plugin is referenced by filename in the specs file's `repo.plugin`
+field (see `docs/yac/specs/file/repo.md`). Connection config goes into
+`repo.connection` and is read once at process startup.
 
 Each plugin must implement the the `app.model.plg.IRepo` class and provide an
 instance of that class as `handler` variable.

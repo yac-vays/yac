@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from contextlib import asynccontextmanager
-from typing import Self, AsyncGenerator
+from typing import AsyncGenerator
 
 
 from app.model.inp import OperationRequest
@@ -125,22 +125,17 @@ class IValidator(ISortable):
         )
 
 
-class IRepo:
-    @asynccontextmanager
-    @abstractmethod
-    async def reader(
-        self, user: User | None, *, details: dict, dirty: bool = False
-    ) -> AsyncGenerator[Self, None]: ...
+class IRepoSession:
+    """
+    Typed view of the repository for one request scope, given an entity-type
+    → path-template mapping (`details`). Created from an `IRepoUntyped` via
+    `IRepoUntyped.session(details)`; sharing the same lock scope as its parent
+    untyped view (no extra git lock is acquired).
 
-    @asynccontextmanager
-    @abstractmethod
-    async def writer(
-        self, user: User | None, *, details: dict
-    ) -> AsyncGenerator[Self, None]: ...
-
-    # TODO will be removed and obsolet when specs must be outside repo!
-    @abstractmethod
-    async def update_details(self, details: dict) -> None: ...
+    Methods on this interface read path templates from `details`. Writes are
+    only valid when the underlying scope was opened via `IRepo.writer`; on a
+    reader scope they raise `RepoError`.
+    """
 
     @abstractmethod
     async def get_hash(self) -> str: ...
@@ -156,10 +151,6 @@ class IRepo:
 
     @abstractmethod
     async def get_link(self, type: str, name: str) -> str: ...
-
-    # TODO will be removed and obsolet when specs must be outside repo!
-    @abstractmethod
-    async def get_specs(self, name: str) -> str: ...
 
     @abstractmethod
     async def get(self, type: str, name: str) -> str: ...
@@ -192,3 +183,41 @@ class IRepo:
 
     @abstractmethod
     async def delete(self, type: str, name: str, msg: str) -> None: ...
+
+
+class IRepoUntyped:
+    """
+    Per-scope view of the repository before any entity-type details are
+    known. Use this view to query the current commit hash (`get_hash`).
+    Once the entity-type `details` are known (typically from
+    `specs.repo.details`), call `session(details)` to obtain an
+    `IRepoSession` for typed entity operations. The returned session shares
+    this scope's lock — no extra git lock is acquired.
+    """
+
+    @abstractmethod
+    async def get_hash(self) -> str: ...
+
+    @abstractmethod
+    def session(self, details: dict) -> IRepoSession: ...
+
+
+class IRepo:
+    """
+    Process-level handle for the repository. Owns the on-disk path and the
+    cross-scope locks. Per-request state lives on the untyped view yielded by
+    `reader` / `writer`; the caller derives a typed `IRepoSession` from it
+    once the entity-type `details` are known (typically after parsing specs).
+    """
+
+    @asynccontextmanager
+    @abstractmethod
+    async def reader(
+        self, user: User | None, *, dirty: bool = False
+    ) -> AsyncGenerator[IRepoUntyped, None]: ...
+
+    @asynccontextmanager
+    @abstractmethod
+    async def writer(
+        self, user: User | None
+    ) -> AsyncGenerator[IRepoUntyped, None]: ...

@@ -50,8 +50,7 @@ async def get_types(
         entity=None,
     )
 
-    async with repo.handler.reader(op.user, details={}, dirty=True) as rpo:
-        s = await specs.read(op, rpo)
+    s = await specs.read(op)
 
     # List comprehension dict hack is required because otherwise pydantic 2.7.4
     # returns the whole object instead of reducing it to the values of out.Type.
@@ -88,32 +87,31 @@ async def get_entities(
     )
 
     result = []
-    async with repo.handler.reader(op.user, details={}) as rpo:
-        s = await specs.read(op, rpo)
+    s = await specs.read(op)
+    async with repo.handler.reader(op.user) as raw:
+        rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         await validator.test_ls(op, s)
 
-        await rpo.update_details(s.repo.details)
-        list_hash = await rpo.get_hash()
         for entity_name in await rpo.list(type_name):
             if not search in entity_name:
                 continue  # skip the entities where search is not a substring
 
-            op.name = entity_name
+            entity_op = op.model_copy(update={"name": entity_name})
             try:
-                old, _, perms = await repo.get_entities(hash, rpo, op, s)
+                old, _, perms = await repo.get_entities(hash, rpo, entity_op, s)
             except RepoError as error:
                 logger.warning(error)
                 continue  # skip the entities we have errors reading
             if "see" not in perms:
                 continue  # skip the entities we have no permissions
 
-            result.append(repo.to_detailed_entity(old, perms, list_hash, s.type))
+            result.append(repo.to_detailed_entity(old, perms, hash, s.type))
 
             if (limit + skip) <= len(result):
                 break
 
-    return EntityList(hash=list_hash, list=result[skip:])
+    return EntityList(hash=hash, list=result[skip:])
 
 
 @router.get(
@@ -141,8 +139,9 @@ async def get_entity(
         entity=None,
     )
 
-    async with repo.handler.reader(op.user, details={}) as rpo:
-        s = await specs.read(op, rpo)
+    s = await specs.read(op)
+    async with repo.handler.reader(op.user) as raw:
+        rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
         entity_hash = await rpo.get_hash()
@@ -175,8 +174,9 @@ async def get_entity_yaml(
         entity=None,
     )
 
-    async with repo.handler.reader(op.user, details={}) as rpo:
-        s = await specs.read(op, rpo)
+    s = await specs.read(op)
+    async with repo.handler.reader(op.user) as raw:
+        rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
 
@@ -208,14 +208,14 @@ async def get_entity_logs(
         entity=None,
     )
 
-    async with repo.handler.reader(op.user, details={}, dirty=True) as rpo:
-        s = await specs.read(op, rpo)
+    s = await specs.read(op)
+    # request the logs before/while validating the request to optimize performance
+    logs = asyncio.create_task(log.get(op, s))
+    # return control to the loop so the task can start immediately
+    await asyncio.sleep(0)
 
-        # request the logs before/while validating the request to optimize performance
-        logs = asyncio.create_task(log.get(op, s))
-        # return control to the loop so the task can start immediately
-        await asyncio.sleep(0)
-
+    async with repo.handler.reader(op.user, dirty=True) as raw:
+        rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
 

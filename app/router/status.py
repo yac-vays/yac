@@ -6,7 +6,6 @@ from fastapi import APIRouter, status, Request
 from app.lib import repo
 from app.lib import specs
 from app.version import VERSION
-from app.consts import ENV
 from app.model.err import http_responses
 from app.model.inp import OperationRequest
 from app.model.out import Status
@@ -32,8 +31,8 @@ async def get_meta() -> Meta:
     """
     return Meta(
         version=VERSION,
-        oidc_url=ENV.oidc_url,
-        oidc_client_ids=ENV.oidc_client_ids.split(","),
+        oidc_url=specs.AUTH.oidc.url,
+        oidc_client_ids=specs.AUTH.oidc.client_ids,
     )
 
 
@@ -86,9 +85,9 @@ async def get_status(request: Request) -> Status:
             entity=None,
         )
 
-        async with repo.handler.reader(None, details={}) as rpo:
-            _ = await specs.read(op, rpo)
-            h = await rpo.get_hash()
+        _ = await specs.read(op)
+        async with repo.handler.reader(None) as raw:
+            h = await raw.get_hash()
 
         _status_cache["hash"] = h
         _status_cache["expires_at"] = time.monotonic() + _STATUS_TTL_SECONDS

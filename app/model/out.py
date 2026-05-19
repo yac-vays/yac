@@ -15,7 +15,8 @@ from app import consts
 
 class Permission(str, enum.Enum):
     """
-    See docs/perms.md
+    Permission flags. See https://yac-vays.github.io/yac/specs/perms for the
+    full reference.
     """
 
     READ = "see"

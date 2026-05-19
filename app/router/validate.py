@@ -37,8 +37,9 @@ async def validate_operation(
         entity=op.entity,
     )
 
-    async with repo.handler.reader(op.user, details={}, dirty=True) as rpo:
-        s = await specs.read(op, rpo)
+    s = await specs.read(op)
+    async with repo.handler.reader(op.user, dirty=True) as raw:
+        rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
 

@@ -1,31 +1,8 @@
-from urllib.parse import urlparse
-
 from app.config import Settings
 
 ENV = Settings()
 
 TITLE = "YAC - Yet Another Configurator"
-DESCRIPTION = f"""
-
-## Authentication
-
-We are using the OpenID Connect provider
-[{urlparse(ENV.oidc_url).netloc}]({ENV.oidc_url})
-for authentication. You need to send a valid `id_token` via `Authorization: Bearer`
-header to all API endpoints that require authentication.
-
-Only the following `client_id`s are accepted:
-`{'` `'.join(ENV.oidc_client_ids.split(","))}`
-
-For interactive user logins, `authentication_code with PKCE` flow (with a
-dummy `nonce` parameter that won't be validated) is recommended. For
-automated login in scripts/software, use the `password` flow instead (therefore
-you will also need the `client_secret`).
-
-## Source, Issues and Documentation
-
-Repository on [GitHub](https://github.com/yac-vays/yac)
-"""
 CONTACT = {
     "name": "Manuel (isginf)",
     "email": "manuel.maestinger@inf.ethz.ch",

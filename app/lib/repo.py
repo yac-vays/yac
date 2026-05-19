@@ -9,8 +9,9 @@ from app.lib import j2
 from app.lib import perms
 from app.lib import plugin
 from app.lib import props
+from app.lib import specs as _specs
 from app.lib import yaml
-from app.lib.cache import partial_alru_cache
+from app.lib.cache import keyed_alru_cache
 from app.model.err import RepoClientError
 from app.model.err import RepoError
 from app.model.err import RepoSpecsError
@@ -20,23 +21,34 @@ from app.model.inp import OperationRequest
 from app.model.out import DetailedEntity
 from app.model.int import Entity
 from app.model.plg import IRepo
+from app.model.plg import IRepoSession
 from app.model.spc import Specs
 from app.model.spc import Type
 
-repo_plugin = plugin.get_module("repo", consts.ENV.repo_plugin)
+repo_plugin = plugin.get_module("repo", _specs.get_repo_plugin())
 handler: IRepo = repo_plugin.handler
 
 
-@partial_alru_cache("hash", "type_name", "old_name", "new_name", maxsize=10000)
+@keyed_alru_cache(
+    key_fn=lambda repo_hash, type_name, old_name, new_name, type_exists, rpo: (
+        repo_hash,
+        type_name,
+        old_name,
+        new_name,
+        type_exists,
+    ),
+    maxsize=10000,
+    copy_result=True,
+)
 async def __lookup_entities(
-    hash: str,
+    repo_hash: str,
     type_name: str,
     old_name: str | None,
     new_name: str | None,
     type_exists: bool,
-    rpo: IRepo,
+    rpo: IRepoSession,
 ) -> tuple[Entity, Entity]:
-    del hash  # only required to flush the cache on repo changes
+    del repo_hash  # only required to scope the cache to a repo state
 
     old = Entity(name=old_name)
     new = Entity(name=new_name)
@@ -67,14 +79,16 @@ async def __lookup_entities(
 
 
 async def get_entities(
-    hash: str, rpo: IRepo, op: OperationRequest, specs: Specs
+    hash: str, rpo: IRepoSession, op: OperationRequest, specs: Specs
 ) -> tuple[Entity, Entity, list[str]]:
     """
     Try to collect data about the entity refered in this OperationRequest.
     Should not fail even if the provided data is nonsense.
-    """
 
-    await rpo.update_details(specs.repo.details)
+    The caller must pass an `IRepoSession` whose `details` already match
+    `specs.repo.details` — typically obtained via
+    `untyped.session(s.repo.details if s.type else {})`.
+    """
 
     old_name = None
     new_name = None

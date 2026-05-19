@@ -63,7 +63,8 @@ def extract(data_loc: str, data: Any) -> Any | None:
     the data-loc string (or None if not found).
     """
     keys = data_loc.split("/")
-    keys.remove("#")
+    if keys and keys[0] == "#":
+        keys = keys[1:]
 
     d = data
     for key in keys:
@@ -99,7 +100,8 @@ def to_regex(schema_loc: str, recursive: bool) -> str:
     If recursive is True, it will also match to all locs below that schema_loc.
     """
     keys = schema_loc.split("/")
-    keys.remove("#")
+    if keys and keys[0] == "#":
+        keys = keys[1:]
 
     recursion = "(/.+)*" if recursive else ""
     root = f"^\\#{recursion}$"

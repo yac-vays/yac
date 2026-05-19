@@ -16,16 +16,27 @@ from app.model.err import PluginError
 
 logger = logging.getLogger(__name__)
 
+# Derive the plugin root from this file's location so the same code works in
+# the production container (under /code/app/lib/plugin.py) and in dev / tests
+# (anywhere on disk). plugin.py lives at app/lib/plugin.py; siblings are at
+# app/plugin/{kind}/*.py.
+_PLUGIN_ROOT = (Path(__file__).resolve().parent.parent / "plugin").as_posix()
+
+
+def _kind_dir(kind: str) -> str:
+    return f"{_PLUGIN_ROOT}/{kind}"
+
 
 @lru_cache(maxsize=None)
 def get_functions(kind: str) -> dict[str, FunctionType]:
     functions = {}
+    kind_dir = _kind_dir(kind)
     try:
-        files = glob.glob(f"/code/app/plugin/{kind}/*.py")
+        files = glob.glob(f"{kind_dir}/*.py")
     except OSError as error:
         raise PluginError(f"Could not read {kind} plugin dir: {error}") from error
     for file in files:
-        if file == f"/code/app/plugin/{kind}/__init__.py":
+        if file == f"{kind_dir}/__init__.py":
             continue
         logger.info(f"Loading plugin {file}")
         try:
@@ -41,12 +52,13 @@ def get_functions(kind: str) -> dict[str, FunctionType]:
 @lru_cache(maxsize=None)
 def get_modules(kind: str, require: tuple[str] | None = None) -> dict[str, ModuleType]:
     modules = {}
+    kind_dir = _kind_dir(kind)
     try:
-        files = glob.glob(f"/code/app/plugin/{kind}/*.py")
+        files = glob.glob(f"{kind_dir}/*.py")
     except OSError as error:
         raise PluginError(f"Could not read {kind} plugin dir: {error}") from error
     for file in files:
-        if file == f"/code/app/plugin/{kind}/__init__.py":
+        if file == f"{kind_dir}/__init__.py":
             continue
         logger.info(f"Loading plugin {file}")
         try:
@@ -103,7 +115,7 @@ def get_sorted(
 
 @lru_cache(maxsize=None)
 def get_module(kind: str, module: str) -> ModuleType:
-    file = f"/code/app/plugin/{kind}/{module}.py"
+    file = f"{_kind_dir(kind)}/{module}.py"
     logger.info(f"Loading plugin {file}")
     try:
         return pydoc.importfile(file)

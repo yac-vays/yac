@@ -9,27 +9,16 @@ imagePullPolicy: Always
 args: ["--forwarded-allow-ips", "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"]
 
 # ----------------------------------------------------------------------------
-# YAC configuration (mapped into env vars — see https://yac-vays.github.io/yac/env)
-# All values below are written into a Kubernetes Secret and exposed to the
-# pod via `envFrom: secretRef`.
+# YAC configuration
+#
+# Most configuration lives in the specs file (see `specs` below). Only a
+# few deployment-level options remain as env vars; the chart writes them
+# into a Kubernetes Secret (`<release>-env`) only when at least one of
+# `env` / `customEnv` is non-empty. Otherwise no Secret is created.
 # ----------------------------------------------------------------------------
 
-# Authentication (OpenID Connect)
-oidc:
-  url: ""        # YAC_OIDC_URL
-  clientIds: []  # YAC_OIDC_CLIENT_IDS (comma-joined)
-  jwt:
-    name: "{name}"                     # YAC_OIDC_JWT_NAME
-    fullName: "{givenName} {surname}"  # YAC_OIDC_JWT_FULL_NAME
-    fullNameFallback: "{name}"         # YAC_OIDC_JWT_FULL_NAME_FALLBACK
-    email: "{mail}"                    # YAC_OIDC_JWT_EMAIL
-    emailFallback: "{name}@localhost"  # YAC_OIDC_JWT_EMAIL_FALLBACK
-
-# CORS — list of allowed origins (comma-joined into YAC_CORS_ORIGINS).
-corsOrigins: []
-
 # Custom env vars exposed to the specs file as `env.<key>` (one map entry
-# becomes one `YAC_ENV__<KEY>` env var).  Use this for tokens, LDAP
+# becomes one `YAC_ENV__<KEY>` env var). Use this for tokens, LDAP
 # passwords, etc. that the specs need to template into actions/logs.
 #
 # Keys are used verbatim; uppercase them to follow convention.
@@ -40,19 +29,58 @@ corsOrigins: []
 #     LDAP_BIND_PW: "..."
 customEnv: {}
 
-# Any additional YAC_* env vars not covered by the typed values above.
+# Any additional YAC_* env vars not covered above.
 # Map of raw `YAC_*` keys to values — written verbatim into the Secret.
 #
 # Example:
 #   env:
 #     YAC_LOG_LEVEL: debug
 #     YAC_DEBUG_MODE: "true"
-#     YAC_SPECS: /yac.yml
-#     YAC_REPO__URL: https://user:pass@git.example.com/my/repo.git
-#     YAC_REPO__BRANCH: main
+#     YAC_SPECS: /etc/yac/yac.yml
 env: {}
 
-# Additional volumes / mounts (e.g. for specs file, plugins or SSH keys for the git repo).
+# Name of an existing Kubernetes Secret to load additional env vars from
+# (via `envFrom: secretRef`). Lets you manage secrets out-of-band (sealed
+# secrets, external-secrets, vault, ...) rather than putting them into
+# `env` / `customEnv` and having the chart create the Secret for you.
+#
+# Example:
+#   extraEnvSecret: my-yac-secrets
+extraEnvSecret: ""
+
+# YAC specs file content. When set, the chart creates a ConfigMap and mounts
+# its content at the default specs path `/yac.yml` (read-only). Repo plugin
+# selection and connection config live inside this specs file under `repo`
+# (see https://yac-vays.github.io/yac/specs/file/repo).
+#
+# The value is passed through verbatim — Helm template expressions (`{{ ... }}`)
+# inside the YAML are NOT evaluated, so YAC's Jinja2 syntax (`{{ name }}`,
+# `{{ env.* }}`, ...) works without escaping.
+#
+# Leave empty (or unset) to mount the specs file via `extraVolumes` /
+# `extraVolumeMounts` (e.g. from a pre-existing ConfigMap or Secret), or to
+# bake it into a custom container image.
+#
+# Example:
+#   specs: |
+#     version: 0
+#     repo:
+#       plugin: git_direct
+#       connection:
+#         url: https://git.example.com/my/repo.git
+#         branch: main
+#       details:
+#         animal: "animals/{{ name }}.yml"
+#     types:
+#       - name: animal
+#         title: Animals
+#     schema:
+#       type: object
+#       properties: {}
+specs: ""
+
+# Additional volumes / mounts (e.g. for plugins or SSH keys for the git
+# repo, or to mount a specs file from outside the chart).
 extraVolumes: []
 extraVolumeMounts: []
 

@@ -45,8 +45,9 @@ async def run_action_on_entity(
         entity=None,
     )
 
-    async with repo.handler.reader(op.user, details={}) as rpo:
-        s = await specs.read(op, rpo)
+    s = await specs.read(op)
+    async with repo.handler.reader(op.user) as raw:
+        rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
 

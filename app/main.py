@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
+from urllib.parse import urlparse
 import logging
 import os
 import shutil
@@ -13,6 +14,7 @@ from app.version import VERSION
 from app.lib import repo
 from app.lib import hacks
 from app.lib import plugin
+from app.lib import specs
 from app.model.err import YACError
 from app.router import arbitrary
 from app.router import change
@@ -72,20 +74,51 @@ def _cleanup_stale_repo_dirs() -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     del app
     _cleanup_stale_repo_dirs()
-    async with repo.handler.reader(None, details={}):
+    async with repo.handler.reader(None):
         pass  # only initiate repo
     yield
-    # nothing to do on worker shutdown
+    # On clean shutdown, remove our own repo dir so it does not linger until
+    # another worker happens to start and run the stale-dir sweep.
+    own = f"/repo/{os.getpid()}"
+    try:
+        shutil.rmtree(own)
+        logger.info(f"Cleaned up own repo dir {own}")
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        logger.warning(f"Could not clean up own repo dir {own}: {error}")
 
 
 #
 # API
 #
 
+DESCRIPTION = f"""
+
+## Authentication
+
+We are using the OpenID Connect provider
+[{urlparse(specs.AUTH.oidc.url).netloc}]({specs.AUTH.oidc.url})
+for authentication. You need to send a valid `id_token` via `Authorization: Bearer`
+header to all API endpoints that require authentication.
+
+Only the following `client_id`s are accepted:
+`{'` `'.join(specs.AUTH.oidc.client_ids)}`
+
+For interactive user logins, `authentication_code with PKCE` flow (with a
+dummy `nonce` parameter that won't be validated) is recommended. For
+automated login in scripts/software, use the `password` flow instead (therefore
+you will also need the `client_secret`).
+
+## Source, Issues and Documentation
+
+Repository on [GitHub](https://github.com/yac-vays/yac)
+"""
+
 yac = FastAPI(
     lifespan=lifespan,
     title=consts.TITLE,
-    description=consts.DESCRIPTION,
+    description=DESCRIPTION,
     version=VERSION,
     root_path="" if consts.ENV.root_path == "/" else consts.ENV.root_path,
     contact=consts.CONTACT,
@@ -98,7 +131,7 @@ yac = FastAPI(
     },
     swagger_ui_init_oauth={
         "scopes": "openid",
-        "clientId": consts.ENV.oidc_client_ids.split(",", maxsplit=1)[0],
+        "clientId": specs.AUTH.oidc.client_ids[0] if specs.AUTH.oidc.client_ids else "",
         "usePkceWithAuthorizationCodeGrant": True,
         "additionalQueryStringParams": {"nonce": 0},
     },
@@ -106,7 +139,7 @@ yac = FastAPI(
 
 yac.add_middleware(
     CORSMiddleware,
-    allow_origins=consts.ENV.cors_origins.split(","),
+    allow_origins=specs.AUTH.cors.origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -123,4 +156,4 @@ yac.include_router(validate.router, tags=["Entities"])
 yac.add_exception_handler(YACError, error.handle_yac)  # type: ignore
 yac.add_exception_handler(500, error.handle_all)
 
-yac.openapi = hacks.get_openapi_schema_with_oidc_idtoken(yac)
+yac.openapi = hacks.get_openapi_schema_with_oidc_idtoken(yac, DESCRIPTION)
