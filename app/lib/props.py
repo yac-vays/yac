@@ -84,9 +84,15 @@ def get_log(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     }
 
 
-def get_roles(
-    op: inp.OperationRequest, request_spec: spc.Request, old_data: None | dict
+def get_roles_base(
+    op: inp.OperationRequest, request_spec: spc.Request
 ) -> dict:
+    """
+    The per-request portion of role props — everything that does not depend
+    on the current entity. Callers iterating over many entities can build
+    this once and shallow-extend it per entity, avoiding the repeated
+    headers regex sweep and user/env dict construction.
+    """
     return {
         "env": consts.ENV.env,
         "request": {
@@ -97,6 +103,14 @@ def get_roles(
         "operation": op.operation,
         "actions": op.actions,
         "type": op.type_name,
+    }
+
+
+def get_roles(
+    op: inp.OperationRequest, request_spec: spc.Request, old_data: None | dict
+) -> dict:
+    return {
+        **get_roles_base(op, request_spec),
         "old": {
             "name": op.name,
             "data": old_data or {},

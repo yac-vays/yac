@@ -7,6 +7,7 @@ from fastapi.responses import PlainTextResponse
 
 from app.lib import log
 from app.lib import perms
+from app.lib import props as _props
 from app.lib import repo
 from app.lib import specs
 from app.lib import validator
@@ -26,6 +27,12 @@ from app.model.out import Type
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Bounded fan-out for the list endpoint. The per-entity work is a mix of
+# async file I/O (via anyio's thread pool) and CPU-bound YAML/j2 work; a
+# moderate width lets the I/O parts overlap without overwhelming the
+# thread pool or starving other requests.
+_LIST_CONCURRENCY = 32
 
 
 @router.get(
@@ -87,7 +94,6 @@ async def get_entities(
         entity=None,
     )
 
-    result = []
     s = await specs.read(op)
     async with repo.handler.reader(op.user) as raw:
         rpo = raw.session(s.repo.details if s.type else {})
@@ -97,28 +103,44 @@ async def get_entities(
         # Pre-evaluate the user-only role tests once for this request so the
         # per-entity loop only renders the entity-dependent residuals.
         active_roles = await perms.get_active_role_set(op, s)
+        # Build the per-request shared portion of role props once; each
+        # gathered task shallow-extends it with its own old/new/name keys.
+        base_props = _props.get_roles_base(op, s.request)
 
-        for entity_name in await rpo.list(type_name):
-            if not search in entity_name:
-                continue  # skip the entities where search is not a substring
+        matches = [n for n in await rpo.list(type_name) if search in n]
+        sem = asyncio.Semaphore(_LIST_CONCURRENCY)
 
-            entity_op = op.model_copy(update={"name": entity_name})
-            try:
-                old, _, entity_perms = await repo.get_entities(
-                    hash, rpo, entity_op, s, active_roles=active_roles
-                )
-            except RepoError as error:
-                logger.warning(error)
-                continue  # skip the entities we have errors reading
+        async def _process(entity_name: str) -> DetailedEntity | None:
+            async with sem:
+                try:
+                    old, entity_perms = await repo.get_entity_for_list(
+                        hash, rpo, type_name, entity_name, s,
+                        base_props, active_roles,
+                    )
+                except RepoError as error:
+                    logger.warning(error)
+                    return None
             if "see" not in entity_perms:
-                continue  # skip the entities we have no permissions
+                return None
+            return repo.to_detailed_entity(old, entity_perms, hash, s.type)
 
-            result.append(repo.to_detailed_entity(old, entity_perms, hash, s.type))
+        # Process in waves wide enough to saturate the semaphore so we can
+        # stop early once the page is filled (preserves the original
+        # `if (limit + skip) <= len(result): break` semantics under
+        # bounded parallelism).
+        target = limit + skip
+        wave = max(target, _LIST_CONCURRENCY)
+        result: list[DetailedEntity] = []
+        i = 0
+        while i < len(matches) and len(result) < target:
+            chunk = matches[i : i + wave]
+            i += wave
+            gathered = await asyncio.gather(*(_process(n) for n in chunk))
+            for r in gathered:
+                if r is not None:
+                    result.append(r)
 
-            if (limit + skip) <= len(result):
-                break
-
-    return EntityList(hash=hash, list=result[skip:])
+    return EntityList(hash=hash, list=result[skip : skip + limit])
 
 
 @router.get(

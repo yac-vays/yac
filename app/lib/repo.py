@@ -38,7 +38,6 @@ handler: IRepo = repo_plugin.handler
         type_exists,
     ),
     maxsize=10000,
-    copy_result=True,
 )
 async def __lookup_entities(
     repo_hash: str,
@@ -121,6 +120,30 @@ async def get_entities(
         op, specs, old.data or {}, active_roles=active_roles
     )
     return old, new, p
+
+
+async def get_entity_for_list(
+    hash: str,
+    rpo: IRepoSession,
+    type_name: str,
+    entity_name: str,
+    specs: Specs,
+    base_props: dict,
+    active_roles: list[perms.ActiveRole],
+) -> tuple[Entity, list[str]]:
+    """
+    List-endpoint specialisation of `get_entities`: assumes a read operation
+    with no entity payload, skips the `op.model_copy` per entity, and uses
+    the pre-built `base_props` + pre-filtered `active_roles` to compute
+    perms without rebuilding the per-request props skeleton.
+    """
+    old, _ = await __lookup_entities(
+        hash, type_name, entity_name, None, specs.type is not None, rpo
+    )
+    p = await perms.get_from_roles_for_entity(
+        base_props, active_roles, entity_name, old.data or {}
+    )
+    return old, p
 
 
 def to_detailed_entity(

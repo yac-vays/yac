@@ -152,26 +152,15 @@ async def get_active_role_set(
     return active
 
 
-async def get_from_roles(
-    op: inp.OperationRequest,
-    specs: spc.Specs,
-    old_data: dict,
-    *,
-    active_roles: list[ActiveRole] | None = None,
+async def _render_residuals(
+    role_props: dict, active_roles: list[ActiveRole]
 ) -> list[str]:
     """
-    Reads the role definitions from specs and renders them with given data
-    and request context. If they match, the perms are returned if the role
-    definition also matches (including set definition for sets).
-
-    `active_roles` may be supplied by callers that iterate over many
-    entities (e.g. the list endpoint) so the user-only role prefilter runs
-    only once per request. When omitted, the prefilter is computed inline.
+    Inner loop shared between `get_from_roles` (single entity) and
+    `get_from_roles_for_entity` (list hot path). Renders only the residual
+    entity-dependent halves of each role and returns the matched base perms
+    (still unexpanded).
     """
-    if active_roles is None:
-        active_roles = await get_active_role_set(op, specs)
-
-    role_props = props.get_roles(op, specs.request, old_data)
     perms: list[str] = []
     for ar in active_roles:
         if ar.set_test is not None:
@@ -197,5 +186,66 @@ async def get_from_roles(
                 continue
 
         perms.append(ar.perm)
-    logger.debug(f'Extracted perms: {", ".join(perms)}')
-    return __expand_perms(perms)
+    return perms
+
+
+async def get_from_roles(
+    op: inp.OperationRequest,
+    specs: spc.Specs,
+    old_data: dict,
+    *,
+    active_roles: list[ActiveRole] | None = None,
+) -> list[str]:
+    """
+    Reads the role definitions from specs and renders them with given data
+    and request context. If they match, the perms are returned if the role
+    definition also matches (including set definition for sets).
+
+    `active_roles` may be supplied by callers that iterate over many
+    entities (e.g. the list endpoint) so the user-only role prefilter runs
+    only once per request. When omitted, the prefilter is computed inline.
+    """
+    if active_roles is None:
+        active_roles = await get_active_role_set(op, specs)
+
+    # Short-circuit: if no role test depends on entity data, all remaining
+    # roles match unconditionally and we can skip building per-entity props
+    # plus the per-role render loop entirely.
+    if all(ar.set_test is None and ar.role_test is None for ar in active_roles):
+        matched = [ar.perm for ar in active_roles]
+    else:
+        role_props = props.get_roles(op, specs.request, old_data)
+        matched = await _render_residuals(role_props, active_roles)
+
+    logger.debug(f'Extracted perms: {", ".join(matched)}')
+    return __expand_perms(matched)
+
+
+async def get_from_roles_for_entity(
+    base_props: dict,
+    active_roles: list[ActiveRole],
+    entity_name: str,
+    old_data: dict,
+) -> list[str]:
+    """
+    List-endpoint hot path. Builds the per-entity role-props dict by
+    shallow-merging entity-specific keys onto `base_props` (built once per
+    request via `props.get_roles_base()`) and renders only residual tests.
+
+    `base_props` is read but not mutated, so this is safe to call
+    concurrently from gathered tasks that share the same base.
+    """
+    # If every remaining role is unconditional, skip props construction and
+    # the residual loop entirely — common for admins or for repos with
+    # mostly user-only role gates.
+    if all(ar.set_test is None and ar.role_test is None for ar in active_roles):
+        return __expand_perms([ar.perm for ar in active_roles])
+
+    role_props = {
+        **base_props,
+        "old": {"name": entity_name, "data": old_data},
+        "new": {"name": None},
+        "name": entity_name,
+    }
+    matched = await _render_residuals(role_props, active_roles)
+    return __expand_perms(matched)
