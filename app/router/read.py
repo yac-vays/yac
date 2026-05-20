@@ -6,6 +6,7 @@ from fastapi import Request
 from fastapi.responses import PlainTextResponse
 
 from app.lib import log
+from app.lib import perms
 from app.lib import repo
 from app.lib import specs
 from app.lib import validator
@@ -93,20 +94,26 @@ async def get_entities(
         hash = await rpo.get_hash()
         await validator.test_ls(op, s)
 
+        # Pre-evaluate the user-only role tests once for this request so the
+        # per-entity loop only renders the entity-dependent residuals.
+        active_roles = await perms.get_active_role_set(op, s)
+
         for entity_name in await rpo.list(type_name):
             if not search in entity_name:
                 continue  # skip the entities where search is not a substring
 
             entity_op = op.model_copy(update={"name": entity_name})
             try:
-                old, _, perms = await repo.get_entities(hash, rpo, entity_op, s)
+                old, _, entity_perms = await repo.get_entities(
+                    hash, rpo, entity_op, s, active_roles=active_roles
+                )
             except RepoError as error:
                 logger.warning(error)
                 continue  # skip the entities we have errors reading
-            if "see" not in perms:
+            if "see" not in entity_perms:
                 continue  # skip the entities we have no permissions
 
-            result.append(repo.to_detailed_entity(old, perms, hash, s.type))
+            result.append(repo.to_detailed_entity(old, entity_perms, hash, s.type))
 
             if (limit + skip) <= len(result):
                 break

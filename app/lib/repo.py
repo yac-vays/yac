@@ -79,7 +79,12 @@ async def __lookup_entities(
 
 
 async def get_entities(
-    hash: str, rpo: IRepoSession, op: OperationRequest, specs: Specs
+    hash: str,
+    rpo: IRepoSession,
+    op: OperationRequest,
+    specs: Specs,
+    *,
+    active_roles: list[perms.ActiveRole] | None = None,
 ) -> tuple[Entity, Entity, list[str]]:
     """
     Try to collect data about the entity refered in this OperationRequest.
@@ -88,6 +93,10 @@ async def get_entities(
     The caller must pass an `IRepoSession` whose `details` already match
     `specs.repo.details` — typically obtained via
     `untyped.session(s.repo.details if s.type else {})`.
+
+    `active_roles` may be passed by callers that iterate over many entities
+    (e.g. the list endpoint) so the user-only role prefilter runs only once
+    per request rather than once per entity.
     """
 
     old_name = None
@@ -108,8 +117,9 @@ async def get_entities(
     old, new = await __lookup_entities(
         hash, op.type_name, old_name, new_name, specs.type is not None, rpo
     )
-    role_props = props.get_roles(op, specs.request, old.data or {})
-    p = await perms.get_from_roles(op.type_name, specs, role_props)
+    p = await perms.get_from_roles(
+        op, specs, old.data or {}, active_roles=active_roles
+    )
     return old, new, p
 
 

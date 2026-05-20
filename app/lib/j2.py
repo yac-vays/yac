@@ -67,6 +67,30 @@ def _get_template(strict: bool, nonstr: bool, source: str):
     return _get_env(strict, nonstr).from_string(source)
 
 
+# Top-level Jinja2 variables that may differ between entities inside one
+# request. An expression that references none of them yields the same value
+# for every entity, so callers may evaluate it once per request and reuse.
+_ENTITY_VARS = frozenset({"old", "new", "name"})
+
+
+@lru_cache(maxsize=4096)
+def is_user_only(source: str) -> bool:
+    """
+    Return True iff the given Jinja2 test expression references none of the
+    entity-dependent top-level variables (`old`, `new`, `name`).
+
+    Conservatively returns False for any expression we cannot parse so the
+    caller falls back to per-entity evaluation.
+    """
+    try:
+        # Use the strict, non-async sync env purely for AST parsing — parsing
+        # doesn't depend on `enable_async`, plugin globals, or undefined mode.
+        ast = _get_sync_env(False).parse(f"{{{{ {source} }}}}")
+    except jinja2.TemplateSyntaxError:
+        return False
+    return not any(n.name in _ENTITY_VARS for n in ast.find_all(jinja2.nodes.Name))
+
+
 # Sync variant for startup-time rendering of small env-only blocks (auth,
 # repo.plugin, repo.connection). Intentionally minimal: no plugin
 # functions/filters/tests are registered — the only thing beyond plain
