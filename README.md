@@ -67,7 +67,7 @@ to have the properties `my_message` (string) and `worked` (boolean).
 
 With this specs-file mounted into the container, you can start YAC:
 
-    docker run --rm --name yac -p 8080:80 \
+    docker run --rm --name yac -p 8080:8080 \
         -v /path/to/yac.yml:/yac.yml:ro \
         yacvays/yac:latest
 
@@ -90,9 +90,6 @@ https://hub.docker.com/r/yacvays/yac
 
 ### Upgrade Environment
 
-- Check on https://hub.docker.com/r/alpine/helm for new versions and adjust the
-  tag in `.gitlab-ci.yml`.
-
 - Check on https://hub.docker.com/_/python for new versions and adjust the tag
   in the `FROM` instruction of `./Dockerfile`. (Use a most specific tag to allow
   reproducable builds.)
@@ -100,6 +97,6 @@ https://hub.docker.com/r/yacvays/yac
 - Build container (and update the requirements file) with:
 
       docker run --rm -v "$(pwd)/requirements.in:/r.in:ro" --entrypoint sh yac:latest -c \
-          "pip install pip-tools &>/dev/null; pip-compile -o - /r.in" > ./requirements.txt
+          "pip install pip-tools &>/dev/null; /home/yac/.local/bin/pip-compile -o - /r.in" > ./requirements.txt
 
       docker build --progress plain -t yac .

@@ -60,9 +60,7 @@ async def get_types(
 
     s = await specs.read(op)
 
-    # List comprehension dict hack is required because otherwise pydantic 2.7.4
-    # returns the whole object instead of reducing it to the values of out.Type.
-    return [t.model_dump() for t in s.types]  # type: ignore
+    return [t.to_public() for t in s.types]
 
 
 @router.get(

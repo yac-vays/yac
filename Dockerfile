@@ -2,7 +2,7 @@
 # Base Image
 #
 
-FROM python:3.12.6-alpine3.20 AS build
+FROM python:3.14.5-alpine3.23 AS build
 
 WORKDIR /code
 

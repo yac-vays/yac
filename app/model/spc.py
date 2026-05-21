@@ -47,8 +47,23 @@ class TypeAction(out.TypeAction):
 
 class Type(out.Type):
     name_generator: str = "uuid()"
-    logs: list[TypeLog] = []
-    actions: list[TypeAction] = []  # TODO fix (also see router.read.get_types())
+    logs: list[TypeLog] = []  # type: ignore[assignment]
+    actions: list[TypeAction] = []  # type: ignore[assignment]
+
+    def to_public(self) -> out.Type:
+        """
+        Strips spc-internal fields (`plugin`, `details` on logs/actions and
+        `name_generator`) so the result is safe to return from the API.
+        """
+        return out.Type.model_validate(
+            self.model_dump(
+                exclude={
+                    "name_generator": True,
+                    "logs": {"__all__": {"plugin", "details"}},
+                    "actions": {"__all__": {"plugin", "details"}},
+                }
+            )
+        )
 
 
 class Repo(BaseModel):

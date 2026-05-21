@@ -21,8 +21,11 @@ class RequiredDefaults(IJsonSchema):
         - Required booleans without default value get a default = false
         - Required consts without default value get a default = const value
         """
-        # TODO remove defaults if operation==read
-        del props
+        # On read the schema is for display only; injecting synthetic defaults
+        # would misrepresent what is actually stored (matches yac_perms.py).
+        if props["operation"] == "read":
+            return json_schema, context
+
         if json_schema.get("type", "") != "object":
             return json_schema, context
 
