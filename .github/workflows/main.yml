@@ -8,6 +8,9 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+        fetch-tags: true
     - run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
