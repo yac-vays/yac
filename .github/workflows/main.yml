@@ -8,10 +8,8 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v3
-      with:
-        fetch-depth: 0  # Fetch the full history
     - run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
-    - run: git fetch --prune --tags origin '+refs/heads/*:refs/remotes/origin/*'
-    - run: git push --force --prune https://${{ secrets.GITLAB_INF_TOKEN }}@gitlab.inf.ethz.ch/public-isg/yac-vays/yac.git 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
+    - run: git fetch --force --prune origin '+refs/heads/*:refs/source/heads/*' '+refs/tags/*:refs/tags/*'
+    - run: git push --force --prune https://${{ secrets.GITLAB_INF_TOKEN }}@gitlab.inf.ethz.ch/public-isg/yac-vays/yac.git '+refs/source/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
