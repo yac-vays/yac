@@ -97,3 +97,59 @@ ingress:
   tls:
     - hosts: [yac.example.com]
       secretName: yac-tls
+
+# Optional Redis backing for the `git_redis` repo plugin. When enabled,
+# the chart sets `YAC_ENV__REDIS_URL` (and the related tuning vars) on
+# the YAC pod so your specs file can configure `git_redis` against it.
+#
+# Enabling this block is ONLY half the wiring — your specs file must
+# also select `git_redis` and reference the env vars, e.g.:
+#
+#   repo:
+#     plugin: git_redis
+#     connection:
+#       redis_url: "{{ env.redis_url }}"
+#       max_age_seconds: 300
+#       grace_seconds: 60
+#       pull_lock_ttl: 120
+#       # ... plus your usual git url/branch/keys
+#     details: # ...
+#
+# Modes:
+#   single   - bundled in-chart StatefulSet + Service (single pod, no PV
+#              by default). Cache semantics: if Redis dies, YAC falls
+#              back to direct git pulls. Zero extra dependencies.
+#   external - chart deploys no Redis; you supply `redis.url`. Use this
+#              for HA (deploy a Redis HA cluster separately via an
+#              operator like OT-CONTAINER-KIT, the Dragonfly operator,
+#              or a managed cloud Redis), or to share a cluster-wide
+#              Redis you already operate.
+redis:
+  enabled: false
+  mode: single
+
+  # Only used when mode=external. Must be a URL accepted by
+  # `redis.asyncio.from_url`, e.g. redis://host:6379/0
+  url: ""
+
+  # Settings for mode=single only. Ignored otherwise.
+  single:
+    image: "redis:8-alpine"
+    imagePullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+    # Optional persistence. By default Redis runs with an emptyDir, which
+    # is fine for a cache (loss = next reader rebuilds the snapshot).
+    # Set persistence.enabled=true to back the data dir with a PVC.
+    persistence:
+      enabled: false
+      size: 1Gi
+      storageClass: ""
+    # Extra args appended to the `redis-server` command. Use this to tune
+    # maxmemory, eviction policy, etc.
+    args: []

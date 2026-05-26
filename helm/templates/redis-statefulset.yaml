@@ -1,0 +1,97 @@
+{{- if and .Values.redis.enabled (eq (.Values.redis.mode | default "single") "single") }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "redisName" . }}
+  labels:
+    app: {{ include "name" . }}
+    component: redis
+    chart: {{ include "chart" . }}
+spec:
+  replicas: 1
+  serviceName: {{ include "redisName" . }}
+  selector:
+    matchLabels:
+      app: {{ include "name" . }}
+      component: redis
+  template:
+    metadata:
+      labels:
+        app: {{ include "name" . }}
+        component: redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: false
+      containers:
+        - name: redis
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            capabilities:
+              drop: [ALL]
+          image: {{ .Values.redis.single.image }}
+          imagePullPolicy: {{ .Values.redis.single.imagePullPolicy }}
+          args:
+            - "redis-server"
+            - "--dir"
+            - "/data"
+            {{- range $arg := .Values.redis.single.args }}
+            - {{ $arg | quote }}
+            {{- end }}
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            timeoutSeconds: 3
+            failureThreshold: 3
+            periodSeconds: 15
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            timeoutSeconds: 3
+            failureThreshold: 3
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.redis.single.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if not .Values.redis.single.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.redis.single.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: {{ include "name" . }}
+          component: redis
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.redis.single.persistence.size }}
+        {{- with .Values.redis.single.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+  {{- end }}
+{{- end }}

@@ -45,3 +45,30 @@ ingress is disabled / no path is configured).
 {{- end -}}
 {{- $root -}}
 {{- end }}
+
+{{/*
+Name of the bundled Redis Service / StatefulSet (mode=single).
+*/}}
+{{- define "redisName" -}}
+{{- printf "%s-redis" (include "fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
+{{/*
+Resolved Redis URL passed to the YAC pod as YAC_ENV__REDIS_URL.
+- mode=single   -> derived from the bundled Service.
+- mode=external -> user-supplied .Values.redis.url (validated below).
+Validates the mode value and the external URL early with `fail`.
+*/}}
+{{- define "redisUrl" -}}
+{{- $mode := .Values.redis.mode | default "single" -}}
+{{- if eq $mode "single" -}}
+redis://{{ include "redisName" . }}:6379/0
+{{- else if eq $mode "external" -}}
+{{- if not .Values.redis.url -}}
+{{- fail "redis.mode=external requires redis.url to be set" -}}
+{{- end -}}
+{{- .Values.redis.url -}}
+{{- else -}}
+{{- fail (printf "redis.mode=%q is not supported (use \"single\" or \"external\")" $mode) -}}
+{{- end -}}
+{{- end }}

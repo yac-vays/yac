@@ -63,6 +63,10 @@ spec:
               value: {{ include "rootPath" . | quote }}
             - name: YAC_FORMAT_PLUGIN
               value: "json_lines"
+            {{- if .Values.redis.enabled }}
+            - name: YAC_ENV__REDIS_URL
+              value: {{ include "redisUrl" . | quote }}
+            {{- end }}
           {{- if or (or .Values.env .Values.customEnv) .Values.extraEnvSecret }}
           envFrom:
             {{- if or .Values.env .Values.customEnv }}
