@@ -9,7 +9,7 @@ WORKDIR /code
 COPY ./requirements.* ./
 
 RUN apk add --update-cache curl git libldap openssh-client && \
-    apk add --virtual build-deps build-base openldap-dev python3-dev libffi-dev && \
+    apk add --virtual build-deps build-base openldap-dev python3-dev libffi-dev yaml-dev && \
     pip install --no-cache-dir --upgrade --compile -r /code/requirements.txt && \
     apk del build-deps && \
     rm -rf /var/cache/apk/*

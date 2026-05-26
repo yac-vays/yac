@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 import ruamel.yaml
+import yaml as _pyyaml
 
 from app.model.err import RequestConflict
 
@@ -55,6 +56,62 @@ def load_as_dict(yaml: str, *, strict: bool = True) -> dict:
         return dict(load(yaml, strict=strict))
     except (ValueError, TypeError):
         return {}
+
+
+try:
+    _FastLoaderBase = _pyyaml.CSafeLoader
+except AttributeError:
+    _FastLoaderBase = _pyyaml.SafeLoader
+
+
+class _FastLoader(_FastLoaderBase):  # type: ignore[misc, valid-type]
+    pass
+
+
+# Mirror the behavior overrides applied to the round-trip ruamel loader
+# so permission tests and option extraction see equivalent values
+# regardless of which loader produced them. The tests in lib_yaml.py
+# pin these as the contract.
+_FastLoader.add_constructor(
+    "tag:yaml.org,2002:timestamp",
+    lambda loader, node: loader.construct_scalar(node),
+)
+
+
+def _construct_omap_as_dict(loader, node):
+    result: dict = {}
+    for subnode in node.value:
+        if not isinstance(subnode, _pyyaml.MappingNode):
+            continue
+        for key_node, value_node in subnode.value:
+            result[loader.construct_object(key_node, deep=True)] = (
+                loader.construct_object(value_node, deep=True)
+            )
+    return result
+
+
+_FastLoader.add_constructor(
+    "tag:yaml.org,2002:omap", _construct_omap_as_dict
+)
+
+
+def load_as_dict_fast(text: str) -> dict:
+    """
+    Permissive, C-backed YAML->dict loader for hot read paths (entity
+    listing, permission filtering). About 10-50x faster than the
+    round-trip ruamel loader at the cost of dropping comments, quoting,
+    and anchors -- fine for callers that only need the parsed data.
+
+    Falls back to the strict-tolerant ruamel loader on parse errors so
+    any YAML accepted by `load_as_dict(strict=False)` still parses.
+    """
+    try:
+        data = _pyyaml.load(text, Loader=_FastLoader)
+    except _pyyaml.YAMLError:
+        return load_as_dict(text, strict=False)
+    if isinstance(data, dict):
+        return data
+    return {}
 
 
 def dump(data: dict | YAMLObject | None) -> str:

@@ -30,6 +30,19 @@ handler: IRepo = repo_plugin.handler
 
 
 @keyed_alru_cache(
+    key_fn=lambda yaml_text: (hash(yaml_text), len(yaml_text)),
+    maxsize=10000,
+)
+async def _parse_yaml_dict_cached(yaml_text: str) -> dict:
+    """
+    Content-keyed YAML->dict cache. Lives outside `__lookup_entities`
+    (which is keyed on the repo hash) so commits do not force a re-parse
+    of entities whose YAML content has not changed.
+    """
+    return yaml.load_as_dict_fast(yaml_text)
+
+
+@keyed_alru_cache(
     key_fn=lambda repo_hash, type_name, old_name, new_name, type_exists, rpo: (
         repo_hash,
         type_name,
@@ -68,7 +81,7 @@ async def __lookup_entities(
 
     if old.yaml is not None:
         try:
-            old.data = yaml.load_as_dict(old.yaml, strict=False)
+            old.data = await _parse_yaml_dict_cached(old.yaml)
         except yaml.YAMLError as error:
             raise RepoError(
                 f"Failed to parse YAML of {type_name} {old.name}: {error}"
