@@ -117,6 +117,8 @@ def _make_git_repo(path: str, user: User | None) -> git.Repo:
             "EMAIL": user_email,
             "GIT_AUTHOR_EMAIL": user_email,
             "GIT_AUTHOR_NAME": f"{user_name} (via YAC)",
+            "GIT_COMMITTER_EMAIL": user_email,
+            "GIT_COMMITTER_NAME": f"{user_name} (via YAC)",
             "GIT_SSH_COMMAND": (
                 f"ssh -o UserKnownHostsFile={KNOWN_HOSTS} -i {KEY_FILE}"
             ),
