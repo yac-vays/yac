@@ -28,6 +28,13 @@ class VaysCategory(IUiSchema):
         if not isinstance(opt, dict):
             raise SchemaSpecsError(f"{loc}/vays_options is not an object")
 
+        # Leave vays_options inside an array in the json_schema and let the
+        # plugin vays_array_details handle it!
+        if "/items/" in loc:
+            json_schema.pop("vays_category")
+            json_schema.pop("vays_group", None)
+            return (json_schema, ui_schema)
+
         ui_schema = uischema.add_element(loc, opt, cat, grp, ui_schema)
         json_schema.pop("vays_category")
         json_schema.pop("vays_group", None)
