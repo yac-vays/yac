@@ -273,7 +273,10 @@ class GitRedisRepo(IRepo):
                     "git_redis: repo.connection.redis_url is not configured"
                 )
             self._client = redis_async.from_url(
-                REDIS_URL, decode_responses=True
+                REDIS_URL,
+                decode_responses=True,
+                socket_connect_timeout=2,
+                socket_timeout=2,
             )
         return self._client
 
