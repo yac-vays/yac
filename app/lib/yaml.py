@@ -22,6 +22,12 @@ y.representer.add_representer(
     type(None),
     lambda self, data: self.represent_scalar("tag:yaml.org,2002:null", "null"),
 )
+y.representer.add_representer(
+    str,
+    lambda self, data: self.represent_scalar(
+        "tag:yaml.org,2002:str", data, style="|" if "\n" in data else None
+    ),
+)
 y.constructor.add_constructor(
     "tag:yaml.org,2002:timestamp", lambda self, data: self.construct_scalar(data)
 )
@@ -169,5 +175,6 @@ def __deep_update(data: Any, diff: Any) -> Any:
             if item != "~undefined":
                 data.append(__deep_update(item, item))
     else:
-        data = diff
+        if data != diff:
+            data = diff
     return data
