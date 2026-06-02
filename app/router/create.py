@@ -65,8 +65,14 @@ async def add_entity(
         rpo = raw.session(s.repo.details if s.type else {})
         name = op.entity.name if op.entity else None
         if name is None:
+            if isinstance(op.entity, (CopyEntity, LinkEntity)):
+                # Copies/links inherit the source entity's data, so generate
+                # the name from it the same way as for new entities.
+                new_data = old.data or {}
+            else:
+                new_data = result.schemas.data
             name = await repo.gen_name(
-                op, s, await rpo.list(type_name), result.schemas.data
+                op, s, await rpo.list(type_name), new_data
             )
 
         if isinstance(op.entity, CopyEntity):
