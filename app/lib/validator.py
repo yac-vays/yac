@@ -2,19 +2,49 @@
 Raises: [app.model.err.RequestError]
 """
 
+from app.lib import limits
 from app.lib import plugin
 from app.lib import schema
 from app.lib import yaml
 from app.model.err import RequestError
+from app.model.inp import CopyEntity
+from app.model.inp import LinkEntity
 from app.model.inp import NewEntity
 from app.model.inp import OperationRequest
 from app.model.inp import ReplaceEntity
 from app.model.inp import UpdateEntity
+from app.model.out import LimitUsage
 from app.model.out import Request
 from app.model.out import Schema
 from app.model.out import ValidationResult
 from app.model.int import Entity
 from app.model.spc import Specs
+
+
+def incoming_new_data(op: OperationRequest, old: Entity) -> tuple[dict, str | None]:
+    """
+    The data the operation would write, parsed to a dict. Returns
+    `(data, None)` on success or `({}, error_message)` if the payload YAML is
+    malformed. Shared between `test_all` (schema generation) and the routers
+    (limit measurement) so the two never disagree on what "the new data" is.
+
+    Copies/links inherit the source entity's data (`old.data`), matching how
+    the create router generates their name.
+    """
+    try:
+        if isinstance(op.entity, NewEntity):
+            return yaml.load_as_dict(op.entity.yaml), None
+        if isinstance(op.entity, (CopyEntity, LinkEntity)):
+            return old.data or {}, None
+        if isinstance(op.entity, ReplaceEntity):
+            return yaml.load_as_dict(op.entity.yaml_new), None
+        if isinstance(op.entity, UpdateEntity):
+            return yaml.load_as_dict(yaml.update(old.yaml or "", op.entity.data)), None
+        if op.entity is None and op.operation == "read":
+            return old.data or {}, None
+        return {}, None
+    except yaml.YAMLError as error:
+        return {}, str(error)
 
 
 async def test_all(
@@ -23,6 +53,7 @@ async def test_all(
     old: Entity,
     new: Entity,
     perms: list[str] = [],
+    usages: list[LimitUsage] = [],
     *,
     raise_on_error=True,
     schema_on_read=False
@@ -31,27 +62,20 @@ async def test_all(
     Will try to generate the schemas even with faulty data. It either throws a
     RequestError or (if not raise_on_error) just returns the first validation
     error in the ValidationResult.
+
+    `usages` are the pre-computed `limits` results (gathered inside the repo
+    reader scope via `lib.limits.measure`); they are echoed back in the
+    result for the UI and enforced here so the standard error handling applies.
     """
 
     request = Request(valid=True)
 
-    try:
-        if isinstance(op.entity, NewEntity):
-            new_data = yaml.load_as_dict(op.entity.yaml)
-        elif isinstance(op.entity, ReplaceEntity):
-            new_data = yaml.load_as_dict(op.entity.yaml_new)
-        elif isinstance(op.entity, UpdateEntity):
-            new_data = yaml.load_as_dict(yaml.update(old.yaml or "", op.entity.data))
-        elif op.entity is None and op.operation == "read":
-            new_data = old.data or {}
-        else:
-            new_data = {}
-    except yaml.YAMLError as error:
+    new_data, yaml_error = incoming_new_data(op, old)
+    if yaml_error is not None:
         if raise_on_error:
-            raise RequestError(str(error)) from error
-        new_data = {}
+            raise RequestError(yaml_error)
         request.valid = False
-        request.message = str(error)
+        request.message = yaml_error
 
     if (
         op.operation == "change"
@@ -76,6 +100,9 @@ async def test_all(
             await p.test_always(op, specs)
         for p in plugin.get_sorted("validator", "tester", require=require, late=True):
             await p.test_nolist(op, specs, old, new, perms)
+        # Enforced last so a forbidden / conflicting operation surfaces its own
+        # (more specific) error before a limit message.
+        limits.assert_within(usages)
     except RequestError as error:
         if raise_on_error:
             raise error
@@ -86,7 +113,7 @@ async def test_all(
     if raise_on_error and not schemas.valid:
         raise RequestError(schemas.message)
 
-    return ValidationResult(schemas=schemas, request=request)
+    return ValidationResult(schemas=schemas, request=request, usages=usages)
 
 
 async def test_ls(op: OperationRequest, specs: Specs) -> None:

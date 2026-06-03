@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from fastapi import Request
 
+from app.lib import limits
 from app.lib import repo
 from app.lib import specs
 from app.lib import validator
@@ -42,7 +43,9 @@ async def validate_operation(
         rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
+        new_data, _ = validator.incoming_new_data(op, old)
+        usages = await limits.measure(hash, rpo, op, s, old, new_data)
 
     return await validator.test_all(
-        op, s, old, new, perms, raise_on_error=False, schema_on_read=True
+        op, s, old, new, perms, usages, raise_on_error=False, schema_on_read=True
     )

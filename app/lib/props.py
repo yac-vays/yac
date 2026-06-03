@@ -122,6 +122,30 @@ def get_roles(
     }
 
 
+def get_limits_base(
+    op: inp.OperationRequest, request_spec: spc.Request, context: dict
+) -> dict:
+    """
+    The per-request portion of limit props — everything that does not depend
+    on the entity currently being scanned. The aggregation loop shallow-
+    extends this once per scanned entity with its own `old`/`name` keys.
+
+    `new` (the entity being created/changed) is constant across the scan and
+    is added by the caller (`lib.limits`) once.
+    """
+    return {
+        "context": context,
+        "env": consts.ENV.env,
+        "request": {
+            "ip": op.request_ip,
+            "headers": __request_headers(op.request_headers, request_spec),
+        },
+        "user": dict(op.user),
+        "operation": op.operation,
+        "type": op.type_name,
+    }
+
+
 def get_namegen(
     op: inp.OperationRequest,
     request_spec: spc.Request,

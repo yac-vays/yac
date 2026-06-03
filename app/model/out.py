@@ -241,9 +241,52 @@ class Request(BaseModel):
     ] = None
 
 
+class LimitUsage(BaseModel):
+    """
+    The computed state of one `limits` rule for the current operation, suited
+    for display in the UI (e.g. "3/5 used"). `used` already includes the
+    contribution of the entity being created/changed.
+    """
+
+    title: Annotated[
+        str,
+        Field(description="The limit's title", examples=["VMs per owner"]),
+    ]
+    aggregate: Annotated[
+        Literal["count", "sum"],
+        Field(description="Whether `used` counts entities or sums a value"),
+    ] = "count"
+    used: Annotated[
+        float,
+        Field(
+            description=(
+                "The aggregate (count or sum) including the incoming entity"
+            ),
+            examples=[3],
+        ),
+    ]
+    max: Annotated[
+        float,
+        Field(description="The cap for this group", examples=[5]),
+    ]
+    ok: Annotated[
+        bool,
+        Field(description="Whether `used` is still within `max`"),
+    ] = True
+
+
 class ValidationResult(BaseModel):
     schemas: Schema
     request: Request
+    usages: Annotated[
+        list[LimitUsage],
+        Field(
+            description=(
+                "Current usage of every `limits` rule that applies to this"
+                " operation (for UI display such as \"3/5 used\")"
+            )
+        ),
+    ] = []
 
 
 #

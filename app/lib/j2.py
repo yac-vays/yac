@@ -146,6 +146,55 @@ async def render_print(print_str: str, props: dict, *, strict: bool = True) -> s
     )
 
 
+async def render_number(expr: str, props: dict) -> float:
+    """
+    Render a Jinja2 expression that is expected to yield a number (e.g. a
+    `limits` cap or per-entity value). Raises J2Error if the result cannot be
+    coerced to a float.
+    """
+    value = await render_str(f"{{{{ {expr} }}}}", props, allow_nonstr=True)
+    try:
+        return float(value)
+    except (TypeError, ValueError) as error:
+        raise J2Error(
+            f'Expression "{expr}" did not yield a number (got {value!r})'
+        ) from error
+
+
+@lru_cache(maxsize=4096)
+def uses_old_data(source: str) -> bool:
+    """
+    Return True iff the expression references the scanned entity's *data*
+    (`old.data` / `old['data']`). Callers use this to decide whether a
+    per-entity YAML load is needed when aggregating over many entities; an
+    expression that only touches `old.name`, `user`, `context`, ... can be
+    evaluated without loading any entity data.
+
+    Conservatively returns True for any expression we cannot parse so the
+    caller falls back to loading the data (correctness over speed).
+    """
+    try:
+        ast = _get_sync_env(False).parse(f"{{{{ {source} }}}}")
+    except jinja2.TemplateSyntaxError:
+        return True
+    for node in ast.find_all(jinja2.nodes.Getattr):
+        if (
+            node.attr == "data"
+            and isinstance(node.node, jinja2.nodes.Name)
+            and node.node.name == "old"
+        ):
+            return True
+    for node in ast.find_all(jinja2.nodes.Getitem):
+        if (
+            isinstance(node.arg, jinja2.nodes.Const)
+            and node.arg.value == "data"
+            and isinstance(node.node, jinja2.nodes.Name)
+            and node.node.name == "old"
+        ):
+            return True
+    return False
+
+
 async def render_str(
     s, props, *, allow_nonstr: bool = True, strict: bool = True, loc: str = "#"
 ):

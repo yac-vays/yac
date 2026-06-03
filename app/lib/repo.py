@@ -90,6 +90,25 @@ async def __lookup_entities(
     return old, new
 
 
+async def load_data(rpo: IRepoSession, type_name: str, name: str) -> dict:
+    """
+    Best-effort load + parse of a single entity's YAML into a dict, reusing
+    the content-keyed parse cache. Returns an empty dict on any read/parse
+    error so callers that aggregate over many entities (e.g. `lib.limits`)
+    never fail on a single malformed file.
+    """
+    try:
+        yaml_text = await rpo.get(type_name, name)
+    except RepoError:
+        return {}
+    if not yaml_text:
+        return {}
+    try:
+        return await _parse_yaml_dict_cached(yaml_text)
+    except yaml.YAMLError:
+        return {}
+
+
 async def get_entities(
     hash: str,
     rpo: IRepoSession,

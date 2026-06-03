@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from fastapi import Request
 
 from app.lib import action
+from app.lib import limits
 from app.lib import repo
 from app.lib import specs
 from app.lib import validator
@@ -56,8 +57,10 @@ async def update_entity(
         rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
+        new_data, _ = validator.incoming_new_data(op, old)
+        usages = await limits.measure(hash, rpo, op, s, old, new_data)
 
-    await validator.test_all(op, s, old, new, perms)
+    await validator.test_all(op, s, old, new, perms, usages)
 
     await action.run(TypeActionHook.CHANGE_BEFORE, op, s)
 
@@ -117,8 +120,10 @@ async def change_entity(
         rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
+        new_data, _ = validator.incoming_new_data(op, old)
+        usages = await limits.measure(hash, rpo, op, s, old, new_data)
 
-    await validator.test_all(op, s, old, new, perms)
+    await validator.test_all(op, s, old, new, perms, usages)
 
     await action.run(TypeActionHook.CHANGE_BEFORE, op, s)
 
