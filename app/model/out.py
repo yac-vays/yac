@@ -252,16 +252,10 @@ class LimitUsage(BaseModel):
         str,
         Field(description="The limit's title", examples=["VMs per owner"]),
     ]
-    aggregate: Annotated[
-        Literal["count", "sum"],
-        Field(description="Whether `used` counts entities or sums a value"),
-    ] = "count"
     used: Annotated[
         float,
         Field(
-            description=(
-                "The aggregate (count or sum) including the incoming entity"
-            ),
+            description="The summed value, including the incoming entity",
             examples=[3],
         ),
     ]

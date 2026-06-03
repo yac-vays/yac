@@ -49,13 +49,17 @@ class TypeAction(out.TypeAction):
 
 class TypeLimit(BaseModel):
     """
-    A cap on how many entities (or how much of a summed quota) of this type
-    may exist within a group. Evaluated per write operation; see
-    `app.lib.limits` and docs/yac/specs/file/limits.md.
+    A cap on how much of a group's summed `value` may exist for this type.
+    Evaluated per write operation; see `app.lib.limits` and
+    docs/yac/specs/file/limits.md.
+
+    `value` is summed over every in-scope entity (plus the incoming one). It
+    defaults to `1`, so an unset `value` simply counts entities; set it to a
+    data expression (e.g. `old.data.quota`) to sum a quota instead.
 
     All of `scope`, `value` and `max` are Jinja2 expressions rendered with
     the same variables as `roles`/`sets` (`old`, `new`, `name`, `user`,
-    `context`, `env`, `request`). When aggregating, `old` is the entity being
+    `context`, `env`, `request`). While aggregating, `old` is the entity being
     scanned and `new` is the entity being created/changed.
     """
 
@@ -63,9 +67,9 @@ class TypeLimit(BaseModel):
     # Jinja2 test deciding whether a scanned entity (`old`) belongs to the
     # same group as the incoming entity (`new`). Default: every entity counts.
     scope: str = "true"
-    aggregate: Literal["count", "sum"] = "count"
-    # Jinja2 number expression: each matching entity's contribution to the
-    # sum. Ignored when `aggregate` is `count`.
+    # Jinja2 number expression: one entity's contribution to the sum. Defaults
+    # to 1 (so the sum counts entities); set to e.g. `old.data.quota` to sum a
+    # field instead.
     value: str = "1"
     # Jinja2 number expression: the cap. May depend on `user`/`context`/`new`
     # to express per-user or plan-dependent limits.

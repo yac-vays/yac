@@ -25,15 +25,14 @@ async def _contribution(
     lim: TypeLimit, base: dict, name: str, data: dict
 ) -> float:
     """
-    The amount one entity (`old`) contributes to the limit's aggregate: 0 if
-    it is outside the scope, else 1 (count) or the rendered `value` (sum).
+    The amount one entity (`old`) contributes to the limit's sum: 0 if it is
+    outside the scope, else the rendered `value` (which defaults to 1, so an
+    unset `value` counts entities).
     """
     entity_props = {**base, "old": {"name": name, "data": data}, "name": name}
     try:
         if not await j2.render_test(lim.scope, entity_props):
             return 0.0
-        if lim.aggregate == "count":
-            return 1.0
         return await j2.render_number(lim.value, entity_props)
     except j2.J2Error as error:
         raise RequestError(
@@ -114,9 +113,7 @@ async def measure(
 
     usages: list[out.LimitUsage] = []
     for lim in applicable:
-        needs_data = j2.uses_old_data(lim.scope) or (
-            lim.aggregate == "sum" and j2.uses_old_data(lim.value)
-        )
+        needs_data = j2.uses_old_data(lim.scope) or j2.uses_old_data(lim.value)
 
         # The incoming entity always contributes (its data is `new_data`).
         total = await _contribution(lim, base, new_name or "", new_data or {})
@@ -133,7 +130,6 @@ async def measure(
         usages.append(
             out.LimitUsage(
                 title=lim.title,
-                aggregate=lim.aggregate,
                 used=total,
                 max=cap,
                 ok=total <= cap,
@@ -155,7 +151,6 @@ def assert_within(usages: list[out.LimitUsage]) -> None:
     """
     for u in usages:
         if not u.ok:
-            unit = "" if u.aggregate == "sum" else " entities"
             raise RequestError(
-                f'Limit "{u.title}" reached: {_fmt(u.used)}/{_fmt(u.max)}{unit}.'
+                f'Limit "{u.title}" reached: {_fmt(u.used)}/{_fmt(u.max)}.'
             )
