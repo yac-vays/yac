@@ -27,6 +27,20 @@ def _kind_dir(kind: str) -> str:
     return f"{_PLUGIN_ROOT}/{kind}"
 
 
+def _is_plugin_function(obj: object) -> bool:
+    """
+    A plugin member is usable as a j2 function/filter/test if it is a plain
+    (possibly async) function, or a function wrapped by a caching/decorator
+    that exposes the original via __wrapped__ (e.g. functools.lru_cache,
+    async_lru.alru_cache). The latter are callable wrapper objects that
+    inspect.isfunction rejects, which would otherwise silently drop decorated
+    builtins like host_in_ip4ranges.
+    """
+    if isfunction(obj):
+        return True
+    return callable(obj) and isfunction(getattr(obj, "__wrapped__", None))
+
+
 @lru_cache(maxsize=None)
 def get_functions(kind: str) -> dict[str, FunctionType]:
     functions = {}
@@ -43,7 +57,7 @@ def get_functions(kind: str) -> dict[str, FunctionType]:
             module = pydoc.importfile(file)
         except (pydoc.ErrorDuringImport, ImportError, OSError, SyntaxError) as error:
             raise PluginError(f"Could not import plugin {file}: {error}") from error
-        for function in getmembers(module, isfunction):
+        for function in getmembers(module, _is_plugin_function):
             logger.debug(f"Loading function {function[0]} from plugin {file}")
             functions.update({function[0]: getattr(module, function[0])})
     return functions
