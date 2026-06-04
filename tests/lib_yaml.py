@@ -130,7 +130,14 @@ def test():
     assert yaml.update(YAML2, {'my_dict': '~undefined'}) == YAML2_WITHOUT_MYDICT
     assert yaml.update(YAML2, {'my_dict': {'b': '~undefined'}}) == YAML2_WITHOUT_MYDICTB
     assert yaml.update(YAML3, {'top': [{'myky': 'a', '2ky': 'b', '3ky': 'c'}, {'1ky': 'd', '2ky': '~undefined'}, True]}) == YAML3_CHANGED_LISTELEM
-    
+
+    # Unsetting a key that is not present in the stored YAML must be a no-op and
+    # must never write the literal string "~undefined" (e.g. for schema-defaulted
+    # fields that were never persisted).
+    assert yaml.update(YAML2, {'absent_key': '~undefined'}) == YAML2
+    assert yaml.update(YAML2, {'my_dict': {'absent_child': '~undefined'}}) == YAML2
+    assert yaml.load_as_dict(yaml.update(YAML2, {'absent_key': '~undefined'})) == DATA1
+
     assert type(yaml.load(UNSAFE_YAML1)['illegal_tuple']) is not tuple
     assert isinstance(yaml.load(UNSAFE_YAML1)['illegal_tuple'], list)
     assert isinstance(yaml.load(UNSAFE_YAML2), yaml.YAMLSafeBase)

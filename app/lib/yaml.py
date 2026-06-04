@@ -165,8 +165,13 @@ def __deep_update(data: Any, diff: Any) -> Any:
         if not isinstance(data, dict):
             data = {}
         for key in list(diff.keys()):
-            if diff[key] == "~undefined" and key in data:
-                data.pop(key)
+            if diff[key] == "~undefined":
+                # Unset the key. If it is not present in the stored data there
+                # is nothing to unset, so skip it entirely -- otherwise the
+                # literal string "~undefined" would be written as the value
+                # (e.g. for schema-defaulted fields that never got persisted).
+                if key in data:
+                    data.pop(key)
             else:
                 data[key] = __deep_update(data.get(key, diff[key]), diff[key])
     elif isinstance(diff, list):
