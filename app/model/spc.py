@@ -15,11 +15,11 @@ class AuthOIDCJWT(BaseModel):
     # Format-strings applied to the validated JWT id-token (e.g. "{name}",
     # "{givenName} {surname}"). The `_fallback` variants are used when the
     # primary template references a claim that is not present.
-    name: str = "{name}"
-    full_name: str = "{givenName} {surname}"
-    full_name_fallback: str = "{name}"
-    email: str = "{mail}"
-    email_fallback: str = "{name}@localhost"
+    name: str = "{sub}"
+    full_name: str = "{name}"
+    full_name_fallback: str = "{given_name} {family_name}"
+    email: str = "{email}"
+    email_fallback: str = "{sub}@localhost"
 
 
 class AuthOIDC(BaseModel):
