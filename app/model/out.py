@@ -222,6 +222,19 @@ For the different types of operations, this has different sources.
             examples=["#/properties/abc"],
         ),
     ] = ""
+    yaml: Annotated[
+        str,
+        Field(
+            description=(
+                "The canonical (ruamel-normalized) YAML representation of `data`,"
+                " with the original comments/quoting/key-order preserved. Empty for"
+                " operations that do not produce writable data (read/copy/link). The"
+                " frontend uses this to keep a YAML editor in sync with the form"
+                " without having to re-implement YAC's YAML serialization."
+            ),
+            examples=["---\nowner: Bender\n"],
+        ),
+    ] = ""
 
 
 class Request(BaseModel):

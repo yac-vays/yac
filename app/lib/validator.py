@@ -47,6 +47,32 @@ def incoming_new_data(op: OperationRequest, old: Entity) -> tuple[dict, str | No
         return {}, str(error)
 
 
+def incoming_new_yaml(op: OperationRequest, old: Entity) -> str | None:
+    """
+    The canonical YAML the operation would write, with comments/quoting/key
+    order preserved (unlike `incoming_new_data`, which goes through
+    `load_as_dict` and drops them). Returned to the UI in `Schema.yaml` so a
+    YAML editor can stay in sync with the form without re-implementing YAC's
+    ruamel serialization client-side.
+
+    Returns `None` for operations that do not produce writable YAML (reads,
+    copies, links) or when the payload YAML is malformed (the schema/request
+    validation already surfaces that error).
+    """
+    try:
+        if isinstance(op.entity, UpdateEntity):
+            # Merge the patch into the stored YAML, keeping its comments.
+            return yaml.update(old.yaml or "", op.entity.data)
+        if isinstance(op.entity, NewEntity):
+            # Round-trip to normalize formatting while keeping comments.
+            return yaml.dump(yaml.load(op.entity.yaml))
+        if isinstance(op.entity, ReplaceEntity):
+            return yaml.dump(yaml.load(op.entity.yaml_new))
+        return None
+    except (yaml.YAMLError, RequestError):
+        return None
+
+
 async def test_all(
     op: OperationRequest,
     specs: Specs,
@@ -93,6 +119,10 @@ async def test_all(
         )
     else:
         schemas = Schema(json_schema={}, ui_schema={}, data={}, valid=True)
+
+    # Canonical YAML for the new data (comments preserved), so a YAML editor in
+    # the UI can mirror the form without re-implementing ruamel serialization.
+    schemas.yaml = incoming_new_yaml(op, old) or ""
 
     require = ("actions", "conflicts", "names", "operations", "perms", "type_spec")
     try:
