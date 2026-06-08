@@ -39,7 +39,8 @@ def incoming_new_data(op: OperationRequest, old: Entity) -> tuple[dict, str | No
         if isinstance(op.entity, ReplaceEntity):
             return yaml.load_as_dict(op.entity.yaml_new), None
         if isinstance(op.entity, UpdateEntity):
-            return yaml.load_as_dict(yaml.update(old.yaml or "", op.entity.data)), None
+            base = op.entity.yaml_base if op.entity.yaml_base is not None else (old.yaml or "")
+            return yaml.load_as_dict(yaml.update(base, op.entity.data)), None
         if op.entity is None and op.operation == "read":
             return old.data or {}, None
         return {}, None
@@ -61,8 +62,10 @@ def incoming_new_yaml(op: OperationRequest, old: Entity) -> str | None:
     """
     try:
         if isinstance(op.entity, UpdateEntity):
-            # Merge the patch into the stored YAML, keeping its comments.
-            return yaml.update(old.yaml or "", op.entity.data)
+            # Merge the patch into `yaml_base` (the YAML the client is editing) if
+            # given, else the stored YAML; either way comments are preserved.
+            base = op.entity.yaml_base if op.entity.yaml_base is not None else (old.yaml or "")
+            return yaml.update(base, op.entity.data)
         if isinstance(op.entity, NewEntity):
             # Round-trip to normalize formatting while keeping comments.
             return yaml.dump(yaml.load(op.entity.yaml))
@@ -105,7 +108,7 @@ async def test_all(
 
     if (
         op.operation == "change"
-        or (op.operation == "create" and isinstance(op.entity, NewEntity))
+        or (op.operation == "create" and isinstance(op.entity, (NewEntity, UpdateEntity)))
         or (op.operation == "read" and schema_on_read)
     ):
         schemas = await schema.get(

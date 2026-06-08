@@ -20,7 +20,11 @@ class OperationTester(IValidator):
         del spec
 
         if op.operation == "create":
-            if not isinstance(op.entity, (NewEntity, CopyEntity, LinkEntity)):
+            # `UpdateEntity` is accepted here only for the `/validate` endpoint, so
+            # a client can validate a not-yet-created entity by merging its form
+            # data into the YAML it is editing (`yaml_base`). The create POST
+            # router's body type still only accepts NewEntity/Copy/Link.
+            if not isinstance(op.entity, (NewEntity, CopyEntity, LinkEntity, UpdateEntity)):
                 raise RequestError("The entity has the wrong format for this operation")
 
         elif op.operation == "change":

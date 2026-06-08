@@ -87,10 +87,18 @@ class UpdateEntity(Entity):
 
     To ensure the entity was not modified in the meantime, you can send the old
     data in raw YAML (optional).
+
+    `yaml_base` is the YAML the `data` patch is merged into when computing the
+    result (and the returned `schemas.yaml`). It lets a client validate against
+    the YAML it is actually editing — preserving its comments / formatting / key
+    order — instead of the stored entity. When omitted, the stored entity's YAML
+    is used. This only affects the produced *content*; permissions, limits and
+    schema constraints are still evaluated against the stored entity.
     """
 
     data: dict
     yaml_old: str | None = None
+    yaml_base: str | None = None
 
 
 class Operation(BaseModel):
