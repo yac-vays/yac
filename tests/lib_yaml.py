@@ -182,3 +182,30 @@ def test():
         assert yaml.load_as_dict_fast(doc) == {'x': expected}, (tok, 'fast', yaml.load_as_dict_fast(doc))
         assert yaml.load_as_dict(doc) == {'x': expected}, (tok, 'rt', yaml.load_as_dict(doc))
         assert yaml.load_as_dict_fast(doc) == yaml.load_as_dict(doc), tok
+
+
+def test_duplicate_keys_strict_raises_nonstrict_tolerates():
+    dup = 'a: 1\na: 2\n'
+    try:
+        yaml.load(dup, strict=True)
+        assert False, 'strict load should reject duplicate keys'
+    except yaml.YAMLError:
+        pass
+    # Non-strict tolerates the duplicate (logs a warning) and still yields the key.
+    out = yaml.load_as_dict(dup, strict=False)
+    assert out.get('a') in (1, 2)
+
+
+def test_load_as_dict_non_mapping_top_level_is_empty():
+    # Callers expect a dict; a top-level list / scalar is normalised to {}.
+    assert yaml.load_as_dict_fast('- one\n- two') == {}
+    assert yaml.load_as_dict_fast('just-a-scalar') == {}
+    assert yaml.load_as_dict('- one\n- two') == {}
+    assert yaml.load_as_dict('') == {}
+
+
+def test_update_replaces_lists_but_merges_dicts():
+    base = 'obj:\n  a: 1\n  b: 2\nlst:\n  - 1\n  - 2\n'
+    # dict patch merges (b preserved); list patch replaces wholesale.
+    out = yaml.load_as_dict(yaml.update(base, {'obj': {'a': 9}, 'lst': [7]}))
+    assert out == {'obj': {'a': 9, 'b': 2}, 'lst': [7]}

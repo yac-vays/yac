@@ -1,0 +1,13 @@
+# Minimal specs so importing app.lib.* (which reads the specs at import time)
+# succeeds during the test run. Tests that need real specs build their own.
+repo:
+  connection: ""
+  plugin: git_direct
+auth: {}
+types: []
+roles: []
+schema: {}
+sets: {}
+context: {}
+request: {}
+version: ""

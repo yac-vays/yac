@@ -6,9 +6,29 @@ the stored entity.
 """
 
 from app.lib import validator
-from app.model.inp import OperationRequest, UpdateEntity
+from app.model.inp import (
+    CopyEntity,
+    LinkEntity,
+    NewEntity,
+    OperationRequest,
+    ReplaceEntity,
+    UpdateEntity,
+)
 from app.model.int import Entity
 from app.model.out import User
+
+
+def _op(entity, *, operation="create", name=None):
+    return OperationRequest(
+        request_headers={},
+        request_ip="",
+        user=User(name="u", email="u@example.com", full_name="U"),
+        operation=operation,
+        type="type1",
+        name=name,
+        actions=[],
+        entity=entity,
+    )
 
 
 def _update_op(data, *, yaml_base=None, operation="change", name="name1"):
@@ -81,3 +101,49 @@ def test_incoming_new_data_merges_patch_into_base():
     assert data["owner"] == "Bender"  # from base
     assert data["nodes"] == ["a", "b"]  # anchor target
     assert data["backup"] == ["a", "b"]  # alias resolves to the same value
+
+
+# ----- other entity kinds + error paths -----
+
+_SRC = Entity(name="src", exists=True, yaml="owner: Bender\n", data={"owner": "Bender"})
+
+
+def test_new_entity_normalizes_yaml_and_parses_data():
+    op = _op(NewEntity(name="x", yaml="ram: 8\n"))
+    data, err = validator.incoming_new_data(op, Entity(name=None, exists=False))
+    assert err is None and data == {"ram": 8}
+    # incoming_new_yaml round-trips through ruamel (explicit start marker).
+    assert validator.incoming_new_yaml(op, Entity(name=None, exists=False)) == "---\nram: 8\n"
+
+
+def test_copy_and_link_inherit_source_data_and_have_no_yaml():
+    for entity in (CopyEntity(name="x", copy="src"), LinkEntity(name="x", link="src")):
+        op = _op(entity)
+        data, err = validator.incoming_new_data(op, _SRC)
+        assert err is None and data == {"owner": "Bender"}  # inherits the source
+        assert validator.incoming_new_yaml(op, _SRC) is None  # copies/links produce no YAML
+
+
+def test_replace_entity_uses_yaml_new():
+    op = _op(ReplaceEntity(name="x", yaml_old="a: 1\n", yaml_new="a: 2\n"),
+             operation="change", name="x")
+    data, err = validator.incoming_new_data(op, _SRC)
+    assert err is None and data == {"a": 2}
+    assert validator.incoming_new_yaml(op, _SRC) == "---\na: 2\n"
+
+
+def test_malformed_yaml_reports_error_and_no_yaml():
+    op = _op(NewEntity(name="x", yaml="a: : : bad"))
+    data, err = validator.incoming_new_data(op, Entity(name=None, exists=False))
+    assert data == {} and err is not None  # surfaced, not raised
+    assert validator.incoming_new_yaml(op, Entity(name=None, exists=False)) is None
+
+
+def test_read_and_delete_use_stored_data():
+    assert validator.incoming_new_data(_op(None, operation="read", name="src"), _SRC) == (
+        {"owner": "Bender"}, None
+    )
+    # delete (no entity payload, not a read) yields empty new-data.
+    assert validator.incoming_new_data(_op(None, operation="delete", name="src"), _SRC) == (
+        {}, None
+    )

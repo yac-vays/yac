@@ -22,10 +22,10 @@ COPY ./app /code/app
 
 FROM build AS test
 
-RUN pip install --no-cache-dir --upgrade --compile pylint
+RUN pip install --no-cache-dir --upgrade --compile pylint pytest pytest-asyncio
 RUN pylint --rcfile /code/app/.pylintrc --exit-zero /code/app /code/app/plugin/*/*.py
 COPY ./tests /code/tests
-RUN PYTHONPATH=/code python /code/tests/main.py
+RUN PYTHONPATH=/code python -m pytest /code/tests
 RUN touch /tmp/tested
 
 #

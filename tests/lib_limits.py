@@ -1,68 +1,21 @@
 """
-Tests for `lib.limits.measure`, focusing on the symlink edge case: when an
-entity is edited, any other entity that is a *symlink* to it will hold the new
-data once the edit is committed, so it must be counted with the incoming data --
-not its stale on-disk copy. Otherwise a data-dependent limit can be bypassed by
-putting the value in the link target.
+Tests for `lib.limits.measure`.
 
-Standalone (not wired into `tests/main.py`): importing `app.lib.limits` pulls in
-`app.lib.repo`, which loads the repo plugin from the specs at import time, so a
-minimal `YAC_SPECS` is provided before the import. Run with `PYTHONPATH=.`.
+Covers the two limits edge cases that were security/UX holes:
+  - a *symlink* to the entity being edited must be counted with the incoming
+    data (it will hold that data once committed), not its stale on-disk copy;
+  - a *schema-invalid* value (e.g. a non-number) must not abort the limit, so
+    the validate endpoint can still report the real schema error.
+
+`YAC_SPECS` is pointed at a minimal specs file by `conftest.py` so importing the
+repo/limits layer does not exit at import time.
 """
 
-import asyncio
-import os
-import tempfile
-
-# Minimal specs so importing the repo layer (which initialises the repo plugin
-# from the specs at import time) succeeds without a real /yac.yml.
-_SPECS = tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False)
-_SPECS.write(
-    'repo:\n  connection: ""\n  plugin: git_direct\n'
-    "auth: {}\ntypes: []\nroles: []\nschema: {}\n"
-    "sets: {}\ncontext: {}\nrequest: {}\nversion: \"\"\n"
-)
-_SPECS.close()
-os.environ["YAC_SPECS"] = _SPECS.name
-
 from app.lib import limits
-from app.model.inp import OperationRequest, UpdateEntity
+from app.model.inp import NewEntity, OperationRequest, UpdateEntity
 from app.model.int import Entity
 from app.model.out import User
-from app.model.plg import IRepoSession
 from app.model.spc import Request, Specs, Type, TypeLimit
-
-
-class _FakeSession(IRepoSession):
-    """In-memory repo: A and C are files, B is a symlink to A."""
-
-    def __init__(self):
-        self.files = {"A": "cpus: 4", "C": "cpus: 2"}
-        self.links = {"B": "A"}
-
-    async def get_hash(self):
-        return "h"
-
-    async def list(self, type):
-        return ["A", "B", "C"]
-
-    async def exists(self, type, name):
-        return name in self.files or name in self.links
-
-    async def is_link(self, type, name):
-        return name in self.links
-
-    async def get_link(self, type, name):
-        return self.links[name]
-
-    async def get(self, type, name):
-        return self.files[self.links.get(name, name)]
-
-    async def write(self, *a): ...
-    async def write_rename(self, *a): ...
-    async def copy(self, *a): ...
-    async def link(self, *a): ...
-    async def delete(self, *a): ...
 
 
 def _specs_with(lim: TypeLimit) -> Specs:
@@ -72,7 +25,7 @@ def _specs_with(lim: TypeLimit) -> Specs:
     )
 
 
-def _change_op(new_cpus: int) -> OperationRequest:
+def _change_op(data: dict) -> OperationRequest:
     return OperationRequest(
         request_headers={},
         request_ip="",
@@ -81,70 +34,106 @@ def _change_op(new_cpus: int) -> OperationRequest:
         type="host",
         name="A",
         actions=[],
-        entity=UpdateEntity(name="A", data={"cpus": new_cpus}),
+        entity=UpdateEntity(name="A", data=data),
     )
 
 
-def test_symlink_to_edited_entity_counts_incoming_data():
-    rpo = _FakeSession()
+# A=4, C=2 are files; B is a symlink to A.
+def _repo(fake_repo):
+    return fake_repo(files={"A": "cpus: 4", "C": "cpus: 2"}, links={"B": "A"})
+
+
+_CPUS_LIMIT = dict(
+    title="cpus", on=["change", "create"], scope="true",
+    value="old.data.cpus | default(0)", max="100",
+)
+
+
+async def test_symlink_to_edited_entity_counts_incoming_data(fake_repo):
     old = Entity(name="A", exists=True, data={"cpus": 4})
-    # value reads old.data -> needs_data path. Edit A: cpus 4 -> 40.
-    lim = TypeLimit.model_construct(
-        title="cpus", on=["change", "create"], scope="true",
-        value="old.data.cpus | default(0)", max="100",
+    lim = TypeLimit.model_construct(**_CPUS_LIMIT)
+    usages = await limits.measure(
+        "h", _repo(fake_repo), _change_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
     )
-    usages = asyncio.run(
-        limits.measure("h", rpo, _change_op(40), _specs_with(lim), old, {"cpus": 40})
-    )
-    # A=40 (incoming) + B=40 (symlink -> A, the new value!) + C=2 = 82.
+    # A=40 (incoming) + B=40 (symlink -> A, the *new* value) + C=2 = 82.
     # The bug counted B with its stale on-disk copy (4) -> 46, bypassing the cap.
     assert usages[0].used == 82, usages[0].used
 
 
-def test_non_number_data_does_not_abort_measure():
-    # The incoming entity's `cpus` is a (schema-invalid) string. The limit value
-    # `old.data.cpus` cannot be coerced to a number, but measure must not raise:
-    # the contribution falls back to 0 so the validate endpoint can report the
-    # real schema error instead of failing on the limit.
-    rpo = _FakeSession()
+async def test_non_number_data_does_not_abort_measure(fake_repo):
     old = Entity(name="A", exists=True, data={"cpus": 4})
-    lim = TypeLimit.model_construct(
-        title="cpus", on=["change", "create"], scope="true",
-        value="old.data.cpus | default(0)", max="100",
+    lim = TypeLimit.model_construct(**_CPUS_LIMIT)
+    # Incoming cpus is a (schema-invalid) string: the value cannot be coerced to
+    # a number, but measure must not raise -- the contribution falls back to 0.
+    usages = await limits.measure(
+        "h", _repo(fake_repo), _change_op({"cpus": "nope"}),
+        _specs_with(lim), old, {"cpus": "nope"},
     )
-    op = OperationRequest(
-        request_headers={}, request_ip="",
-        user=User(name="u", email="u@example.com", full_name="U"),
-        operation="change", type="host", name="A", actions=[],
-        entity=UpdateEntity(name="A", data={"cpus": "not-a-number"}),
-    )
-    usages = asyncio.run(
-        limits.measure("h", rpo, op, _specs_with(lim), old, {"cpus": "not-a-number"})
-    )
-    # incoming A contributes 0 (bad data), B mirrors A's new data -> also 0,
-    # C is a valid 2. The point is simply that it did not raise.
+    # incoming A -> 0, B mirrors A's new data -> 0, C -> 2; the point is no raise.
     assert usages[0].used == 2, usages[0].used
 
 
-def test_name_only_limit_unaffected():
-    rpo = _FakeSession()
+async def test_name_only_limit_unaffected(fake_repo):
     old = Entity(name="A", exists=True, data={"cpus": 4})
-    # value/scope never read old.data -> fast (name-only) path, no link handling.
+    # value/scope never read old.data -> fast name-only path, no data load.
     lim = TypeLimit.model_construct(
         title="count", on=["change"], scope="true", value="1", max="100"
     )
-    usages = asyncio.run(
-        limits.measure("h", rpo, _change_op(40), _specs_with(lim), old, {"cpus": 40})
+    usages = await limits.measure(
+        "h", _repo(fake_repo), _change_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
     )
     assert usages[0].used == 3, usages[0].used  # A + B + C, one each
 
 
-def test():
-    test_symlink_to_edited_entity_counts_incoming_data()
-    test_non_number_data_does_not_abort_measure()
-    test_name_only_limit_unaffected()
+async def test_over_cap_reports_not_ok(fake_repo):
+    old = Entity(name="A", exists=True, data={"cpus": 4})
+    lim = TypeLimit.model_construct(
+        title="cpus", on=["change"], scope="true",
+        value="old.data.cpus | default(0)", max="50",
+    )
+    usages = await limits.measure(
+        "h", _repo(fake_repo), _change_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
+    )
+    # 40 + 40 + 2 = 82 > 50
+    assert usages[0].used == 82 and usages[0].max == 50 and usages[0].ok is False
 
 
-if __name__ == "__main__":
-    test()
-    print("lib_limits.test() PASSED")
+def _create_op(yaml_text: str) -> OperationRequest:
+    return OperationRequest(
+        request_headers={}, request_ip="",
+        user=User(name="u", email="u@example.com", full_name="U"),
+        operation="create", type="host", name=None, actions=[],
+        entity=NewEntity(name="new", yaml=yaml_text),
+    )
+
+
+async def test_scope_filters_out_of_scope_entities(fake_repo):
+    rpo = fake_repo(files={"A": "kind: vm", "B": "kind: bare", "C": "kind: vm"})
+    lim = TypeLimit.model_construct(
+        title="vms", on=["create"], scope="old.data.kind == 'vm'", value="1", max="10"
+    )
+    # incoming vm + existing vms (A, C); the bare B is out of scope.
+    usages = await limits.measure(
+        "h", rpo, _create_op("kind: vm"), _specs_with(lim),
+        Entity(name=None, exists=False), {"kind": "vm"},
+    )
+    assert usages[0].used == 3
+    # an out-of-scope incoming entity does not count itself.
+    usages = await limits.measure(
+        "h", rpo, _create_op("kind: bare"), _specs_with(lim),
+        Entity(name=None, exists=False), {"kind": "bare"},
+    )
+    assert usages[0].used == 2  # only existing A, C
+
+
+async def test_limit_not_applicable_to_operation(fake_repo):
+    # A limit that only applies on `create` yields no usage on a `change`.
+    rpo = fake_repo(files={"A": "cpus: 4"})
+    lim = TypeLimit.model_construct(
+        title="cpus", on=["create"], scope="true", value="old.data.cpus | default(0)", max="100"
+    )
+    usages = await limits.measure(
+        "h", rpo, _change_op({"cpus": 4}), _specs_with(lim),
+        Entity(name="A", exists=True, data={"cpus": 4}), {"cpus": 4},
+    )
+    assert usages == []
