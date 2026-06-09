@@ -153,3 +153,32 @@ def test():
     assert yaml.load_as_dict('pairs: !!pairs [a: b, c: d]') == {'pairs': [('a', 'b'), ('c', 'd')]}
     assert yaml.load_as_dict('omap: !!omap [{z: first}, {a: last}]') == {'omap': {'z': 'first', 'a': 'last'}}
     assert yaml.load_as_dict('set: !!set {a, b, c}') == {'set': set(['a', 'b', 'c'])}
+
+    # The fast (read-path) loader and the round-trip (validation) loader MUST
+    # agree on scalar resolution -- otherwise a value reads one way for the form
+    # / permissions and validates another way, blocking a commit invisibly.
+    # PyYAML defaults to YAML 1.1; ruamel (the validator) follows YAML 1.2. This
+    # table pins every known divergence the fast loader is patched to fix.
+    bool_int_float_cases = [
+        # bool: yes/no/on/off are 1.1 booleans, 1.2 strings.
+        ('no', 'no'), ('yes', 'yes'), ('on', 'on'), ('off', 'off'),
+        ('No', 'No'), ('OFF', 'OFF'), ('n', 'n'), ('y', 'y'),
+        ('true', True), ('false', False), ('True', True), ('FALSE', False),
+        # int: leading-zero is octal in 1.1, decimal in 1.2; sexagesimal is an
+        # int in 1.1, a string in 1.2; 1.2 understands 0o/0x/0b.
+        ('42', 42), ('-7', -7), ('+5', 5), ('0', 0), ('007', 7),
+        ('0644', 644), ('0o644', 420), ('0x1F', 31), ('0b101', 5),
+        ('1_000', 1000), ('1:2:3', '1:2:3'),
+        # float: exponent without a dot is a string in 1.1, a float in 1.2;
+        # sexagesimal float is a float in 1.1, a string in 1.2.
+        ('1.0', 1.0), ('1e3', 1000.0), ('1.5e-3', 0.0015), ('.5', 0.5),
+        ('5.', 5.0), ('1_000.5', 1000.5), ('1:2.5', '1:2.5'),
+        ('-.inf', float('-inf')),
+        # unchanged across versions (sanity).
+        ('null', None), ('~', None), ('hello', 'hello'),
+    ]
+    for tok, expected in bool_int_float_cases:
+        doc = f'x: {tok}'
+        assert yaml.load_as_dict_fast(doc) == {'x': expected}, (tok, 'fast', yaml.load_as_dict_fast(doc))
+        assert yaml.load_as_dict(doc) == {'x': expected}, (tok, 'rt', yaml.load_as_dict(doc))
+        assert yaml.load_as_dict_fast(doc) == yaml.load_as_dict(doc), tok

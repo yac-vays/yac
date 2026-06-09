@@ -4,6 +4,7 @@ Raises: [app.lib.yaml.YAMLError, app.model.err.RequestConflict]
 
 import io
 import logging
+import re
 from typing import Any
 
 import ruamel.yaml
@@ -99,6 +100,91 @@ def _construct_omap_as_dict(loader, node):
 _FastLoader.add_constructor(
     "tag:yaml.org,2002:omap", _construct_omap_as_dict
 )
+
+
+# PyYAML follows YAML 1.1; ruamel's round-trip loader (`load`/`load_as_dict`,
+# used for validation) follows YAML 1.2. They disagree on several implicit
+# scalar resolutions, so a value can read one way for the read paths
+# (permissions, option extraction, the data the UI form renders) and validate
+# another way -- blocking a commit with no error visible in the form. The known
+# divergences (see the contract test in tests/lib_yaml.py):
+#   - bool:  yes/no/on/off are booleans in 1.1, strings in 1.2.
+#            e.g. `monitoring_enabled: no` -> fast False vs validator "no".
+#   - int:   `0644` is octal (420) in 1.1, decimal (644) in 1.2; 1.1 also reads
+#            sexagesimal `1:2:3`; 1.2 understands `0o`/`0b` prefixes.
+#   - float: `1e3` (no dot) is a string in 1.1, a float in 1.2; 1.1 reads
+#            sexagesimal `1:2.5`.
+# Re-resolve bool/int/float on the fast loader to match ruamel exactly. Both the
+# resolver (what tag a scalar gets) and the constructor (how the tagged scalar
+# becomes a value) must change, since PyYAML's 1.1 constructors would still read
+# `0644` as octal even once the resolver tags it as int.
+#
+# Copy the inherited resolver table first (don't mutate the shared base class),
+# then drop the 1.1 bool/int/float resolvers and register 1.2-equivalent ones.
+_REASSIGNED_TAGS = {
+    "tag:yaml.org,2002:bool",
+    "tag:yaml.org,2002:int",
+    "tag:yaml.org,2002:float",
+}
+_FastLoader.yaml_implicit_resolvers = {
+    ch: [(tag, regexp) for tag, regexp in resolvers if tag not in _REASSIGNED_TAGS]
+    for ch, resolvers in _FastLoader.yaml_implicit_resolvers.items()
+}
+_FastLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:bool",
+    re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"),
+    list("tTfF"),
+)
+_FastLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:int",
+    re.compile(r"^[-+]?(?:0x[0-9a-fA-F_]+|0o[0-7_]+|0b[0-1_]+|[0-9][0-9_]*)$"),
+    list("-+0123456789"),
+)
+_FastLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:float",
+    re.compile(
+        r"""^(?:
+            [-+]?(?:\.[0-9_]+|[0-9][0-9_]*\.[0-9_]*|[0-9][0-9_]*)[eE][-+]?[0-9]+  # exponent (dot optional)
+          | [-+]?(?:\.[0-9_]+|[0-9][0-9_]*\.[0-9_]*)                              # dot, no exponent
+          | [-+]?\.(?:inf|Inf|INF)
+          | \.(?:nan|NaN|NAN)
+        )$""",
+        re.VERBOSE,
+    ),
+    list("-+0123456789."),
+)
+
+
+def _construct_fast_int(loader, node):
+    v = loader.construct_scalar(node).replace("_", "")
+    neg = v[0] == "-"
+    if v[0] in "+-":
+        v = v[1:]
+    if v[:2] in ("0x", "0X"):
+        n = int(v[2:], 16)
+    elif v[:2] in ("0o", "0O"):
+        n = int(v[2:], 8)
+    elif v[:2] in ("0b", "0B"):
+        n = int(v[2:], 2)
+    else:
+        n = int(v, 10)  # leading zeros are decimal in 1.2 (0644 -> 644)
+    return -n if neg else n
+
+
+def _construct_fast_float(loader, node):
+    v = loader.construct_scalar(node).replace("_", "").lower()
+    sign = -1.0 if v and v[0] == "-" else 1.0
+    if v and v[0] in "+-":
+        v = v[1:]
+    if v == ".inf":
+        return sign * float("inf")
+    if v == ".nan":
+        return float("nan")
+    return sign * float(v)
+
+
+_FastLoader.add_constructor("tag:yaml.org,2002:int", _construct_fast_int)
+_FastLoader.add_constructor("tag:yaml.org,2002:float", _construct_fast_float)
 
 
 def load_as_dict_fast(text: str) -> dict:
