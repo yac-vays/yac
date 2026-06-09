@@ -20,6 +20,14 @@ class RequiredDefaults(IJsonSchema):
         the schame the following way:
         - Required booleans without default value get a default = false
         - Required consts without default value get a default = const value
+        - Required objects (with properties) without default get a default = {}
+        - Required arrays without default get a default = []
+
+        The empty object/array materialises the (otherwise absent) parent so that
+        VAYS' client-side default insertion can cascade the nested defaults into
+        it. Without this, a required-but-missing object/array error would attach
+        to the absent parent, which has no rendered control and is thus invisible
+        in the form (e.g. a `yac_if` subschema that just became required).
         """
         # On read the schema is for display only; injecting synthetic defaults
         # would misrepresent what is actually stored (matches yac_perms.py).
@@ -40,20 +48,29 @@ class RequiredDefaults(IJsonSchema):
             ) from error
 
         for key in json_schema.get("properties", {}).keys():
-            if key in required and "default" not in json_schema["properties"][key]:
-                if json_schema["properties"][key].get("type", None) == "boolean":
-                    json_schema["properties"][key]["default"] = False
+            prop = json_schema["properties"][key]
+            if key in required and "default" not in prop:
+                if prop.get("type", None) == "boolean":
+                    prop["default"] = False
                     logger.debug(
                         f"Added required {loc}/properties/{key}/default = false to"
                         " schema"
                     )
-                elif "const" in json_schema["properties"][key]:
-                    json_schema["properties"][key]["default"] = json_schema[
-                        "properties"
-                    ][key]["const"]
+                elif "const" in prop:
+                    prop["default"] = prop["const"]
                     logger.debug(
                         f"Added required {loc}/properties/{key}/default = const value"
                         " to schema"
+                    )
+                elif prop.get("type", None) == "object" and "properties" in prop:
+                    prop["default"] = {}
+                    logger.debug(
+                        f"Added required {loc}/properties/{key}/default = {{}} to schema"
+                    )
+                elif prop.get("type", None) == "array":
+                    prop["default"] = []
+                    logger.debug(
+                        f"Added required {loc}/properties/{key}/default = [] to schema"
                     )
 
         return json_schema, context
