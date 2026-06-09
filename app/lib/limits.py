@@ -28,12 +28,18 @@ async def _contribution(
     The amount one entity (`old`) contributes to the limit's sum: 0 if it is
     outside the scope, else the rendered `value` (which defaults to 1, so an
     unset `value` counts entities).
+
+    A `value` that cannot be coerced to a number -- typically because the
+    entity's data is schema-invalid (e.g. a non-number where a number is
+    expected) -- contributes 0 rather than aborting the whole limit. The data is
+    rejected by schema validation anyway, so this only lets the validate endpoint
+    report that real error instead of failing on the limit first.
     """
     entity_props = {**base, "old": {"name": name, "data": data}, "name": name}
     try:
         if not await j2.render_test(lim.scope, entity_props):
             return 0.0
-        return await j2.render_number(lim.value, entity_props)
+        return await j2.render_number(lim.value, entity_props, default=0.0)
     except j2.J2Error as error:
         raise RequestError(
             f'Limit "{lim.title}" could not be evaluated: {error}'

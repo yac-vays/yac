@@ -146,16 +146,26 @@ async def render_print(print_str: str, props: dict, *, strict: bool = True) -> s
     )
 
 
-async def render_number(expr: str, props: dict) -> float:
+async def render_number(
+    expr: str, props: dict, *, default: float | None = None
+) -> float:
     """
     Render a Jinja2 expression that is expected to yield a number (e.g. a
     `limits` cap or per-entity value). Raises J2Error if the result cannot be
     coerced to a float.
+
+    When `default` is given, a result that *renders* fine but cannot be coerced
+    to a number returns `default` instead of raising. This lets a `limits` value
+    survive a single entity whose (schema-invalid) data is e.g. a non-number, so
+    the validate endpoint can still report the real schema error rather than
+    aborting on the limit. A broken expression (a Jinja error) still raises.
     """
     value = await render_str(f"{{{{ {expr} }}}}", props, allow_nonstr=True)
     try:
         return float(value)
     except (TypeError, ValueError) as error:
+        if default is not None:
+            return default
         raise J2Error(
             f'Expression "{expr}" did not yield a number (got {value!r})'
         ) from error

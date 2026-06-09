@@ -101,6 +101,31 @@ def test_symlink_to_edited_entity_counts_incoming_data():
     assert usages[0].used == 82, usages[0].used
 
 
+def test_non_number_data_does_not_abort_measure():
+    # The incoming entity's `cpus` is a (schema-invalid) string. The limit value
+    # `old.data.cpus` cannot be coerced to a number, but measure must not raise:
+    # the contribution falls back to 0 so the validate endpoint can report the
+    # real schema error instead of failing on the limit.
+    rpo = _FakeSession()
+    old = Entity(name="A", exists=True, data={"cpus": 4})
+    lim = TypeLimit.model_construct(
+        title="cpus", on=["change", "create"], scope="true",
+        value="old.data.cpus | default(0)", max="100",
+    )
+    op = OperationRequest(
+        request_headers={}, request_ip="",
+        user=User(name="u", email="u@example.com", full_name="U"),
+        operation="change", type="host", name="A", actions=[],
+        entity=UpdateEntity(name="A", data={"cpus": "not-a-number"}),
+    )
+    usages = asyncio.run(
+        limits.measure("h", rpo, op, _specs_with(lim), old, {"cpus": "not-a-number"})
+    )
+    # incoming A contributes 0 (bad data), B mirrors A's new data -> also 0,
+    # C is a valid 2. The point is simply that it did not raise.
+    assert usages[0].used == 2, usages[0].used
+
+
 def test_name_only_limit_unaffected():
     rpo = _FakeSession()
     old = Entity(name="A", exists=True, data={"cpus": 4})
@@ -116,6 +141,7 @@ def test_name_only_limit_unaffected():
 
 def test():
     test_symlink_to_edited_entity_counts_incoming_data()
+    test_non_number_data_does_not_abort_measure()
     test_name_only_limit_unaffected()
 
 
