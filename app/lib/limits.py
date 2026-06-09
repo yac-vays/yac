@@ -47,11 +47,20 @@ async def _scan_existing(
     rpo: IRepoSession,
     existing: list[str],
     needs_data: bool,
+    edited: str | None,
+    new_data: dict,
 ) -> float:
     """
     Sum the contributions of the existing entities. Entities whose data is not
     referenced by the limit are scored straight from their name (no YAML
     load); otherwise data is loaded with bounded concurrency.
+
+    A symlink pointing at the entity being edited (`edited`) holds that entity's
+    data, so once the edit is committed it will hold `new_data` -- not the stale
+    copy on disk. Such entities are therefore scored with `new_data`, otherwise
+    the new value escapes the limit through the link. This only matters when the
+    limit actually reads the data (`needs_data`); a name-only limit is unaffected
+    by an edit, so that fast path is left untouched.
     """
     if not needs_data:
         total = 0.0
@@ -63,7 +72,9 @@ async def _scan_existing(
 
     async def _one(name: str) -> float:
         async with sem:
-            data = await _repo.load_data(rpo, type_name, name)
+            data, link_target = await _repo.load_data_resolved(rpo, type_name, name)
+        if edited is not None and link_target == edited:
+            data = new_data
         return await _contribution(lim, base, name, data)
 
     return sum(await asyncio.gather(*(_one(n) for n in existing)))
@@ -105,11 +116,8 @@ async def measure(
     names = await rpo.list(op.type_name)
     # On change, the current version of the entity is replaced by the incoming
     # one, so it must not be double-counted.
-    existing = [
-        n
-        for n in names
-        if not (op.operation == "change" and old.name is not None and n == old.name)
-    ]
+    edited = old.name if op.operation == "change" else None
+    existing = [n for n in names if not (edited is not None and n == edited)]
 
     usages: list[out.LimitUsage] = []
     for lim in applicable:
@@ -117,7 +125,9 @@ async def measure(
 
         # The incoming entity always contributes (its data is `new_data`).
         total = await _contribution(lim, base, new_name or "", new_data or {})
-        total += await _scan_existing(lim, base, op.type_name, rpo, existing, needs_data)
+        total += await _scan_existing(
+            lim, base, op.type_name, rpo, existing, needs_data, edited, new_data or {}
+        )
 
         cap_props = {**base, "old": base["new"], "name": new_name}
         try:

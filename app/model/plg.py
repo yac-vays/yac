@@ -155,6 +155,24 @@ class IRepoSession:
     @abstractmethod
     async def get(self, type: str, name: str) -> str: ...
 
+    async def get_resolved(self, type: str, name: str) -> tuple[str, str | None]:
+        """
+        Like `get`, but also report the link target: returns
+        `(content, target_name)` where `content` is the effective YAML (a
+        symlink is followed) and `target_name` is the entity this one links to,
+        or `None` for a regular file.
+
+        Used by `lib.limits` so a symlink to the entity being edited can be
+        counted with the *incoming* data instead of its stale on-disk copy.
+        This default is correct for any backend; cached backends should override
+        it so the link status rides along with the single content fetch instead
+        of costing extra round-trips.
+        """
+        content = await self.get(type, name)
+        if await self.is_link(type, name):
+            return content, await self.get_link(type, name)
+        return content, None
+
     @abstractmethod
     async def write(
         self, type: str, name: str, content_old: str, content_new: str, msg: str

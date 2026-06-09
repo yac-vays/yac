@@ -149,11 +149,7 @@ class _GitRedisSession(IRepoSession):
         value = await self._raw(type, name)
         return value is not None and value.startswith("l:")
 
-    async def get_link(self, type: str, name: str) -> str:
-        value = await self._raw(type, name)
-        if value is None or not value.startswith("l:"):
-            raise RepoError(f"File {name} is not a link")
-        target_rel = value[2:]
+    async def _target_rel_to_name(self, type: str, name: str, target_rel: str) -> str:
         glob_pat = await _render_glob(type, self._details)
         start, end = glob_pat.split("*", maxsplit=1)
         match = re.match(rf"^{re.escape(start)}(.+){re.escape(end)}$", target_rel)
@@ -162,6 +158,36 @@ class _GitRedisSession(IRepoSession):
                 f"Link {name} target {target_rel} doesn't match type glob"
             )
         return match.group(1)
+
+    async def get_link(self, type: str, name: str) -> str:
+        value = await self._raw(type, name)
+        if value is None or not value.startswith("l:"):
+            raise RepoError(f"File {name} is not a link")
+        return await self._target_rel_to_name(type, name, value[2:])
+
+    async def get_resolved(self, type: str, name: str) -> tuple[str, str | None]:
+        # Single value fetch already encodes link vs file (`l:`/`f:`), so the
+        # link target comes for free -- no extra round-trip vs plain `get`.
+        value = await self._raw(type, name)
+        if value is None:
+            raise RepoNotFound(f"The file {name} does not exist")
+        if value.startswith("f:"):
+            return value[2:], None
+        if value.startswith("l:"):
+            target_rel = value[2:]
+            target_name = await self._target_rel_to_name(type, name, target_rel)
+            try:
+                target_value = await self._r.get(f"data:{self._hash}:{target_rel}")
+            except RedisError as error:
+                raise RepoError(
+                    f"Redis follow-link failed for {type}/{name}"
+                ) from error
+            if target_value is None or not target_value.startswith("f:"):
+                raise RepoNotFound(
+                    f"Link target {target_rel} for {name} not found in snapshot"
+                )
+            return target_value[2:], target_name
+        raise RepoError(f"Unrecognised value prefix for {type}/{name}")
 
     async def get(self, type: str, name: str) -> str:
         value = await self._raw(type, name)

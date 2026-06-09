@@ -109,6 +109,27 @@ async def load_data(rpo: IRepoSession, type_name: str, name: str) -> dict:
         return {}
 
 
+async def load_data_resolved(
+    rpo: IRepoSession, type_name: str, name: str
+) -> tuple[dict, str | None]:
+    """
+    Like `load_data`, but also returns the entity's link target (or `None` for a
+    regular file), so callers can tell a symlink apart from a plain entity. Used
+    by `lib.limits` to count a symlink to the entity under edit with the incoming
+    data instead of its stale on-disk copy.
+    """
+    try:
+        yaml_text, link_target = await rpo.get_resolved(type_name, name)
+    except RepoError:
+        return {}, None
+    if not yaml_text:
+        return {}, link_target
+    try:
+        return await _parse_yaml_dict_cached(yaml_text), link_target
+    except yaml.YAMLError:
+        return {}, link_target
+
+
 async def get_entities(
     hash: str,
     rpo: IRepoSession,
