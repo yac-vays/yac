@@ -229,6 +229,58 @@ async def test_all_invalid_schema_raises_on_change():
                           raise_on_error=True)
 
 
+_INT_CPU_SCHEMA = {
+    "type": "object",
+    "properties": {"cpu": {"type": "integer", "vays_category": "X"}},
+}
+
+
+def _change_op(entity):
+    return OperationRequest(
+        request_headers={}, request_ip="1.2.3.4",
+        user=User(name="u", email="u@x.com", full_name="U"),
+        operation="change", type="type1", name="name1", actions=[],
+        entity=entity,
+    )
+
+
+async def test_all_pure_rename_skips_data_revalidation():
+    # The stored data is invalid against the current schema; a pure rename
+    # moves the YAML as-is and must not be blocked by that. The (true)
+    # validity is still reported in the result, just not enforced.
+    old = Entity(name="name1", exists=True, yaml="cpu: not-an-int",
+                 data={"cpu": "not-an-int"})
+    op = _change_op(UpdateEntity(name="name2", data={}))
+    res = await _v.test_all(
+        op, _full_specs(_INT_CPU_SCHEMA), old, Entity(name="name2", exists=False),
+        perms=["see", "add", "rnm"], raise_on_error=True,
+    )
+    assert res.schemas.valid is False
+
+
+async def test_all_pure_rename_via_replace_skips_data_revalidation():
+    old = Entity(name="name1", exists=True, yaml="cpu: not-an-int",
+                 data={"cpu": "not-an-int"})
+    op = _change_op(ReplaceEntity(name="name2", yaml_old="cpu: not-an-int",
+                                  yaml_new="cpu: not-an-int"))
+    res = await _v.test_all(
+        op, _full_specs(_INT_CPU_SCHEMA), old, Entity(name="name2", exists=False),
+        perms=["see", "add", "rnm"], raise_on_error=True,
+    )
+    assert res.schemas.valid is False
+
+
+async def test_all_rename_with_content_changes_still_revalidates():
+    old = Entity(name="name1", exists=True, yaml="cpu: 4", data={"cpu": 4})
+    op = _change_op(UpdateEntity(name="name2", data={"cpu": "not-an-int"}))
+    with pytest.raises(RequestError):
+        await _v.test_all(
+            op, _full_specs(_INT_CPU_SCHEMA), old,
+            Entity(name="name2", exists=False),
+            perms=["see", "add", "rnm", "edt"], raise_on_error=True,
+        )
+
+
 async def test_ls_passes_for_valid_list_request():
     # test_ls runs the list-time validators (names/operations/type_spec) and
     # returns None when nothing is wrong.

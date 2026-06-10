@@ -77,6 +77,21 @@ def incoming_new_yaml(op: OperationRequest, old: Entity) -> str | None:
         return None
 
 
+def has_content_changes(op: OperationRequest) -> bool:
+    """
+    Whether a change operation would modify the entity's YAML content (as
+    opposed to a pure rename or a no-op). Mirrors the `has_changes` notion in
+    plugin/validator/perms.py that decides whether `edt` is required, so the
+    schema enforcement and the permission check always agree on what counts
+    as a content change.
+    """
+    if isinstance(op.entity, UpdateEntity):
+        return bool(op.entity.data)
+    if isinstance(op.entity, ReplaceEntity):
+        return op.entity.yaml_old != op.entity.yaml_new
+    return True
+
+
 async def test_all(
     op: OperationRequest,
     specs: Specs,
@@ -150,7 +165,12 @@ async def test_all(
             # find_removed_violation) — a permission violation, not a data
             # error, so it surfaces like the other perm checks (403).
             raise RequestForbidden(schemas.message)
-        raise RequestError(schemas.message)
+        # A change without content changes (a pure rename or a no-op) moves
+        # the stored YAML as-is, so stored data that no longer matches the
+        # current schema must not block it. The validity is still reported
+        # in the result (the /validate endpoint shows it), just not enforced.
+        if op.operation != "change" or has_content_changes(op):
+            raise RequestError(schemas.message)
 
     return ValidationResult(schemas=schemas, request=request, usages=usages)
 

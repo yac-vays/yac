@@ -83,9 +83,8 @@ async def get_entities(
     limit: QueryLimit = 100,
 ) -> EntityList:
     """
-    Will collect some data about the (searched) entities of {type}. The `perm`
-    option reduces the result to the entities where the user has all the defined
-    permissions ('see' is required implicitly in any case).
+    Will collect some data about the (searched) entities of {type}. Entities
+    for which the user does not hold the 'see' permission are filtered out.
     """
     op = OperationRequest(
         request_headers=dict(request.headers),
