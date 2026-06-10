@@ -15,10 +15,12 @@ spec:
   selector:
     matchLabels:
       app: {{ include "name" . }}
+      component: api
   template:
     metadata:
       labels:
         app: {{ include "name" . }}
+        component: api
       annotations:
         # Roll the pods when the secret or specs change
         {{- if or .Values.env .Values.customEnv }}
@@ -26,6 +28,10 @@ spec:
         {{- end }}
         {{- if .Values.specs }}
         checksum/specs: {{ .Values.specs | sha256sum }}
+        {{- end }}
+        {{- if .Values.specsChecksum }}
+        # Roll the pods when externally mounted specs change (see values.yaml)
+        checksum/extra-specs: {{ .Values.specsChecksum | quote }}
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -65,7 +71,15 @@ spec:
               value: "json_lines"
             {{- if .Values.redis.enabled }}
             - name: YAC_ENV__REDIS_URL
+              {{- if .Values.redis.password }}
+              # URL contains the Redis password -> sourced from the Secret
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "redisName" . }}-auth
+                  key: YAC_ENV__REDIS_URL
+              {{- else }}
               value: {{ include "redisUrl" . | quote }}
+              {{- end }}
             {{- end }}
           {{- if or (or .Values.env .Values.customEnv) .Values.extraEnvSecret }}
           envFrom:
@@ -89,6 +103,15 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 2
             periodSeconds: 300
+          readinessProbe:
+            # /health is the cheap liveness endpoint (no repo/spec work,
+            # unlike /status) - fine to hit it every few seconds.
+            httpGet:
+              path: /health
+              port: http
+            timeoutSeconds: 2
+            failureThreshold: 3
+            periodSeconds: 10
           startupProbe:
             httpGet:
               path: /health
@@ -122,6 +145,7 @@ spec:
         - name: repo
           emptyDir:
             medium: Memory
+            sizeLimit: {{ .Values.repoSizeLimit | quote }}
         - name: tmp
           emptyDir: {}
         {{- if .Values.specs }}

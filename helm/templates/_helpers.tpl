@@ -62,7 +62,11 @@ Validates the mode value and the external URL early with `fail`.
 {{- define "redisUrl" -}}
 {{- $mode := .Values.redis.mode | default "single" -}}
 {{- if eq $mode "single" -}}
+{{- if .Values.redis.password -}}
+redis://:{{ .Values.redis.password | urlquery }}@{{ include "redisName" . }}:6379/0
+{{- else -}}
 redis://{{ include "redisName" . }}:6379/0
+{{- end -}}
 {{- else if eq $mode "external" -}}
 {{- if not .Values.redis.url -}}
 {{- fail "redis.mode=external requires redis.url to be set" -}}

@@ -10,6 +10,7 @@ spec:
   type: {{ .Values.service.type }}
   selector:
     app: {{ include "name" . }}
+    component: api
   ports:
     - port: {{ .Values.service.port }}
       targetPort: http

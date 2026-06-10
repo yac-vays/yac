@@ -19,6 +19,11 @@ spec:
       labels:
         app: {{ include "name" . }}
         component: redis
+      {{- if .Values.redis.password }}
+      annotations:
+        # Roll the pod when the auth secret changes
+        checksum/auth: {{ .Values.redis.password | sha256sum }}
+      {{- end }}
     spec:
       securityContext:
         runAsNonRoot: true
@@ -41,10 +46,31 @@ spec:
               drop: [ALL]
           image: {{ .Values.redis.single.image }}
           imagePullPolicy: {{ .Values.redis.single.imagePullPolicy }}
+          {{- if .Values.redis.password }}
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "redisName" . }}-auth
+                  key: REDIS_PASSWORD
+            # Lets the readinessProbe's `redis-cli ping` authenticate
+            # without putting the password on the command line.
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "redisName" . }}-auth
+                  key: REDIS_PASSWORD
+          {{- end }}
           args:
             - "redis-server"
             - "--dir"
             - "/data"
+            {{- if .Values.redis.password }}
+            # $(VAR) is expanded by Kubernetes from the env var above, so
+            # the password never appears verbatim in the pod spec.
+            - "--requirepass"
+            - "$(REDIS_PASSWORD)"
+            {{- end }}
             {{- range $arg := .Values.redis.single.args }}
             - {{ $arg | quote }}
             {{- end }}

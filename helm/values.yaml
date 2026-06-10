@@ -64,6 +64,24 @@ extraEnvSecret: ""
 #       properties: {}
 specs: ""
 
+# YAC reads its specs file once at startup, so spec changes need a pod
+# restart. When `specs` (above) is used, the chart handles this with a
+# checksum annotation automatically. If you mount the specs from OUTSIDE
+# the chart instead (extraVolumes / your own ConfigMap), set this to any
+# string that changes with your specs content (e.g. its sha256) — it is
+# added as a `checksum/extra-specs` pod annotation and rolls the pods on
+# change.
+#
+# Example:
+#   specsChecksum: "3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b"
+specsChecksum: ""
+
+# Size limit for the in-memory emptyDir mounted at /repo (the git clone).
+# This counts against the pod's memory, so keep it well below the memory
+# limit; the pod is evicted if the repo outgrows it (better than silently
+# OOM-killing YAC). Raise this if your git repo is larger.
+repoSizeLimit: 256Mi
+
 # Additional volumes / mounts (e.g. for plugins, SSH keys for repo access
 # or to mount a specs file from outside the chart).
 extraVolumes: []
@@ -130,7 +148,27 @@ redis:
 
   # Only used when mode=external. Must be a URL accepted by
   # `redis.asyncio.from_url`, e.g. redis://host:6379/0
+  # If the external Redis requires auth, include the password in the URL:
+  # redis://:<password>@host:6379/0 (percent-encode special characters).
   url: ""
+
+  # Password for the bundled Redis (mode=single only; for mode=external
+  # put credentials into `url`). RECOMMENDED: the cache holds your full
+  # repo content, so without a password anything that can reach the
+  # Service can read and poison it.
+  #
+  # When set, the chart creates a `<fullname>-redis-auth` Secret, starts
+  # Redis with `--requirepass`, and embeds the password into the URL it
+  # hands to YAC (as YAC_ENV__REDIS_URL, via the Secret instead of a
+  # plaintext env value). Specs that use the documented
+  #   redis_url: "{{ env.redis_url }}"
+  # wiring keep working unchanged. If you build the Redis URL yourself
+  # in the specs instead, it must use the
+  #   redis://:<password>@<host>:6379/0
+  # form (percent-encode special characters in the password).
+  #
+  # When empty, everything renders as before (no auth).
+  password: ""
 
   # Settings for mode=single only. Ignored otherwise.
   single:
