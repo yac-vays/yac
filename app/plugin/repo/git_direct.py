@@ -397,16 +397,24 @@ class GitRepo(IRepo):
         except OSError as error:
             raise RepoError(f"Could not resolve path {file}") from error
         if parent != base and not parent.startswith(base + "/"):
-            raise RepoClientError(f"Resolved path escapes the repository: {file}")
+            # Keep the path detail server-side; the client message must not
+            # leak filesystem paths.
+            logger.warning(f"Resolved path escapes the repository: {file}")
+            raise RepoClientError("The resolved file path escapes the repository")
 
-    async def _read_file(self, file: str, *, absolute: bool = True) -> str:
+    async def _read_file(self, file: str, *, what: str, absolute: bool = True) -> str:
+        """
+        `what` describes the entity (type/name) for the client-facing
+        not-found message; the filesystem path is only logged server-side.
+        """
         absfile = file if absolute else f"{self.path}/{file}"
         try:
             async with await open_file(absfile, "r", encoding="utf-8") as f:
                 logger.debug(f"Reading file {absfile}")
                 return await f.read()
         except FileNotFoundError as error:
-            raise RepoNotFound(f"The file {file} does not exist") from error
+            logger.info(f"File {absfile} does not exist ({what})")
+            raise RepoNotFound(f"The {what} does not exist") from error
         except OSError as error:
             raise RepoError(f"Could not read file {absfile}") from error
 
@@ -504,7 +512,9 @@ class GitRepo(IRepo):
 
     async def _get(self, type_name: str, name: str, details: dict) -> str:
         path = await self._file_path(type_name, name, details)
-        return await self._read_file(path, absolute=True)
+        return await self._read_file(
+            path, what=f"{type_name} {name}", absolute=True
+        )
 
     # ----- write ops -----
 
@@ -627,7 +637,9 @@ class GitRepo(IRepo):
         await self._assert_inside_repo(file_src)
         await self._assert_inside_repo(file_dest)
 
-        content = await self._read_file(file_src, absolute=True)
+        content = await self._read_file(
+            file_src, what=f"{type_name} {name_src}", absolute=True
+        )
 
         try:
             async with await open_file(file_dest, "w+", encoding="utf-8") as f:

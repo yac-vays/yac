@@ -35,12 +35,12 @@ y.constructor.add_constructor(
 
 y_non_strict = ruamel.yaml.YAML(typ="rt")
 y_non_strict.allow_duplicate_keys = True
+# Used by the test suite to assert that loaded objects are round-trip safe.
 YAMLSafeBase = ruamel.yaml.comments.CommentedBase  # type: ignore
 YAMLError = ruamel.yaml.YAMLError
 
-
-class YAMLObject(ruamel.yaml.YAMLObject):
-    pass
+# Only used for typing.
+YAMLObject = ruamel.yaml.YAMLObject
 
 
 def load(yaml: str, *, strict: bool = True) -> YAMLObject | None:

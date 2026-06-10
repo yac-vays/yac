@@ -221,10 +221,20 @@ async def render_str(
     if nonstr:
         try:
             return json.loads(result)
-        except ValueError as error:
-            raise J2Error(
-                f'Templating str "{s}" caused a value error: {error}', loc=loc
-            ) from error
+        except ValueError:
+            # Multi-part templates (e.g. "{{ a }} text {{ b }}") match the
+            # nonstr heuristic but do not render to a single JSON value;
+            # fall back to a plain string render.
+            template = _get_template(strict, False, s)
+            try:
+                return await template.render_async({"loc": loc} | props)
+            except RequestError as error:
+                # Allow plugins to generate user errors
+                raise error
+            except Exception as error:
+                raise J2Error(
+                    f'Templating str "{s}" failed with: {error}', loc=loc
+                ) from error
     else:
         return result
 
@@ -296,10 +306,17 @@ def render_sync_str(s, props, *, allow_nonstr: bool = True, loc: str = "#"):
     if nonstr:
         try:
             return json.loads(result)
-        except ValueError as error:
-            raise J2Error(
-                f'Templating str "{s}" caused a value error: {error}', loc=loc
-            ) from error
+        except ValueError:
+            # Multi-part templates (e.g. "{{ a }} text {{ b }}") match the
+            # nonstr heuristic but do not render to a single JSON value;
+            # fall back to a plain string render.
+            template = _get_sync_template(False, s)
+            try:
+                return template.render({"loc": loc} | props)
+            except Exception as error:
+                raise J2Error(
+                    f'Templating str "{s}" failed with: {error}', loc=loc
+                ) from error
     return result
 
 

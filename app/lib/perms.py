@@ -78,7 +78,16 @@ async def get_active_role_set(
     for role in specs.roles:
         for role_def, role_test in dict(role).items():
             logger.debug(f"Prefiltering role {role_def}")
-            type_name, set_name, perm = role_def.split(":", maxsplit=2)
+            try:
+                type_name, set_name, perm = role_def.split(":", maxsplit=2)
+            except ValueError:
+                # Shape is validated at startup (lib.specs); this is a
+                # defensive guard so a malformed key can never 500 a request.
+                logger.error(
+                    f"Skipping malformed role key '{role_def}' (expected"
+                    " '<type>:<set>:<perm>')"
+                )
+                continue
 
             if type_name != op.type_name:
                 continue

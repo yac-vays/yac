@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field
 from typing_extensions import Annotated
 from pydantic.config import Extra  # pylint: disable=no-name-in-module
 
@@ -134,6 +134,3 @@ class Specs(BaseModel):
     roles: list[Role] = []
     sets: Sets = Sets()
     json_schema: Annotated[Schema, Field(alias="schema")]
-    # Stable digest of (specs source text, op signature) attached by lib.specs.read.
-    # Used as a cheap cache key for downstream consumers (e.g. perms cache).
-    _signature: str = PrivateAttr(default="")

@@ -3,11 +3,13 @@ Raises: [app.model.err.SchemaSpecsError]
 """
 
 import logging
+import re
 from typing import Any
 
 import jsonschema
 
 from app.lib import j2
+from app.lib import locs
 from app.lib import plugin
 from app.lib import props
 from app.lib.locs import SUBSCHEMAS
@@ -19,6 +21,35 @@ from app.model import spc
 from app.model.err import SchemaSpecsError
 
 logger = logging.getLogger(__name__)
+
+
+def find_removed_violation(
+    removed: list[re.Pattern], old_data: dict, new_data: dict
+) -> str | None:
+    """
+    Permission-removed subschemas (recorded by plugin/json_schema/yac_perms.py
+    as compiled data-loc regexes in the shared plugin context under
+    `yac_perms_removed`) cannot be enforced *inside* the schema without
+    leaking the stored value (a `const` would echo it back). So the write is
+    enforced here, outside the schema: any difference between the stored and
+    the incoming data at a removed data path — changing, deleting or newly
+    setting a value — is a permission violation.
+
+    Returns the first violating data loc, or None if the data at all removed
+    paths is unchanged.
+    """
+    if not removed:
+        return None
+
+    data_locs = set(locs.get(old_data, lambda d: True))
+    data_locs.update(locs.get(new_data, lambda d: True))
+
+    for data_loc in sorted(data_locs):
+        if not any(r.match(data_loc) for r in removed):
+            continue
+        if locs.extract(data_loc, old_data) != locs.extract(data_loc, new_data):
+            return data_loc
+    return None
 
 
 async def get(
@@ -43,7 +74,7 @@ async def get(
     except j2.J2Error as error:
         raise SchemaSpecsError(f"{error.loc}: {error}") from error
 
-    json_schema, ui_schema, _ = await handle_schema(
+    json_schema, ui_schema, cx = await handle_schema(
         "#", json_schema, {}, {}, schema_props
     )
 
@@ -52,6 +83,28 @@ async def get(
         json_schema = {"not": {}}
     elif isinstance(json_schema, bool):
         json_schema = {} if json_schema else {"not": {}}
+
+    # Enforce write protection for permission-removed subschemas (which can
+    # no longer enforce anything themselves). Checked before the json_schema
+    # validation so the permission error takes precedence over generic
+    # validation errors and never echoes the protected value.
+    violation = find_removed_violation(
+        cx.get("yac_perms_removed", []), old_data or {}, new_data or {}
+    )
+    if violation is not None:
+        return out.Schema(
+            json_schema=json_schema,
+            ui_schema=ui_schema,
+            data=new_data,
+            valid=False,
+            message=(
+                f"You don't have the permissions to set, change or delete the"
+                f" value at {violation}."
+            ),
+            validator="yac_perms",
+            json_schema_loc="#",
+            data_loc=violation,
+        )
 
     format_checker = jsonschema.FormatChecker()
     for name, funct in plugin.get_functions("schema_formats").items():

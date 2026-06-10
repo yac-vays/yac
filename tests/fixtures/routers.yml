@@ -1,0 +1,61 @@
+# Specs for the endpoint-level router tests (tests/test_routers.py).
+#
+# The process-wide specs were already loaded from minimal.yml at import time
+# (YAC_SPECS cannot be swapped afterwards), so the tests inject this file by
+# monkeypatching `app.lib.specs._RAW_DATA` per test.
+#
+# Users (identified via `user.name`, supplied by the overridden auth dependency):
+#   alice  - full admin plus the custom `secrets` perm guarding two properties
+#   bob    - entity-level edit (see/edt/cln) but NO secrets, add, del, act
+#   carol  - read-only (see)
+#   erin   - can create/edit (see/add/edt/cln) but NO secrets
+#   others - no role at all (not even `see`)
+version: 0
+repo:
+  connection: {}
+  plugin: git_direct
+auth: {}
+request: {}
+context: {}
+sets: {}
+roles:
+  - "host:all:adm+secrets": "user.name == 'alice'"
+  - "host:all:edt+cln": "user.name == 'bob'"
+  - "host:all:see": "user.name == 'carol'"
+  - "host:all:see+add+edt+cln": "user.name == 'erin'"
+types:
+  - name: host
+    title: Hosts
+    actions:
+      - name: deploy
+        title: Deploy
+        plugin: shell
+        details:
+          command: "exit 0"
+        hooks: [arbitrary]
+    logs:
+      - name: install
+        title: Installation
+        plugin: file
+        details:
+          path: /nonexistent-test-log-file.log
+schema:
+  type: object
+  properties:
+    owner:
+      type: string
+    top_secret:
+      type: string
+      yac_optional: true
+      yac_perms: [secrets]
+    networking:
+      type: object
+      yac_optional: true
+      properties:
+        ip:
+          type: string
+          yac_optional: true
+        vlan_secret:
+          type: string
+          yac_optional: true
+          yac_perms: [secrets]

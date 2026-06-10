@@ -2,7 +2,6 @@ on: [push]
 jobs:
   mirror:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false  # Not for (local) pull_requests
     permissions:
       contents: read
     steps:

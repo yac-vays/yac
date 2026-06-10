@@ -183,9 +183,11 @@ class _GitRedisSession(IRepoSession):
                     f"Redis follow-link failed for {type}/{name}"
                 ) from error
             if target_value is None or not target_value.startswith("f:"):
-                raise RepoNotFound(
+                # Keep the repo-relative path server-side only.
+                logger.info(
                     f"Link target {target_rel} for {name} not found in snapshot"
                 )
+                raise RepoNotFound(f"The link target of {name} does not exist")
             return target_value[2:], target_name
         raise RepoError(f"Unrecognised value prefix for {type}/{name}")
 
@@ -204,9 +206,11 @@ class _GitRedisSession(IRepoSession):
                     f"Redis follow-link failed for {type}/{name}"
                 ) from error
             if target_value is None or not target_value.startswith("f:"):
-                raise RepoNotFound(
+                # Keep the repo-relative path server-side only.
+                logger.info(
                     f"Link target {value[2:]} for {name} not found in snapshot"
                 )
+                raise RepoNotFound(f"The link target of {name} does not exist")
             return target_value[2:]
         raise RepoError(f"Unrecognised value prefix for {type}/{name}")
 

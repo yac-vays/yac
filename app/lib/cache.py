@@ -46,10 +46,15 @@ def keyed_alru_cache(
     - `maxsize`: maximum number of entries; least-recently-used are evicted.
     - `ttl`: optional time-to-live in seconds; expired entries are recomputed.
     - `copy_result`: deep-copy on hit so callers cannot corrupt cached entries.
+
+    Concurrent misses on the same key are single-flighted: the first caller
+    runs the computation, all others await its result (exceptions propagate
+    to every waiter and never poison the in-flight map).
     """
 
     def decorator(func):
         cache: "OrderedDict[Any, tuple[float, Any]]" = OrderedDict()
+        inflight: dict[Any, asyncio.Future] = {}
         lock = asyncio.Lock()
 
         @wraps(func)
@@ -65,8 +70,30 @@ def keyed_alru_cache(
                         cache.move_to_end(key)
                         return copy.deepcopy(value) if copy_result else value
                     cache.pop(key, None)
+                fut = inflight.get(key)
+                if fut is None:
+                    fut = asyncio.get_running_loop().create_future()
+                    inflight[key] = fut
+                    leader = True
+                else:
+                    leader = False
 
-            value = await func(*args, **kwargs)
+            if not leader:
+                # Awaiting the future re-raises the leader's exception (if
+                # any) in every waiter without cancelling the computation.
+                value = await fut
+                return copy.deepcopy(value) if copy_result else value
+
+            try:
+                value = await func(*args, **kwargs)
+            except BaseException as error:
+                async with lock:
+                    inflight.pop(key, None)
+                fut.set_exception(error)
+                # Mark the exception as retrieved so a leader without waiters
+                # does not trigger "exception was never retrieved" warnings.
+                fut.exception()
+                raise
 
             async with lock:
                 expires = (now + ttl) if ttl is not None else float("inf")
@@ -74,6 +101,8 @@ def keyed_alru_cache(
                 cache.move_to_end(key)
                 while len(cache) > maxsize:
                     cache.popitem(last=False)
+                inflight.pop(key, None)
+            fut.set_result(value)
 
             return copy.deepcopy(value) if copy_result else value
 

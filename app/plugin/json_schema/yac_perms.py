@@ -1,10 +1,31 @@
 import logging
+import re
 
 from app.model.err import SchemaSpecsError
 from app.model.plg import IJsonSchema
 from app.lib import locs
 
 logger = logging.getLogger(__name__)
+
+# Data-loc regex of `locs.to_regex` for schema locs that map to no data at
+# all (e.g. inside `if`/`not`/`$defs`). Such removals cannot leak data, so
+# they are not recorded (the regex would match every data loc).
+_MATCH_ALL = locs.to_regex("#", recursive=True)
+
+
+def _record_removal(loc: str, context: dict) -> None:
+    """
+    Record the data paths covered by a permission-removed subschema in the
+    shared plugin context (as compiled regexes matching all data locs below
+    the removed schema loc). Late plugins (add_consts.py) must not re-inject
+    old data on those paths as `const` nodes — that would leak values the
+    user has no permission to read.
+    """
+    regex = locs.to_regex(loc, recursive=True)
+    if regex == _MATCH_ALL and loc != "#":
+        # No data corresponds to this schema loc (if/not/$defs/...).
+        return
+    context.setdefault("yac_perms_removed", []).append(re.compile(regex))
 
 
 class YacPerms(IJsonSchema):
@@ -58,6 +79,7 @@ class YacPerms(IJsonSchema):
 
         if perms_loc is None:
             logger.warning(f"removed {loc} from schema due to undefined perms")
+            _record_removal(loc, context)
             return None, context
 
         if len(user_perms.intersection(set(context["yac_perms"][perms_loc]))) <= 0:
@@ -65,6 +87,7 @@ class YacPerms(IJsonSchema):
                 f"removed {loc} from schema due to missing perms (requires one of: "
                 f'{context["yac_perms"][perms_loc]})'
             )
+            _record_removal(loc, context)
             return None, context
 
         return json_schema, context

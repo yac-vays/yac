@@ -13,7 +13,7 @@ def __request_headers(request_headers: dict, request_spec: spc.Request) -> dict:
     headers = {}
     for key, spec in request_spec.headers.items():
         value = request_headers.get(f'yac-{key.replace("_","-").lower()}', None)
-        if value is not None and re.match(spec.get("pattern", "^$"), value):
+        if value is not None and re.fullmatch(spec.get("pattern", "^$"), value):
             headers[key] = value
         else:
             headers[key] = spec.get("default", "")

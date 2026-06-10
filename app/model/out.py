@@ -154,14 +154,14 @@ class Schema(BaseModel):
     json_schema: Annotated[
         dict,
         Field(
-            description="The data structure (json-schema.org 2020-12)",
+            description="The data structure (json-schema.org Draft-7)",
             examples=[{"type": "object", "properties": {"owner": {"type": "string"}}}],
         ),
     ]
     ui_schema: Annotated[
         dict,
         Field(
-            description="The form representation (jsonforms.io v3.1.0)",
+            description="The form representation (jsonforms.io)",
             examples=[{"type": "Control", "scope": "#/properties/owner"}],
         ),
     ]
@@ -342,7 +342,7 @@ class TypeActionHook(str, enum.Enum):
 
       - `arbitrary` means the `POST /entity/{type}/{name}/run/{action}` endpoint
       - `create:*` means the `POST /entity/{type}` endpoint
-      - `change:*` means the `PUT` and `PATCH /entity/{type}` endpoints
+      - `change:*` means the `PUT` and `PATCH /entity/{type}/{name}` endpoints
       - `delete:*` means the `DELETE /entity/{type}/{name}` endpoint
     """
 
@@ -406,7 +406,7 @@ class TypeFavoriteOperation(str, enum.Enum):
       - `create_copy` (if `CopyEntity` is sent)
       - `create_link` (if `LinkEntity` is sent)
 
-    For the endpoints `PUT` and `PATCH /entity/{type}`:
+    For the endpoints `PUT` and `PATCH /entity/{type}/{name}`:
 
       - `change`
 

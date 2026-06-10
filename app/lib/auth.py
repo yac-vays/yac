@@ -52,22 +52,42 @@ async def get_current_user(token: Annotated[str, Depends(fastapi_oauth2)]) -> Us
             f"Supplied authentication could not be validated ({error})"
         ) from error
 
+    # The `.format(**user)` templates raise KeyError on a missing claim and
+    # IndexError/ValueError on a malformed template; all of those must become
+    # a clean AuthError instead of a 500.
     try:
         full_name = specs.AUTH.oidc.jwt.full_name.format(**user)
         if len(full_name) <= 0:
             raise KeyError("Empty string")
-    except KeyError:
-        full_name = specs.AUTH.oidc.jwt.full_name_fallback.format(**user)
+    except (KeyError, IndexError, ValueError):
+        try:
+            full_name = specs.AUTH.oidc.jwt.full_name_fallback.format(**user)
+        except (KeyError, IndexError, ValueError) as error:
+            raise AuthError(
+                f"Could not extract the full name from the token ({error})"
+            ) from error
 
     try:
         email = specs.AUTH.oidc.jwt.email.format(**user)
         if len(email) <= 0:
             raise KeyError("Empty string")
-    except KeyError:
-        email = specs.AUTH.oidc.jwt.email_fallback.format(**user)
+    except (KeyError, IndexError, ValueError):
+        try:
+            email = specs.AUTH.oidc.jwt.email_fallback.format(**user)
+        except (KeyError, IndexError, ValueError) as error:
+            raise AuthError(
+                f"Could not extract the email from the token ({error})"
+            ) from error
+
+    try:
+        name = specs.AUTH.oidc.jwt.name.format(**user)
+    except (KeyError, IndexError, ValueError) as error:
+        raise AuthError(
+            f"Could not extract the user name from the token ({error})"
+        ) from error
 
     return User(
-        name=specs.AUTH.oidc.jwt.name.format(**user),
+        name=name,
         full_name=full_name,
         email=email,
         token=user,

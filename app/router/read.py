@@ -46,6 +46,9 @@ async def get_types(
 ) -> list[Type]:
     """
     Lists all available entity types with their complete specifications.
+
+    Type metadata is intentionally visible to every authenticated user,
+    regardless of roles; entity data itself remains role-protected.
     """
     op = OperationRequest(
         request_headers=dict(request.headers),
@@ -60,6 +63,9 @@ async def get_types(
 
     s = await specs.read(op)
 
+    # Intentional: no role filtering here. Any authenticated user may see
+    # the metadata of all types (the UI needs it to render the navigation);
+    # access to the entities of a type is still enforced per operation.
     return [t.to_public() for t in s.types]
 
 
@@ -171,11 +177,10 @@ async def get_entity(
         rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
-        entity_hash = await rpo.get_hash()
 
     await validator.test_all(op, s, old, new, perms)
 
-    return repo.to_detailed_entity(old, perms, entity_hash, s.type)
+    return repo.to_detailed_entity(old, perms, hash, s.type)
 
 
 @router.get(
@@ -236,15 +241,14 @@ async def get_entity_logs(
     )
 
     s = await specs.read(op)
-    # request the logs before/while validating the request to optimize performance
-    logs = asyncio.create_task(log.get(op, s))
-    # return control to the loop so the task can start immediately
-    await asyncio.sleep(0)
 
     async with repo.handler.reader(op.user, dirty=True) as raw:
         rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
 
+    # Enforce the `see` permission and entity existence BEFORE fetching the
+    # logs — log plugins may reach external systems and must not run (or be
+    # orphaned) for requests that are not allowed to see the entity.
     await validator.test_all(op, s, old, new, perms)
-    return await logs
+    return await log.get(op, s)

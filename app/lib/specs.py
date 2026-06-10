@@ -169,8 +169,29 @@ def _load_raw_data() -> tuple[dict, str]:
         sys.exit(1)
 
     data = _process_includes_sync(data, dirname(consts.ENV.specs))
+    _validate_role_keys(data)
     data_hash = hashlib.sha1(repr(stable_key(data)).encode("utf-8")).hexdigest()
     return data, data_hash
+
+
+def _validate_role_keys(data: Any) -> None:
+    """
+    Role keys are static (Jinja2 rendering only touches values, never keys),
+    so a malformed key can be rejected once at startup instead of breaking
+    every request in `lib.perms`.
+    """
+    roles = data.get("roles", []) or []
+    if not isinstance(roles, list):
+        return  # shape is reported by pydantic validation later
+    for role in roles:
+        if not isinstance(role, dict):
+            continue
+        for role_def in role:
+            if len(str(role_def).split(":", maxsplit=2)) != 3:
+                raise SpecsError(
+                    f"In roles of {consts.ENV.specs}: role key '{role_def}'"
+                    " must have the form '<type>:<set>:<perm>'"
+                )
 
 
 # Loaded once at process startup. Subsequent requests reuse this raw dict.
@@ -252,10 +273,7 @@ async def read(op: OperationRequest) -> Specs:
 )
 async def __parse_cached(op: OperationRequest, op_sig: tuple) -> Specs:
     # The cached Specs is treated as read-only by all callers; do not mutate.
-    s = await __parse(op)
-    # Stamp signature so downstream caches (perms etc.) can key on it.
-    s._signature = f"{_RAW_HASH}:{hash(op_sig)}"
-    return s
+    return await __parse(op)
 
 
 async def __parse(op: OperationRequest) -> Specs:

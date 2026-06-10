@@ -30,7 +30,7 @@ handler: IRepo = repo_plugin.handler
 
 
 @keyed_alru_cache(
-    key_fn=lambda yaml_text: (hash(yaml_text), len(yaml_text)),
+    key_fn=lambda yaml_text: yaml_text,
     maxsize=10000,
 )
 async def _parse_yaml_dict_cached(yaml_text: str) -> dict:
@@ -51,6 +51,9 @@ async def _parse_yaml_dict_cached(yaml_text: str) -> dict:
         type_exists,
     ),
     maxsize=10000,
+    # Entities (and the parsed YAML dicts they embed) are mutable; hand each
+    # caller its own deep copy so concurrent requests cannot corrupt the cache.
+    copy_result=True,
 )
 async def __lookup_entities(
     repo_hash: str,
