@@ -147,3 +147,89 @@ def test_read_and_delete_use_stored_data():
     assert validator.incoming_new_data(_op(None, operation="delete", name="src"), _SRC) == (
         {}, None
     )
+
+
+# ----- test_all / test_ls orchestration -----
+# These drive the full validator pipeline (schema generation + the built-in
+# validator plugins + limit enforcement) against a minimal but complete Specs.
+
+from app.lib import validator as _v  # noqa: E402
+from app.model.spc import Specs, Type, Request as SpcRequest, Sets, Repo  # noqa: E402
+from app.model.spc import Schema as SpcSchema  # noqa: E402
+from app.model.err import RequestError  # noqa: E402
+from app import consts  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+def _full_specs(schema_dict=None):
+    typ = Type.model_construct(
+        name="type1", title="T", name_pattern=consts.NAME_PATTERN,
+        create=True, change=True, delete=True, options=[], logs=[], actions=[],
+        favorites=[], limits=[], name_generated="never", name_generator="uuid()",
+    )
+    return Specs.model_construct(
+        types=[typ], type=typ, roles=[], sets=Sets(), request=SpcRequest(),
+        context={}, repo=Repo(), json_schema=SpcSchema.model_validate(schema_dict or {}),
+    )
+
+
+def _read_op(name="name1"):
+    return OperationRequest(
+        request_headers={}, request_ip="1.2.3.4",
+        user=User(name="u", email="u@x.com", full_name="U"),
+        operation="read", type="type1", name=name, actions=[], entity=None,
+    )
+
+
+async def test_all_read_happy_path():
+    old = Entity(name="name1", exists=True, yaml="cpu: 4", data={"cpu": 4})
+    res = await _v.test_all(
+        _read_op(), _full_specs(), old, Entity(name=None), perms=["see"],
+        usages=[], raise_on_error=False,
+    )
+    assert res.request.valid is True
+    # read without schema_on_read -> trivial valid schema
+    assert res.schemas.valid is True
+
+
+async def test_all_malformed_yaml_raises():
+    op = _op(NewEntity(name="name1", yaml="a: : : bad"), name="name1")
+    with pytest.raises(RequestError):
+        await _v.test_all(
+            op, _full_specs(), Entity(name=None), Entity(name="name1"),
+            perms=["add"], raise_on_error=True,
+        )
+
+
+async def test_all_missing_perm_sets_invalid_without_raising():
+    old = Entity(name="name1", exists=True, yaml="cpu: 4", data={"cpu": 4})
+    res = await _v.test_all(
+        _read_op(), _full_specs(), old, Entity(name=None), perms=[],  # no 'see'
+        usages=[], raise_on_error=False,
+    )
+    assert res.request.valid is False
+    assert "see" in res.request.message
+
+
+async def test_all_invalid_schema_raises_on_change():
+    old = Entity(name="name1", exists=True, yaml="cpu: 4", data={"cpu": 4})
+    op = OperationRequest(
+        request_headers={}, request_ip="1.2.3.4",
+        user=User(name="u", email="u@x.com", full_name="U"),
+        operation="change", type="type1", name="name1", actions=[],
+        entity=NewEntity(name="name1", yaml="cpu: not-an-int"),
+    )
+    specs = _full_specs(
+        {"type": "object",
+         "properties": {"cpu": {"type": "integer", "vays_category": "X"}}}
+    )
+    with pytest.raises(RequestError):
+        await _v.test_all(op, specs, old, Entity(name="name1"), perms=["edt"],
+                          raise_on_error=True)
+
+
+async def test_ls_passes_for_valid_list_request():
+    # test_ls runs the list-time validators (names/operations/type_spec) and
+    # returns None when nothing is wrong.
+    assert await _v.test_ls(_read_op(), _full_specs()) is None
