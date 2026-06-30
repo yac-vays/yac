@@ -98,7 +98,7 @@ async def measure(
     Compute the usage of every `limits` rule that applies to this operation.
 
     The candidate set is every existing entity of the type (minus the entity
-    being replaced, on `change`) plus the incoming entity — so create,
+    being replaced, on `edit`) plus the incoming entity — so create,
     rename, owner-change and quota-increase all fall out of one uniform scan.
     A rule whose `scope`/`value` only reference `old.name` (not `old.data`) is
     counted from the name list alone, without loading any YAML.
@@ -120,9 +120,9 @@ async def measure(
     base["new"] = {"name": new_name, "data": new_data or {}}
 
     names = await rpo.list(op.type_name)
-    # On change, the current version of the entity is replaced by the incoming
+    # On edit, the current version of the entity is replaced by the incoming
     # one, so it must not be double-counted.
-    edited = old.name if op.operation == "change" else None
+    edited = old.name if op.operation == "edit" else None
     existing = [n for n in names if not (edited is not None and n == edited)]
 
     usages: list[out.LimitUsage] = []

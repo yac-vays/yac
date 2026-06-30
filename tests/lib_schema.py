@@ -87,20 +87,20 @@ async def test_get_unchangable_property_removed_on_change():
         {"type": "object",
          "properties": {
              "keep": {"type": "string", "vays_category": "X"},
-             "drop": {"type": "string", "yac_changable": False, "vays_category": "X"},
+             "drop": {"type": "string", "yac_editable": False, "vays_category": "X"},
          }},
-        new_data={}, operation="change", perms=("edt",),
+        new_data={}, operation="edit", perms=("edt",),
     )
     props = out.json_schema["properties"]
     assert "keep" in props and "drop" not in props
 
 
 async def test_get_toplevel_removed_without_perms_becomes_not_schema():
-    # On change a user lacking edt/add gets the whole schema removed; `get`
+    # On edit a user lacking edt/add gets the whole schema removed; `get`
     # normalises the None into the always-failing `{"not": {}}`.
     out = await _get(
         {"type": "object", "properties": {"a": {"type": "string"}}},
-        new_data={}, operation="change", perms=(),
+        new_data={}, operation="edit", perms=(),
     )
     assert out.json_schema == {"not": {}}
     assert out.valid is False

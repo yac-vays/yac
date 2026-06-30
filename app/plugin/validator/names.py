@@ -36,10 +36,10 @@ class NameTester(IValidator):
 
         if op.operation == "create":
             self.__assert_none(op.name, "name")
-        else:  # change, delete, arbitrary
+        else:  # edit, delete, arbitrary
             self.__assert_match(spec.type.name_pattern, op.name, "name")
 
-        if op.operation == "change":
+        if op.operation == "edit":
             assert op.entity is not None  # validated in operations plugin
             self.__assert_match(spec.type.name_pattern, op.entity.name, "entity.name")
 

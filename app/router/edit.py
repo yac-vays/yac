@@ -34,7 +34,7 @@ async def update_entity(
     type_name: PathType,
     entity_name: PathName,
     entity: ReplaceEntity,
-    msg: QueryMsg = "Change",
+    msg: QueryMsg = "Edit",
     run: QueryActions = [],
 ) -> Diff:
     """
@@ -45,7 +45,7 @@ async def update_entity(
         request_headers=dict(request.headers),
         request_ip=request.client.host if request.client else "",
         user=user,
-        operation="change",
+        operation="edit",
         type=type_name,
         name=entity_name,
         actions=run,
@@ -62,7 +62,7 @@ async def update_entity(
 
     await validator.test_all(op, s, old, new, perms, usages)
 
-    await action.run(TypeActionHook.CHANGE_BEFORE, op, s)
+    await action.run(TypeActionHook.EDIT_BEFORE, op, s)
 
     async with repo.handler.writer(op.user) as raw:
         rpo = raw.session(s.repo.details if s.type else {})
@@ -80,14 +80,14 @@ async def update_entity(
                 msg,
             )
 
-    await action.run(TypeActionHook.CHANGE_AFTER, op, s)
+    await action.run(TypeActionHook.EDIT_AFTER, op, s)
 
     return diff
 
 
 @router.patch(
     "/entity/{type}/{name}",
-    summary="Change some data of an existing entity",
+    summary="Edit some data of an existing entity",
     responses=http_responses(),
 )
 async def change_entity(
@@ -96,7 +96,7 @@ async def change_entity(
     type_name: PathType,
     entity_name: PathName,
     entity: UpdateEntity,
-    msg: QueryMsg = "Change",
+    msg: QueryMsg = "Edit",
     run: QueryActions = [],
 ) -> Diff:
     """
@@ -108,7 +108,7 @@ async def change_entity(
         request_headers=dict(request.headers),
         request_ip=request.client.host if request.client else "",
         user=user,
-        operation="change",
+        operation="edit",
         type=type_name,
         name=entity_name,
         actions=run,
@@ -125,7 +125,7 @@ async def change_entity(
 
     await validator.test_all(op, s, old, new, perms, usages)
 
-    await action.run(TypeActionHook.CHANGE_BEFORE, op, s)
+    await action.run(TypeActionHook.EDIT_BEFORE, op, s)
 
     try:
         yaml_new = yaml.update(old.yaml or "", entity.data)
@@ -149,6 +149,6 @@ async def change_entity(
                 msg,
             )
 
-    await action.run(TypeActionHook.CHANGE_AFTER, op, s)
+    await action.run(TypeActionHook.EDIT_AFTER, op, s)
 
     return diff

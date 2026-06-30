@@ -27,7 +27,7 @@ class OperationTester(IValidator):
             if not isinstance(op.entity, (NewEntity, CopyEntity, LinkEntity, UpdateEntity)):
                 raise RequestError("The entity has the wrong format for this operation")
 
-        elif op.operation == "change":
+        elif op.operation == "edit":
             if not isinstance(op.entity, (ReplaceEntity, UpdateEntity)):
                 raise RequestError("The entity has the wrong format for this operation")
 

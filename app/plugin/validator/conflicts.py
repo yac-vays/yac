@@ -31,11 +31,11 @@ class ConflictTester(IValidator):
                 if old.is_link:
                     raise RequestError("Links cannot be copied/linked")
 
-        else:  # read, change, delete, arbitrary
+        else:  # read, edit, delete, arbitrary
             if not old.exists:
                 raise RequestNotFound(f"{old.name} does not exist")
 
-        if op.operation == "change":
+        if op.operation == "edit":
             if old.is_link:
                 raise RequestError("Links cannot be modified")
             if old.name != new.name and new.exists:

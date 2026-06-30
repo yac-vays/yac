@@ -43,7 +43,7 @@ class PermissionTester(IValidator):
             elif isinstance(op.entity, LinkEntity):
                 self.__assert_perm("lnk", perms)
 
-        elif op.operation == "change":
+        elif op.operation == "edit":
             has_changes = True
             if isinstance(op.entity, UpdateEntity):
                 if not op.entity.data:

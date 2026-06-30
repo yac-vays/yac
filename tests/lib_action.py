@@ -22,7 +22,7 @@ from app.model.err import ActionError, ActionClientError
 from app.model.spc import Specs, Type, TypeAction, Request
 
 
-def _op(actions=None, operation="change", name="e1", entity_name="e1"):
+def _op(actions=None, operation="edit", name="e1", entity_name="e1"):
     return OperationRequest(
         request_headers={},
         request_ip="1.2.3.4",
@@ -76,21 +76,21 @@ def patch_plugin(monkeypatch):
 async def test_opt_in_action_runs_when_requested_and_hooked(patch_plugin):
     rec = patch_plugin(_Recorder())
     await action_lib.run(
-        TypeActionHook.CHANGE_AFTER,
+        TypeActionHook.EDIT_AFTER,
         _op(actions=["install"]),
-        _specs(_act("install", hooks=[TypeActionHook.CHANGE_AFTER])),
+        _specs(_act("install", hooks=[TypeActionHook.EDIT_AFTER])),
     )
     assert len(rec.calls) == 1
     assert rec.calls[0]["details"] == {"k": "v"}
-    assert rec.calls[0]["props"]["operation"] == "change"
+    assert rec.calls[0]["props"]["operation"] == "edit"
 
 
 async def test_opt_in_action_skipped_when_not_requested(patch_plugin):
     rec = patch_plugin(_Recorder())
     await action_lib.run(
-        TypeActionHook.CHANGE_AFTER,
+        TypeActionHook.EDIT_AFTER,
         _op(actions=[]),  # not requested
-        _specs(_act("install", hooks=[TypeActionHook.CHANGE_AFTER])),
+        _specs(_act("install", hooks=[TypeActionHook.EDIT_AFTER])),
     )
     assert rec.calls == []
 
@@ -98,9 +98,9 @@ async def test_opt_in_action_skipped_when_not_requested(patch_plugin):
 async def test_action_skipped_when_hook_mismatches(patch_plugin):
     rec = patch_plugin(_Recorder())
     await action_lib.run(
-        TypeActionHook.CHANGE_BEFORE,
+        TypeActionHook.EDIT_BEFORE,
         _op(actions=["install"]),
-        _specs(_act("install", hooks=[TypeActionHook.CHANGE_AFTER])),  # different hook
+        _specs(_act("install", hooks=[TypeActionHook.EDIT_AFTER])),  # different hook
     )
     assert rec.calls == []
 
@@ -110,9 +110,9 @@ async def test_action_skipped_when_hook_mismatches(patch_plugin):
 async def test_forced_action_runs_without_being_requested(patch_plugin):
     rec = patch_plugin(_Recorder())
     await action_lib.run(
-        TypeActionHook.CHANGE_AFTER,
+        TypeActionHook.EDIT_AFTER,
         _op(actions=[]),  # not requested, but force=True
-        _specs(_act("audit", hooks=[TypeActionHook.CHANGE_AFTER], force=True)),
+        _specs(_act("audit", hooks=[TypeActionHook.EDIT_AFTER], force=True)),
     )
     assert len(rec.calls) == 1
 
@@ -142,9 +142,9 @@ async def test_client_error_passes_through_unwrapped(patch_plugin):
     patch_plugin(_Recorder(raise_exc=ActionClientError("bad input")))
     with pytest.raises(ActionClientError, match="bad input"):
         await action_lib.run(
-            TypeActionHook.CHANGE_AFTER,
+            TypeActionHook.EDIT_AFTER,
             _op(actions=["x"]),
-            _specs(_act("x", hooks=[TypeActionHook.CHANGE_AFTER])),
+            _specs(_act("x", hooks=[TypeActionHook.EDIT_AFTER])),
         )
 
 
@@ -152,9 +152,9 @@ async def test_server_error_is_wrapped_with_context(patch_plugin):
     patch_plugin(_Recorder(raise_exc=ActionError("boom")))
     with pytest.raises(ActionError) as exc:
         await action_lib.run(
-            TypeActionHook.CHANGE_AFTER,
+            TypeActionHook.EDIT_AFTER,
             _op(actions=["deploy"], name="host9"),
-            _specs(_act("deploy", hooks=[TypeActionHook.CHANGE_AFTER])),
+            _specs(_act("deploy", hooks=[TypeActionHook.EDIT_AFTER])),
         )
     msg = str(exc.value)
     assert "deploy" in msg and "host9" in msg and "boom" in msg
@@ -165,18 +165,18 @@ async def test_server_error_is_wrapped_with_context(patch_plugin):
 async def test_no_type_is_noop(patch_plugin):
     rec = patch_plugin(_Recorder())
     specs = Specs.model_construct(type=None, request=Request())
-    await action_lib.run(TypeActionHook.CHANGE_AFTER, _op(actions=["x"]), specs)
+    await action_lib.run(TypeActionHook.EDIT_AFTER, _op(actions=["x"]), specs)
     assert rec.calls == []
 
 
 async def test_multiple_matching_actions_all_run(patch_plugin):
     rec = patch_plugin(_Recorder())
     await action_lib.run(
-        TypeActionHook.CHANGE_AFTER,
+        TypeActionHook.EDIT_AFTER,
         _op(actions=["a", "b"]),
         _specs(
-            _act("a", hooks=[TypeActionHook.CHANGE_AFTER]),
-            _act("b", hooks=[TypeActionHook.CHANGE_AFTER]),
+            _act("a", hooks=[TypeActionHook.EDIT_AFTER]),
+            _act("b", hooks=[TypeActionHook.EDIT_AFTER]),
         ),
     )
     assert len(rec.calls) == 2

@@ -102,7 +102,7 @@ class UpdateEntity(Entity):
 
 
 class Operation(BaseModel):
-    operation: Literal["read", "create", "change", "delete", "arbitrary"] = "read"
+    operation: Literal["read", "create", "edit", "delete", "arbitrary"] = "read"
     type_name: Annotated[str, Field(alias="type", pattern=consts.TYPE_PATTERN)]
     name: Annotated[str | None, Field(pattern=consts.NAME_PATTERN)] = None
     actions: list[Annotated[str, Field(pattern=consts.ACTION_PATTERN)]] = []

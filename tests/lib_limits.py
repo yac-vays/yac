@@ -25,12 +25,12 @@ def _specs_with(lim: TypeLimit) -> Specs:
     )
 
 
-def _change_op(data: dict) -> OperationRequest:
+def _edit_op(data: dict) -> OperationRequest:
     return OperationRequest(
         request_headers={},
         request_ip="",
         user=User(name="u", email="u@example.com", full_name="U"),
-        operation="change",
+        operation="edit",
         type="host",
         name="A",
         actions=[],
@@ -44,7 +44,7 @@ def _repo(fake_repo):
 
 
 _CPUS_LIMIT = dict(
-    title="cpus", on=["change", "create"], scope="true",
+    title="cpus", on=["edit", "create"], scope="true",
     value="old.data.cpus | default(0)", max="100",
 )
 
@@ -53,7 +53,7 @@ async def test_symlink_to_edited_entity_counts_incoming_data(fake_repo):
     old = Entity(name="A", exists=True, data={"cpus": 4})
     lim = TypeLimit.model_construct(**_CPUS_LIMIT)
     usages = await limits.measure(
-        "h", _repo(fake_repo), _change_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
+        "h", _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
     )
     # A=40 (incoming) + B=40 (symlink -> A, the *new* value) + C=2 = 82.
     # The bug counted B with its stale on-disk copy (4) -> 46, bypassing the cap.
@@ -66,7 +66,7 @@ async def test_non_number_data_does_not_abort_measure(fake_repo):
     # Incoming cpus is a (schema-invalid) string: the value cannot be coerced to
     # a number, but measure must not raise -- the contribution falls back to 0.
     usages = await limits.measure(
-        "h", _repo(fake_repo), _change_op({"cpus": "nope"}),
+        "h", _repo(fake_repo), _edit_op({"cpus": "nope"}),
         _specs_with(lim), old, {"cpus": "nope"},
     )
     # incoming A -> 0, B mirrors A's new data -> 0, C -> 2; the point is no raise.
@@ -77,10 +77,10 @@ async def test_name_only_limit_unaffected(fake_repo):
     old = Entity(name="A", exists=True, data={"cpus": 4})
     # value/scope never read old.data -> fast name-only path, no data load.
     lim = TypeLimit.model_construct(
-        title="count", on=["change"], scope="true", value="1", max="100"
+        title="count", on=["edit"], scope="true", value="1", max="100"
     )
     usages = await limits.measure(
-        "h", _repo(fake_repo), _change_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
+        "h", _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
     )
     assert usages[0].used == 3, usages[0].used  # A + B + C, one each
 
@@ -88,11 +88,11 @@ async def test_name_only_limit_unaffected(fake_repo):
 async def test_over_cap_reports_not_ok(fake_repo):
     old = Entity(name="A", exists=True, data={"cpus": 4})
     lim = TypeLimit.model_construct(
-        title="cpus", on=["change"], scope="true",
+        title="cpus", on=["edit"], scope="true",
         value="old.data.cpus | default(0)", max="50",
     )
     usages = await limits.measure(
-        "h", _repo(fake_repo), _change_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
+        "h", _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
     )
     # 40 + 40 + 2 = 82 > 50
     assert usages[0].used == 82 and usages[0].max == 50 and usages[0].ok is False
@@ -127,13 +127,13 @@ async def test_scope_filters_out_of_scope_entities(fake_repo):
 
 
 async def test_limit_not_applicable_to_operation(fake_repo):
-    # A limit that only applies on `create` yields no usage on a `change`.
+    # A limit that only applies on `create` yields no usage on an `edit`.
     rpo = fake_repo(files={"A": "cpus: 4"})
     lim = TypeLimit.model_construct(
         title="cpus", on=["create"], scope="true", value="old.data.cpus | default(0)", max="100"
     )
     usages = await limits.measure(
-        "h", rpo, _change_op({"cpus": 4}), _specs_with(lim),
+        "h", rpo, _edit_op({"cpus": 4}), _specs_with(lim),
         Entity(name="A", exists=True, data={"cpus": 4}), {"cpus": 4},
     )
     assert usages == []

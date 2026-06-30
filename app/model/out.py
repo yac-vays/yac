@@ -342,15 +342,15 @@ class TypeActionHook(str, enum.Enum):
 
       - `arbitrary` means the `POST /entity/{type}/{name}/run/{action}` endpoint
       - `create:*` means the `POST /entity/{type}` endpoint
-      - `change:*` means the `PUT` and `PATCH /entity/{type}/{name}` endpoints
+      - `edit:*` means the `PUT` and `PATCH /entity/{type}/{name}` endpoints
       - `delete:*` means the `DELETE /entity/{type}/{name}` endpoint
     """
 
     ARBITRARY = "arbitrary"
     CREATE_BEFORE = "create:before"
     CREATE_AFTER = "create:after"
-    CHANGE_BEFORE = "change:before"
-    CHANGE_AFTER = "change:after"
+    EDIT_BEFORE = "edit:before"
+    EDIT_AFTER = "edit:after"
     DELETE_BEFORE = "delete:before"
     DELETE_AFTER = "delete:after"
 
@@ -408,7 +408,7 @@ class TypeFavoriteOperation(str, enum.Enum):
 
     For the endpoints `PUT` and `PATCH /entity/{type}/{name}`:
 
-      - `change`
+      - `edit`
 
     And for the endpoint `DELETE /entity/{type}/{name}`:
 
@@ -418,7 +418,7 @@ class TypeFavoriteOperation(str, enum.Enum):
     # CREATE_NEW is not available as favorite
     CREATE_COPY = "create_copy"
     CREATE_LINK = "create_link"
-    CHANGE = "change"
+    EDIT = "edit"
     DELETE = "delete"
 
 
@@ -430,7 +430,7 @@ class TypeFavorite(BaseModel):
     Name of the action or operation
     """
         ),
-    ] = "change"
+    ] = "edit"
     action: Annotated[
         bool,
         Field(
@@ -466,11 +466,11 @@ class Type(BaseModel):
             )
         ),
     ] = True
-    change: Annotated[
+    edit: Annotated[
         bool,
         Field(
             description=(
-                "Allow modifications of this type of entities (still requires the"
+                "Allow editing of this type of entities (still requires the"
                 " according *perms*)"
             )
         ),

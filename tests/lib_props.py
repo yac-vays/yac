@@ -93,10 +93,10 @@ def test_get_log_uses_path_name_only():
 
 
 def test_get_roles_threads_old_data_and_request_fields():
-    op = _op(name="h", operation="change", actions=["a1"])
+    op = _op(name="h", operation="edit", actions=["a1"])
     d = props.get_roles(op, Request(), {"owner": "alice"})
     assert d["old"]["data"] == {"owner": "alice"}
-    assert d["operation"] == "change" and d["actions"] == ["a1"]
+    assert d["operation"] == "edit" and d["actions"] == ["a1"]
     assert d["type"] == "host" and d["request"]["ip"] == "10.0.0.1"
     assert d["user"]["name"] == "alice"
 

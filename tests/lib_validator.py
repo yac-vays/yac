@@ -31,7 +31,7 @@ def _op(entity, *, operation="create", name=None):
     )
 
 
-def _update_op(data, *, yaml_base=None, operation="change", name="name1"):
+def _update_op(data, *, yaml_base=None, operation="edit", name="name1"):
     return OperationRequest(
         request_headers={},
         request_ip="",
@@ -126,7 +126,7 @@ def test_copy_and_link_inherit_source_data_and_have_no_yaml():
 
 def test_replace_entity_uses_yaml_new():
     op = _op(ReplaceEntity(name="x", yaml_old="a: 1\n", yaml_new="a: 2\n"),
-             operation="change", name="x")
+             operation="edit", name="x")
     data, err = validator.incoming_new_data(op, _SRC)
     assert err is None and data == {"a": 2}
     assert validator.incoming_new_yaml(op, _SRC) == "---\na: 2\n"
@@ -165,7 +165,7 @@ import pytest  # noqa: E402
 def _full_specs(schema_dict=None):
     typ = Type.model_construct(
         name="type1", title="T", name_pattern=consts.NAME_PATTERN,
-        create=True, change=True, delete=True, options=[], logs=[], actions=[],
+        create=True, edit=True, delete=True, options=[], logs=[], actions=[],
         favorites=[], limits=[], name_generated="never", name_generator="uuid()",
     )
     return Specs.model_construct(
@@ -212,12 +212,12 @@ async def test_all_missing_perm_sets_invalid_without_raising():
     assert "see" in res.request.message
 
 
-async def test_all_invalid_schema_raises_on_change():
+async def test_all_invalid_schema_raises_on_edit():
     old = Entity(name="name1", exists=True, yaml="cpu: 4", data={"cpu": 4})
     op = OperationRequest(
         request_headers={}, request_ip="1.2.3.4",
         user=User(name="u", email="u@x.com", full_name="U"),
-        operation="change", type="type1", name="name1", actions=[],
+        operation="edit", type="type1", name="name1", actions=[],
         entity=NewEntity(name="name1", yaml="cpu: not-an-int"),
     )
     specs = _full_specs(
@@ -235,11 +235,11 @@ _INT_CPU_SCHEMA = {
 }
 
 
-def _change_op(entity):
+def _edit_op(entity):
     return OperationRequest(
         request_headers={}, request_ip="1.2.3.4",
         user=User(name="u", email="u@x.com", full_name="U"),
-        operation="change", type="type1", name="name1", actions=[],
+        operation="edit", type="type1", name="name1", actions=[],
         entity=entity,
     )
 
@@ -250,7 +250,7 @@ async def test_all_pure_rename_skips_data_revalidation():
     # validity is still reported in the result, just not enforced.
     old = Entity(name="name1", exists=True, yaml="cpu: not-an-int",
                  data={"cpu": "not-an-int"})
-    op = _change_op(UpdateEntity(name="name2", data={}))
+    op = _edit_op(UpdateEntity(name="name2", data={}))
     res = await _v.test_all(
         op, _full_specs(_INT_CPU_SCHEMA), old, Entity(name="name2", exists=False),
         perms=["see", "add", "rnm"], raise_on_error=True,
@@ -261,7 +261,7 @@ async def test_all_pure_rename_skips_data_revalidation():
 async def test_all_pure_rename_via_replace_skips_data_revalidation():
     old = Entity(name="name1", exists=True, yaml="cpu: not-an-int",
                  data={"cpu": "not-an-int"})
-    op = _change_op(ReplaceEntity(name="name2", yaml_old="cpu: not-an-int",
+    op = _edit_op(ReplaceEntity(name="name2", yaml_old="cpu: not-an-int",
                                   yaml_new="cpu: not-an-int"))
     res = await _v.test_all(
         op, _full_specs(_INT_CPU_SCHEMA), old, Entity(name="name2", exists=False),
@@ -272,7 +272,7 @@ async def test_all_pure_rename_via_replace_skips_data_revalidation():
 
 async def test_all_rename_with_content_changes_still_revalidates():
     old = Entity(name="name1", exists=True, yaml="cpu: 4", data={"cpu": 4})
-    op = _change_op(UpdateEntity(name="name2", data={"cpu": "not-an-int"}))
+    op = _edit_op(UpdateEntity(name="name2", data={"cpu": "not-an-int"}))
     with pytest.raises(RequestError):
         await _v.test_all(
             op, _full_specs(_INT_CPU_SCHEMA), old,

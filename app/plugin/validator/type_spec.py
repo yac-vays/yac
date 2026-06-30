@@ -40,8 +40,8 @@ class TypeTester(IValidator):
 
         if op.operation == "create" and not spec.type.create:
             raise RequestForbidden('The operation "create" is disabled')
-        if op.operation == "change" and not spec.type.change:
-            raise RequestForbidden('The operation "change" is disabled')
+        if op.operation == "edit" and not spec.type.edit:
+            raise RequestForbidden('The operation "edit" is disabled')
         if op.operation == "delete" and not spec.type.delete:
             raise RequestForbidden('The operation "delete" is disabled')
 

@@ -20,7 +20,7 @@ class AddConsts(IJsonSchema):
         This will only add data on the object property level, so lists are either
         considered as defined or they are added as a single constant.
         """
-        if props["operation"] != "change":
+        if props["operation"] != "edit":
             return json_schema, context
 
         if json_schema.get("type", "") != "object":

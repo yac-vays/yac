@@ -163,7 +163,7 @@ async def get_entities(
             old_name = op.entity.copy_name
         if op.entity and isinstance(op.entity, LinkEntity):
             old_name = op.entity.link_name
-    elif op.operation == "change":
+    elif op.operation == "edit":
         old_name = op.name
         new_name = None if op.entity is None else op.entity.name
     else:  # read, delete, arbitrary

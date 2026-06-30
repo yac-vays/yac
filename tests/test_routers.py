@@ -218,7 +218,7 @@ def action_recorder(monkeypatch):
 
 def _validate_body(data: dict) -> dict:
     return {
-        "operation": "change",
+        "operation": "edit",
         "type": "host",
         "name": "web01",
         "entity": {"name": "web01", "data": data},

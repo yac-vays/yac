@@ -75,7 +75,7 @@ class TypeLimit(BaseModel):
     # to express per-user or plan-dependent limits.
     max: str
     # Operations this limit is enforced on. `delete` can never exceed a cap.
-    on: list[Literal["create", "change"]] = ["create", "change"]
+    on: list[Literal["create", "edit"]] = ["create", "edit"]
 
 
 class Type(out.Type):

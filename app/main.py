@@ -17,7 +17,7 @@ from app.lib import plugin
 from app.lib import specs
 from app.model.err import YACError
 from app.router import arbitrary
-from app.router import change
+from app.router import edit
 from app.router import create
 from app.router import delete
 from app.router import read
@@ -146,7 +146,7 @@ yac.add_middleware(
 yac.include_router(status.router, tags=["Status"])
 yac.include_router(read.router, tags=["Entities"])
 yac.include_router(create.router, tags=["Entities"])
-yac.include_router(change.router, tags=["Entities"])
+yac.include_router(edit.router, tags=["Entities"])
 yac.include_router(delete.router, tags=["Entities"])
 yac.include_router(arbitrary.router, tags=["Entities"])
 yac.include_router(validate.router, tags=["Entities"])

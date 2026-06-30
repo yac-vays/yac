@@ -79,7 +79,7 @@ def incoming_new_yaml(op: OperationRequest, old: Entity) -> str | None:
 
 def has_content_changes(op: OperationRequest) -> bool:
     """
-    Whether a change operation would modify the entity's YAML content (as
+    Whether an edit operation would modify the entity's YAML content (as
     opposed to a pure rename or a no-op). Mirrors the `has_changes` notion in
     plugin/validator/perms.py that decides whether `edt` is required, so the
     schema enforcement and the permission check always agree on what counts
@@ -123,7 +123,7 @@ async def test_all(
         request.message = yaml_error
 
     if (
-        op.operation == "change"
+        op.operation == "edit"
         or (op.operation == "create" and isinstance(op.entity, (NewEntity, UpdateEntity)))
         or (op.operation == "read" and schema_on_read)
     ):
@@ -169,7 +169,7 @@ async def test_all(
         # the stored YAML as-is, so stored data that no longer matches the
         # current schema must not block it. The validity is still reported
         # in the result (the /validate endpoint shows it), just not enforced.
-        if op.operation != "change" or has_content_changes(op):
+        if op.operation != "edit" or has_content_changes(op):
             raise RequestError(schemas.message)
 
     return ValidationResult(schemas=schemas, request=request, usages=usages)

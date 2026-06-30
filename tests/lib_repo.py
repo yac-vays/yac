@@ -174,9 +174,9 @@ async def test_get_entities_link_resolves_source_as_old(fake_repo):
     assert old.name == "a" and new.name == "l"
 
 
-async def test_get_entities_change_uses_path_and_entity_names(fake_repo):
+async def test_get_entities_edit_uses_path_and_entity_names(fake_repo):
     rpo = fake_repo(files={"a": "cpu: 4"})
-    op = _op(operation="change", name="a", entity=NewEntity(name="a2", yaml=""))
+    op = _op(operation="edit", name="a", entity=NewEntity(name="a2", yaml=""))
     old, new, _ = await repo.get_entities("h-change", rpo, op, _specs())
     assert old.name == "a" and old.exists is True
     assert new.name == "a2"
