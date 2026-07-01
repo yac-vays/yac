@@ -2,10 +2,12 @@
 Tests for `lib.log` -- aggregates audit-trail entries from every configured log
 plugin for a type. The real plugins (file/elastic) touch the filesystem /
 network, so they are replaced with a fake `log.get`. Key behaviours: results
-from several log specs are concatenated, and a `LogError` from one plugin is
-swallowed (logged, not raised) so one broken log source cannot break the others.
+from several log specs are concatenated (in specs order), a `LogError` from one
+plugin is swallowed (logged, not raised) so one broken log source cannot break
+the others, and all sources are fetched concurrently (not serialised).
 """
 
+import asyncio
 import types
 
 import pytest
@@ -113,3 +115,47 @@ async def test_no_type_returns_empty(patch_plugins):
 async def test_no_logs_configured_returns_empty(patch_plugins):
     patch_plugins({})
     assert await log_lib.get(_op(), _specs()) == []
+
+
+class _BarrierLog:
+    """Records how many `get` calls are in flight at once."""
+
+    def __init__(self, state):
+        self.state = state
+
+    async def get(self, facility, problem, progress, *, details, props):
+        self.state["inflight"] += 1
+        self.state["max_inflight"] = max(
+            self.state["max_inflight"], self.state["inflight"]
+        )
+        try:
+            # Block until every source has entered `get`; if `lib.log` awaited
+            # sources one-by-one this barrier would never be released and the
+            # wait_for below would time out.
+            await asyncio.wait_for(self.state["all_started"].wait(), timeout=2)
+        finally:
+            self.state["inflight"] -= 1
+        return [_entry(facility, facility)]
+
+
+async def test_sources_are_fetched_concurrently(patch_plugins):
+    state = {"inflight": 0, "max_inflight": 0, "all_started": asyncio.Event()}
+
+    async def _release_when_all_started():
+        # Two sources -> release the barrier once both are in flight.
+        while state["inflight"] < 2:
+            await asyncio.sleep(0)
+        state["all_started"].set()
+
+    patch_plugins({"p1": _BarrierLog(state), "p2": _BarrierLog(state)})
+
+    releaser = asyncio.ensure_future(_release_when_all_started())
+    logs = await log_lib.get(
+        _op(), _specs(_logspec("a", "p1"), _logspec("b", "p2"))
+    )
+    await releaser
+
+    # Both sources were in `get` simultaneously (would be 1 if serialised),
+    # and results keep specs order.
+    assert state["max_inflight"] == 2
+    assert [l.message for l in logs] == ["a", "b"]

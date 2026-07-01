@@ -3,6 +3,7 @@ Raises: [app.model.err.LogSpecsError]
 """
 
 from typing import List
+import asyncio
 import logging
 
 from app.lib import plugin
@@ -18,19 +19,25 @@ logger = logging.getLogger(__name__)
 async def get(op: inp.OperationRequest, specs: spc.Specs) -> List[out.Log]:
     log_props = props.get_log(op, specs.request)
 
-    logs = []
-    for log_spec in specs.type.logs if specs.type else []:
+    log_specs = specs.type.logs if specs.type else []
+
+    async def _fetch(log_spec) -> List[out.Log]:
         log_plugin = plugin.get_module("log", log_spec.plugin)
         try:
-            logs.extend(
-                await log_plugin.log.get(
-                    log_spec.name,
-                    log_spec.problem,
-                    log_spec.progress,
-                    details=log_spec.details,
-                    props=log_props,
-                )
+            return await log_plugin.log.get(
+                log_spec.name,
+                log_spec.problem,
+                log_spec.progress,
+                details=log_spec.details,
+                props=log_props,
             )
         except LogError as error:
             logger.error(str(error))
+            return []
+
+    results = await asyncio.gather(*(_fetch(s) for s in log_specs))
+
+    logs: List[out.Log] = []
+    for result in results:
+        logs.extend(result)
     return logs
