@@ -322,6 +322,15 @@ class TypeOption(BaseModel):
 class TypeLog(BaseModel):
     name: Annotated[str, Field(examples=["installation"])]
     title: Annotated[str, Field(examples=["Installation"])]
+    description: Annotated[
+        str,
+        Field(
+            description=(
+                "Description of this log, shown in the UI below the title of"
+                " the log details (Markdown is supported)"
+            )
+        ),
+    ] = ""
     progress: Annotated[
         bool,
         Field(description="Whether to show a progress indicator in UI"),
