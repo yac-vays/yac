@@ -559,7 +559,69 @@ async def test_patch_field_with_perm_gated_option_to_guarded_value(
 
 
 #
-# 6) Limits TOCTOU: re-check inside the writer scope
+# 6) Type-level create/delete switches also gate renames
+#
+
+RENAME_PUT = {
+    "name": "web01-moved",
+    "yaml_old": WEB01_YAML,
+    "yaml_new": WEB01_YAML,
+}
+
+
+@pytest.mark.parametrize("switch", ["create", "delete"])
+async def test_rename_blocked_when_create_or_delete_disabled(
+    monkeypatch, client, login, repo_session, switch
+):
+    """
+    A rename is submitted as an edit with a new entity name, but it creates
+    a new name and deletes the old one — so a type with `create: false` or
+    `delete: false` must reject it (403), even for alice (adm), whose perms
+    include add+rnm. (Regression: externally-managed types like OU groups
+    could be "created"/"deleted" via rename.)
+    """
+    raw = copy.deepcopy(RAW_SPECS)
+    raw["types"][0][switch] = False
+    monkeypatch.setattr(specs_lib, "_RAW_DATA", raw)
+
+    login("alice")
+    resp = await client.put("/entity/host/web01", json=RENAME_PUT)
+    assert resp.status_code == 403, resp.text
+    assert "rename" in resp.json()["message"]
+    assert "web01" in repo_session.files  # nothing moved
+    assert "web01-moved" not in repo_session.files
+
+
+async def test_rename_allowed_when_type_switches_enabled(
+    client, login, repo_session
+):
+    """Control: with the default switches the same (pure) rename succeeds."""
+    login("alice")
+    resp = await client.put("/entity/host/web01", json=RENAME_PUT)
+    assert resp.status_code == 200, resp.text
+    assert "web01-moved" in repo_session.files
+    assert "web01" not in repo_session.files
+
+
+async def test_plain_edit_still_allowed_when_create_and_delete_disabled(
+    monkeypatch, client, login, repo_session
+):
+    """The rename gate must not catch ordinary same-name edits."""
+    raw = copy.deepcopy(RAW_SPECS)
+    raw["types"][0]["create"] = False
+    raw["types"][0]["delete"] = False
+    monkeypatch.setattr(specs_lib, "_RAW_DATA", raw)
+
+    login("alice")
+    resp = await client.patch(
+        "/entity/host/web01", json={"name": "web01", "data": {"owner": "zelda"}}
+    )
+    assert resp.status_code == 200, resp.text
+    assert "owner: zelda" in repo_session.files["web01"]
+
+
+#
+# 7) Limits TOCTOU: re-check inside the writer scope
 #
 
 
@@ -678,7 +740,7 @@ async def test_delete_passes_when_entity_unchanged(client, login, repo_session):
 
 
 #
-# 7) Specs role-key validation (lib-level, runs without the app fixtures)
+# 8) Specs role-key validation (lib-level, runs without the app fixtures)
 #
 
 

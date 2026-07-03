@@ -156,16 +156,16 @@ def test_read_and_delete_use_stored_data():
 from app.lib import validator as _v  # noqa: E402
 from app.model.spc import Specs, Type, Request as SpcRequest, Sets, Repo  # noqa: E402
 from app.model.spc import Schema as SpcSchema  # noqa: E402
-from app.model.err import RequestError  # noqa: E402
+from app.model.err import RequestError, RequestForbidden  # noqa: E402
 from app import consts  # noqa: E402
 
 import pytest  # noqa: E402
 
 
-def _full_specs(schema_dict=None):
+def _full_specs(schema_dict=None, create=True, delete=True):
     typ = Type.model_construct(
         name="type1", title="T", name_pattern=consts.NAME_PATTERN,
-        create=True, edit=True, delete=True, options=[], logs=[], actions=[],
+        create=create, edit=True, delete=delete, options=[], logs=[], actions=[],
         favorites=[], limits=[], name_generated="never", name_generator="uuid()",
     )
     return Specs.model_construct(
@@ -279,6 +279,33 @@ async def test_all_rename_with_content_changes_still_revalidates():
             Entity(name="name2", exists=False),
             perms=["see", "add", "rnm", "edt"], raise_on_error=True,
         )
+
+
+@pytest.mark.parametrize("flags", [{"create": False}, {"delete": False}])
+async def test_all_rename_blocked_when_create_or_delete_disabled(flags):
+    # A rename creates a new entity name and deletes the old one, so the
+    # type-level `create`/`delete` switches gate it as well — independent of
+    # the user's perms (add+rnm are held here).
+    old = Entity(name="name1", exists=True, yaml="cpu: 4", data={"cpu": 4})
+    op = _edit_op(UpdateEntity(name="name2", data={}))
+    with pytest.raises(RequestForbidden):
+        await _v.test_all(
+            op, _full_specs(_INT_CPU_SCHEMA, **flags), old,
+            Entity(name="name2", exists=False),
+            perms=["see", "add", "rnm", "edt"], raise_on_error=True,
+        )
+
+
+async def test_all_plain_edit_still_allowed_when_create_delete_disabled():
+    # The rename gate must not catch ordinary same-name edits.
+    old = Entity(name="name1", exists=True, yaml="cpu: 4", data={"cpu": 4})
+    op = _edit_op(UpdateEntity(name="name1", data={"cpu": 8}))
+    res = await _v.test_all(
+        op, _full_specs(_INT_CPU_SCHEMA, create=False, delete=False), old,
+        Entity(name="name1", exists=True),
+        perms=["see", "edt"], raise_on_error=True,
+    )
+    assert res.request.valid is True
 
 
 async def test_ls_passes_for_valid_list_request():

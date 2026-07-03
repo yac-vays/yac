@@ -45,5 +45,23 @@ class TypeTester(IValidator):
         if op.operation == "delete" and not spec.type.delete:
             raise RequestForbidden('The operation "delete" is disabled')
 
+        # A rename is submitted as an edit with a new entity name, but it
+        # creates a new name and deletes the old one — so it must respect the
+        # `create` and `delete` type switches as well. Otherwise renaming
+        # would bypass them on types whose names are externally managed
+        # (create/delete disabled, edit enabled).
+        if op.operation == "edit" and not (spec.type.create and spec.type.delete):
+            renamed = (
+                op.entity is not None
+                and op.entity.name is not None
+                and op.name is not None
+                and op.entity.name != op.name
+            )
+            if renamed:
+                raise RequestForbidden(
+                    'The operation "rename" is disabled (it would create a new'
+                    " and delete the old entity name)"
+                )
+
 
 tester = TypeTester()
