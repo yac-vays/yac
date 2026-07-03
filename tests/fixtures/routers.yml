@@ -29,9 +29,9 @@ types:
     actions:
       - name: deploy
         title: Deploy
-        plugin: shell
+        plugin: exec
         details:
-          command: "exit 0"
+          command: ["true"]
         hooks: [arbitrary]
     logs:
       - name: install

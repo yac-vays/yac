@@ -215,7 +215,7 @@ def log_recorder(monkeypatch):
 @pytest.fixture
 def action_recorder(monkeypatch):
     rec = ActionRecorder()
-    monkeypatch.setattr(plugin.get_module("action", "shell"), "action", rec)
+    monkeypatch.setattr(plugin.get_module("action", "exec"), "action", rec)
     return rec
 
 

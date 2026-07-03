@@ -2,7 +2,7 @@
 Tests for `lib.action` -- the dispatcher that decides which configured actions
 fire for a given hook/operation and wraps plugin failures.
 
-The real action *plugins* (shell/http) run subprocesses / network calls, so the
+The real action *plugins* (exec/http) run subprocesses / network calls, so the
 plugin module is replaced with a fake whose `action.run` records its calls or
 raises a chosen error. This isolates the dispatch logic: hook matching, the
 `force`/`arbitrary` interaction, opt-in via `op.actions`, and error wrapping
