@@ -7,7 +7,6 @@ from app.lib import plugin
 from app.lib import schema
 from app.lib import yaml
 from app.model.err import RequestError
-from app.model.err import RequestForbidden
 from app.model.inp import CopyEntity
 from app.model.inp import LinkEntity
 from app.model.inp import NewEntity
@@ -160,11 +159,6 @@ async def test_all(
             request.message = str(error)
 
     if raise_on_error and not schemas.valid:
-        if schemas.validator == "yac_perms":
-            # Write to a permission-removed property (lib/schema.py:
-            # find_removed_violation) — a permission violation, not a data
-            # error, so it surfaces like the other perm checks (403).
-            raise RequestForbidden(schemas.message)
         # A change without content changes (a pure rename or a no-op) moves
         # the stored YAML as-is, so stored data that no longer matches the
         # current schema must not block it. The validity is still reported

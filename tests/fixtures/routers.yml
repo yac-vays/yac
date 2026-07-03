@@ -59,3 +59,13 @@ schema:
           type: string
           yac_optional: true
           yac_perms: [secrets]
+    os:
+      # enum-style field with one perm-gated option (see section 6 of the
+      # router tests): the option is only selectable with `secrets`, but the
+      # field itself must stay writable for everyone with edt.
+      type: string
+      yac_optional: true
+      oneOf:
+        - const: linux
+        - const: windows-special
+          yac_perms: [secrets]

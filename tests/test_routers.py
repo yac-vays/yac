@@ -30,7 +30,6 @@ Permission matrix (from tests/fixtures/routers.yml):
 """
 
 import copy
-import json
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -230,34 +229,29 @@ def _validate_body(data: dict) -> dict:
 
 
 #
-# 1) /validate const-leak regression (fix #1)
+# 1) /validate: property-level perms are write-side only (no read protection)
 #
 
 
-async def test_validate_does_not_leak_forbidden_values_as_consts(client, login):
+async def test_validate_echoes_guarded_values_as_immutable_consts(client, login):
     """
     bob lacks the `secrets` perm guarding `top_secret` (top-level) and
-    `networking.vlan_secret` (nested). yac_perms removes those subschemas and
-    records the removals, so add_consts must NOT re-inject the stored values
-    as `const` nodes in the schema returned by POST /validate. It re-injects
-    only a permissive value-free stub (so the merged data still validates
-    under `additionalProperties: false`).
+    `networking.vlan_secret` (nested). yac_perms removes those subschemas
+    from his edit schema, and add_consts re-injects the stored values as
+    read-only `const` nodes: `see` is entity-level only — whoever may open
+    the edit form can read the whole entity (raw YAML included) anyway, so
+    values are never hidden below entity level. The const is also what
+    keeps them immutable for bob.
     """
     login("bob")
     resp = await client.post("/validate", json=_validate_body({"owner": "robert"}))
     assert resp.status_code == 200
     schema = resp.json()["schemas"]["json_schema"]
-    serialized = json.dumps(schema)
 
-    # The forbidden stored values appear NOWHERE in the returned schema.
-    assert TOP_SECRET not in serialized
-    assert NESTED_SECRET not in serialized
-    # The removed properties come back only as non-leaking permissive stubs.
-    top_stub = schema["properties"]["top_secret"]
-    nested_stub = schema["properties"]["networking"]["properties"]["vlan_secret"]
-    for stub in (top_stub, nested_stub):
-        assert "const" not in stub
-        assert set(stub.keys()) <= {"description"}
+    top = schema["properties"]["top_secret"]
+    nested = schema["properties"]["networking"]["properties"]["vlan_secret"]
+    assert top["const"] == TOP_SECRET
+    assert nested["const"] == NESTED_SECRET
 
 
 async def test_validate_still_adds_consts_for_allowed_unspecified_data(client, login):
@@ -405,27 +399,26 @@ async def test_logs_allowed_user_gets_logs(client, login, log_recorder):
 async def test_patch_forbidden_property_rejected(client, login, repo_session):
     """
     bob may edit the entity (edt) but not the `secrets`-guarded property:
-    a PATCH touching it must be rejected and nothing committed.
+    a PATCH changing it must be rejected and nothing committed. Enforcement
+    is plain schema validation — the stored value is pinned by the `const`
+    that add_consts injected into bob's schema — so this is a 400 data
+    error, not a 403 (and the stored value may appear in the message; bob
+    can read it anyway).
     """
     login("bob")
     resp = await client.patch(
         "/entity/host/web01",
         json={"name": "web01", "data": {"networking": {"vlan_secret": "HACKED"}}},
     )
-    assert resp.status_code in (400, 403), resp.text
+    assert resp.status_code == 400, resp.text
     assert repo_session.files["web01"] == WEB01_YAML  # unchanged
-    # The rejection must not echo the stored secret back either.
-    assert TOP_SECRET not in resp.text
-    assert NESTED_SECRET not in resp.text
 
 
 async def test_patch_allowed_property_accepted(client, login, repo_session):
     """
     bob changes only `owner`, which his perms (edt) fully cover; the entity's
-    perms-hidden properties stay untouched. This must be accepted: the
-    permissive stub injected by add_consts covers the mere presence of the
-    hidden keys under `additionalProperties: false`, and the out-of-schema
-    enforcement sees no change at the protected paths.
+    perms-guarded properties stay untouched. This must be accepted: the
+    consts injected by add_consts match the unchanged stored values.
     """
     login("bob")
     resp = await client.patch(
@@ -433,7 +426,7 @@ async def test_patch_allowed_property_accepted(client, login, repo_session):
     )
     assert resp.status_code == 200, resp.text
     assert "owner: robert" in repo_session.files["web01"]
-    # The hidden values are preserved verbatim in the committed YAML.
+    # The guarded values are preserved verbatim in the committed YAML.
     assert TOP_SECRET in repo_session.files["web01"]
     assert NESTED_SECRET in repo_session.files["web01"]
 
@@ -442,16 +435,12 @@ async def test_patch_forbidden_property_rejected_with_open_object(
     monkeypatch, client, login, repo_session
 ):
     """
-    Same as test_patch_forbidden_property_rejected, but the parent object
-    explicitly allows additional properties — the schema alone can no longer
-    reject the write, so the out-of-schema enforcement (old vs new data at
-    the perm-removed paths) must reject it. And the rejection must not leak
-    the stored values.
+    Same as test_patch_forbidden_property_rejected, but the parent objects
+    explicitly allow additional properties: the injected `const` still pins
+    the stored value, so the write is rejected by schema validation even
+    without `additionalProperties: false`.
     """
     raw = copy.deepcopy(RAW_SPECS)
-    # Open both objects that hold a guarded property; otherwise the *other*
-    # hidden key (top_secret) would trip the top-level
-    # additionalProperties=false and mask the enforcement on vlan_secret.
     raw["schema"]["additionalProperties"] = True
     raw["schema"]["properties"]["networking"]["additionalProperties"] = True
     monkeypatch.setattr(specs_lib, "_RAW_DATA", raw)
@@ -461,36 +450,26 @@ async def test_patch_forbidden_property_rejected_with_open_object(
         "/entity/host/web01",
         json={"name": "web01", "data": {"networking": {"vlan_secret": "HACKED"}}},
     )
-    assert resp.status_code == 403, resp.text
-    assert resp.json()["title"] == "Forbidden"
+    assert resp.status_code == 400, resp.text
     assert repo_session.files["web01"] == WEB01_YAML  # nothing committed
-    # The rejection must not echo the stored secrets back either.
-    assert TOP_SECRET not in resp.text
-    assert NESTED_SECRET not in resp.text
 
 
-async def test_hidden_property_cannot_be_set_when_unstored(
-    monkeypatch, client, login, repo_session
+async def test_unstored_guarded_property_rejected_by_closed_objects(
+    client, login, repo_session
 ):
     """
-    A user without the guarding perm cannot SET a value in a perms-hidden
-    property either — neither on create nor on PATCH of an entity that stores
-    no value there. Exercised with open objects (additionalProperties: true),
-    where the schema itself no longer rejects the unknown key and only the
-    out-of-schema enforcement protects the path.
+    A user without the guarding perm cannot SET a value at a perms-removed
+    property that stores no value yet: the property is absent from their
+    schema, so the default `additionalProperties: false` rejects the unknown
+    key — on create as well as on PATCH.
     """
-    raw = copy.deepcopy(RAW_SPECS)
-    raw["schema"]["additionalProperties"] = True
-    raw["schema"]["properties"]["networking"]["additionalProperties"] = True
-    monkeypatch.setattr(specs_lib, "_RAW_DATA", raw)
-
     # erin may create entities (add) but lacks `secrets`.
     login("erin")
     resp = await client.post(
         "/entity/host",
         json={"name": "new02", "yaml": "owner: erin\ntop_secret: SNEAKED\n"},
     )
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 400, resp.text
     assert "new02" not in repo_session.files
 
     # bob may edit (edt+cln) but lacks `secrets`; web02 stores no hidden value.
@@ -499,12 +478,88 @@ async def test_hidden_property_cannot_be_set_when_unstored(
         "/entity/host/web02",
         json={"name": "web02", "data": {"networking": {"vlan_secret": "SNEAKED"}}},
     )
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 400, resp.text
     assert "SNEAKED" not in repo_session.files["web02"]
 
 
+async def test_unstored_guarded_property_open_object_caveat(
+    monkeypatch, client, login, repo_session
+):
+    """
+    Documents the trade-off of write-side-only, schema-based enforcement: if
+    a schema author explicitly opens an object (`additionalProperties:
+    true`), a perms-removed property WITHOUT a stored value is covered by
+    nothing — neither a const pin nor the closed-object rule — so setting it
+    succeeds. Schemas must keep objects closed (the default) where yac_perms
+    write gating has to be airtight.
+    """
+    raw = copy.deepcopy(RAW_SPECS)
+    raw["schema"]["additionalProperties"] = True
+    monkeypatch.setattr(specs_lib, "_RAW_DATA", raw)
+
+    # erin lacks `secrets`, but the schema opted out of enforcement here.
+    login("erin")
+    resp = await client.post(
+        "/entity/host",
+        json={"name": "new03", "yaml": "owner: erin\ntop_secret: SNEAKED\n"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert "new03" in repo_session.files
+
+
 #
-# 5) Limits TOCTOU: re-check inside the writer scope
+# 5) Perm-gated oneOf option must not write-protect the whole field
+#
+
+
+async def test_patch_field_with_perm_gated_option_to_allowed_value(
+    client, login, repo_session
+):
+    """
+    Regression: `os` carries one perm-gated oneOf option (`windows-special`,
+    guarded by `secrets`). For bob the option is removed from his schema;
+    that removal must NOT write-protect the whole field — the remaining
+    options still constrain it, so setting an allowed value succeeds. (The
+    former out-of-schema write enforcement treated the removed option like a
+    removed field and rejected every write to `os` as a permission
+    violation.)
+    """
+    login("bob")
+    resp = await client.patch(
+        "/entity/host/web01", json={"name": "web01", "data": {"os": "linux"}}
+    )
+    assert resp.status_code == 200, resp.text
+    assert "os: linux" in repo_session.files["web01"]
+
+
+async def test_patch_field_with_perm_gated_option_to_guarded_value(
+    client, login, repo_session
+):
+    """
+    The permission on the option itself keeps being enforced — by the schema:
+    the guarded option is absent from bob's schema, so its value fails oneOf
+    validation (a 400 data error, not a 403 — the option simply does not
+    exist for him). alice (`secrets`) may select it.
+    """
+    login("bob")
+    resp = await client.patch(
+        "/entity/host/web01",
+        json={"name": "web01", "data": {"os": "windows-special"}},
+    )
+    assert resp.status_code == 400, resp.text
+    assert repo_session.files["web01"] == WEB01_YAML  # nothing committed
+
+    login("alice")
+    resp = await client.patch(
+        "/entity/host/web01",
+        json={"name": "web01", "data": {"os": "windows-special"}},
+    )
+    assert resp.status_code == 200, resp.text
+    assert "os: windows-special" in repo_session.files["web01"]
+
+
+#
+# 6) Limits TOCTOU: re-check inside the writer scope
 #
 
 
@@ -623,7 +678,7 @@ async def test_delete_passes_when_entity_unchanged(client, login, repo_session):
 
 
 #
-# 6) Specs role-key validation (lib-level, runs without the app fixtures)
+# 7) Specs role-key validation (lib-level, runs without the app fixtures)
 #
 
 

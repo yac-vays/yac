@@ -19,6 +19,13 @@ class AddConsts(IJsonSchema):
 
         This will only add data on the object property level, so lists are either
         considered as defined or they are added as a single constant.
+
+        This deliberately includes data whose subschema was removed by
+        yac_perms.py: property-level perms are write-side only — anyone who
+        reaches the edit schema holds `see` and can read the whole entity
+        (including the raw YAML) anyway, as there is no read protection below
+        entity level. The injected `const` is also what keeps such values
+        present-but-immutable for users lacking the guarding perm.
         """
         if props["operation"] != "edit":
             return json_schema, context
@@ -31,14 +38,6 @@ class AddConsts(IJsonSchema):
                 props["old"]["data"], lambda d: isinstance(d, dict)
             )
 
-        # Data paths whose subschema was removed by yac_perms.py due to
-        # missing permissions must not be re-injected as consts — that would
-        # leak values the user has no permission to read. Instead, a permissive
-        # stub is injected so the mere *presence* of the stored key keeps
-        # validating under `additionalProperties: false`. Immutability of the
-        # stored value is enforced outside the schema (see lib/schema.py).
-        removed = context.get("yac_perms_removed", [])
-
         for data_loc in locs.reduce(loc, context["add_consts"], recursive=False):
             data = locs.extract(data_loc, props["old"]["data"])
             if isinstance(data, dict):
@@ -48,18 +47,6 @@ class AddConsts(IJsonSchema):
                             f"Not adding data {data_loc}/{key} to schema {loc}/properties/{key} "
                             "due to existing subschema"
                         )
-                    elif any(r.match(f"{data_loc}/{key}") for r in removed):
-                        logger.debug(
-                            f"Adding permissive stub (instead of data) for "
-                            f"{data_loc}/{key} at {loc}/properties/{key} due to "
-                            "missing permission"
-                        )
-                        if "properties" not in json_schema:
-                            json_schema["properties"] = {}
-                        json_schema["properties"][key] = {
-                            "description": "Hidden (insufficient permissions)",
-                            "yac_optional": True,
-                        }
                     else:
                         if "properties" not in json_schema:
                             json_schema["properties"] = {}

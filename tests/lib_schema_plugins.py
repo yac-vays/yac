@@ -11,6 +11,7 @@ from app.plugin.json_schema.required_defaults import processor as required_defau
 from app.plugin.json_schema.yac_editable import processor as yac_editable
 from app.plugin.json_schema.yac_if_cleanup import processor as yac_if_cleanup
 from app.plugin.json_schema.yac_optional import processor as yac_optional
+from app.plugin.json_schema.yac_perms import processor as yac_perms
 
 
 async def _run(processor, schema, props, ctx=None):
@@ -150,6 +151,57 @@ async def test_yac_editable_removes_unchangable_subschema_on_change():
         yac_editable, {"type": "object", "yac_editable": False, "x": 1}, {"operation": "create"}
     )
     assert "yac_editable" not in out  # not enforced outside edit
+
+
+# ----- yac_perms -----
+
+def _perms_ctx():
+    # process() seeds this at loc "#"; the tests below enter at deeper locs.
+    return {"yac_perms": {"#": ["add", "edt"]}}
+
+
+def _perms_props(perms):
+    return {"operation": "edit", "user": {"perms": perms}}
+
+
+async def test_yac_perms_removes_guarded_subschema_without_side_effects():
+    # Missing perm -> subschema removed. Removal is the WHOLE write-side
+    # enforcement: nothing may be recorded in the shared context (read
+    # protection below entity level does not exist; add_consts echoes the
+    # stored value back as a const, which also pins it).
+    schema, ctx = await yac_perms.process(
+        "#/properties/top_secret",
+        {"type": "string", "yac_perms": ["secrets"]},
+        _perms_ctx(),
+        _perms_props(["edt"]),
+    )
+    assert schema is None
+    assert set(ctx.keys()) == {"yac_perms"}  # no removal bookkeeping
+
+
+async def test_yac_perms_removed_oneof_option_has_no_field_wide_effect():
+    # Regression: a perm-gated oneOf option (enum-style) is removed for a
+    # user without the perm — with no side effects, so the field stays
+    # writable via the remaining options (previously the removal was
+    # recorded and *any* write to the field was rejected).
+    schema, ctx = await yac_perms.process(
+        "#/properties/os/oneOf/1",
+        {"const": "special", "yac_perms": ["secrets"]},
+        _perms_ctx(),
+        _perms_props(["edt"]),
+    )
+    assert schema is None
+    assert set(ctx.keys()) == {"yac_perms"}
+
+
+async def test_yac_perms_keeps_subschema_for_holder_and_consumes_keyword():
+    schema, _ = await yac_perms.process(
+        "#/properties/top_secret",
+        {"type": "string", "yac_perms": ["secrets"]},
+        _perms_ctx(),
+        _perms_props(["edt", "secrets"]),
+    )
+    assert schema == {"type": "string"}
 
 
 # ----- yac_if_cleanup -----
