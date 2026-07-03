@@ -49,6 +49,7 @@ from anyio import Path, open_file
 import redis.asyncio as redis_async
 from redis.exceptions import RedisError
 
+from app.lib import git
 from app.lib import plugin
 from app.lib import specs as _specs
 from app.model.err import RepoError
@@ -254,8 +255,8 @@ class _GitRedisSession(IRepoSession):
         del type, name_link, name_src, msg
         self._no_write()
 
-    async def delete(self, type: str, name: str, msg: str) -> None:
-        del type, name, msg
+    async def delete(self, type: str, name: str, content_old: str, msg: str) -> None:
+        del type, name, content_old, msg
         self._no_write()
 
 
@@ -336,6 +337,13 @@ class GitRedisRepo(IRepo):
             # Snapshot rebuild is best-effort: a failure here leaves
             # Redis stale (next read will refresh via the normal TTL
             # path) but does NOT undo the successful push.
+            #
+            # Deliberately NOT serialized with the cross-pod `pull_lock`:
+            # taking it here (while holding the git_direct writer lock)
+            # would invert the lock order of `_ensure_snapshot` (pull_lock
+            # first, then the writer scope) and deadlock in-process until
+            # the pull_lock TTL reaps the key. Racing rebuilds are instead
+            # kept safe by the rollback guard in `_rebuild_snapshot`.
             try:
                 client = self._redis()
                 await self._rebuild_snapshot(client)
@@ -407,6 +415,27 @@ class GitRedisRepo(IRepo):
             await client.set(_KEY_SYNCED, str(time.time()))
             return new_hash
 
+        # Rollback guard: another pod may have pushed and published a
+        # snapshot that is strictly newer than this pod's local HEAD while
+        # this rebuild was starting (e.g. a refresh pull that raced a
+        # writer on another pod). Publishing our older HEAD would roll
+        # `latest` back to an ancestor AND schedule the newer snapshot's
+        # keys for deletion. If the published snapshot is ready and our
+        # HEAD is its ancestor, keep it and publish nothing.
+        if (
+            old_hash
+            and old_hash != new_hash
+            and await client.get(f"ready:{old_hash}")
+            and await self._published_is_newer(repo_path, new_hash, old_hash)
+        ):
+            logger.info(
+                "git_redis: keeping published snapshot %s (newer than"
+                " local HEAD %s)",
+                old_hash[:8],
+                new_hash[:8],
+            )
+            return old_hash
+
         entries = await self._collect_entries(repo_path)
 
         pipe = client.pipeline(transaction=False)
@@ -436,6 +465,33 @@ class GitRedisRepo(IRepo):
         return new_hash
 
     @staticmethod
+    async def _published_is_newer(
+        repo_path: str, new_hash: str, old_hash: str
+    ) -> bool:
+        """
+        Whether the currently published snapshot (`old_hash`) is strictly
+        newer than the local HEAD (`new_hash`), i.e. `new_hash` is an
+        ancestor of `old_hash`. If the ancestry cannot be determined --
+        typically because `old_hash` was never fetched into this pod's
+        clone -- return False so the caller publishes as before: a
+        wrong-direction publish is corrected by the next refresh, whereas
+        refusing to publish on an undecidable answer could pin a bogus
+        `latest` forever.
+        """
+        gr = git.Repo(path=repo_path, env={"LANG": "C"})
+        try:
+            return await gr.is_ancestor(new_hash, old_hash)
+        except git.GitError as error:
+            logger.warning(
+                "git_redis: cannot compare published snapshot %s with local"
+                " HEAD %s (%s); publishing local HEAD",
+                old_hash[:8],
+                new_hash[:8],
+                error,
+            )
+            return False
+
+    @staticmethod
     async def _read_git_head(repo_path: str) -> str:
         # Avoid spawning git just to read HEAD: refs/heads/<branch> or
         # packed-refs is enough for the snapshot key. Fall back to the
@@ -452,8 +508,6 @@ class GitRedisRepo(IRepo):
         except OSError:
             pass
         # Fall back to git plumbing via the existing helper.
-        from app.lib import git  # local import to avoid cycles at module load
-
         gr = git.Repo(path=repo_path, env={"LANG": "C"})
         return await gr.get_hash()
 

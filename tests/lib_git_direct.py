@@ -152,14 +152,14 @@ async def test_full_write_cycle(repo):
 
         # the linked source must not be deletable
         with pytest.raises(RepoClientError):
-            await s.delete("host", "new", "del")
+            await s.delete("host", "new", "cpu: 1\n", "del")
 
         # rename the clone, then delete it
         await s.write_rename(
             "host", "clone", "clone2", await s.get("host", "clone"), "cpu: 9\n", "rn"
         )
         assert await s.exists("host", "clone2") and not await s.exists("host", "clone")
-        await s.delete("host", "clone2", "del")
+        await s.delete("host", "clone2", "cpu: 9\n", "del")
         assert await s.exists("host", "clone2") is False
 
 
@@ -169,6 +169,23 @@ async def test_write_to_deleted_file_conflicts(repo):
         # claiming a non-empty old content for a file that does not exist
         with pytest.raises(RepoConflict):
             await s.write("host", "ghost", "cpu: 1\n", "cpu: 2\n", "x")
+
+
+async def test_delete_with_stale_content_conflicts(repo):
+    """
+    The optimistic delete pin: a delete carrying content that no longer
+    matches the file (the entity changed after the caller derived its
+    delete authorization from it) must conflict and leave the file alone;
+    with the matching content it goes through.
+    """
+    async with repo.writer(USER) as untyped:
+        s = untyped.session(DETAILS)
+        with pytest.raises(RepoConflict):
+            await s.delete("host", "b", "STALE-CONTENT\n", "del")
+        assert await s.exists("host", "b") is True
+
+        await s.delete("host", "b", "cpu: 8\n", "del")
+        assert await s.exists("host", "b") is False
 
 
 async def test_rename_same_name_rejected(repo):

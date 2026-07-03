@@ -237,9 +237,9 @@ class _GitRepoSession(IRepoSession):
             self._user, self._details, type, name_link, name_src, msg
         )
 
-    async def delete(self, type: str, name: str, msg: str) -> None:
+    async def delete(self, type: str, name: str, content_old: str, msg: str) -> None:
         self._require_writing()
-        await self._h._delete(self._user, self._details, type, name, msg)
+        await self._h._delete(self._user, self._details, type, name, content_old, msg)
 
 
 class GitRepo(IRepo):
@@ -705,12 +705,22 @@ class GitRepo(IRepo):
         details: dict,
         type_name: str,
         name: str,
+        content_old: str,
         msg: str,
     ) -> None:
         if not await self._exists(type_name, name, details):
             raise RepoNotFound("The file does not exist")
         if await self._has_link(type_name, name, details):
             raise RepoClientError("The file must not be deleted because it is linked")
+
+        # Optimistic pin, mirroring `_write`: the caller validated the delete
+        # (perms from `old.data`, templated delete hooks) against `content_old`
+        # under a READER scope; this writer scope pulled in the meantime. If
+        # the entity changed, that authorization is stale — conflict instead
+        # of acting on it.
+        content = await self._get(type_name, name, details)
+        if content != content_old:
+            raise RepoConflict("The data has changed in the meantime")
 
         file = await self._file_path(type_name, name, details)
         await self._assert_inside_repo(file)

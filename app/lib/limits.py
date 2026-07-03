@@ -155,6 +155,31 @@ async def measure(
     return usages
 
 
+async def enforce(
+    rpo: IRepoSession,
+    op: OperationRequest,
+    s: Specs,
+    old: Entity,
+    new_data: dict,
+) -> None:
+    """
+    Re-measure the limits against `rpo` and raise if any is exceeded.
+
+    TOCTOU guard for the quota-consuming write paths (create/copy/link and
+    edit): the routers measure usages inside a *reader* scope (that result
+    feeds the validator and is what the UI displays), but the write happens
+    later inside a separate *writer* scope -- so two concurrent operations
+    could both pass the reader-scope check at usage N-1 and end at N+1.
+    Callers therefore invoke this with the writer-scope session, immediately
+    before writing, so measurement and write are serialized by the repo
+    writer lock. Raises the same RequestError as `lib.validator.test_all`
+    (via `assert_within`), so the HTTP response shape is unchanged.
+    """
+    # `measure`'s hash argument only documents cache scoping and is unused
+    # (the live `rpo` already reflects the writer-scope repo state).
+    assert_within(await measure("", rpo, op, s, old, new_data))
+
+
 def _fmt(n: float) -> str:
     return str(int(n)) if float(n).is_integer() else str(n)
 

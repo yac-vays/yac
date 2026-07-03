@@ -59,6 +59,11 @@ async def delete_entity(
 
     async with repo.handler.writer(op.user) as raw:
         rpo = raw.session(s.repo.details if s.type else {})
-        await rpo.delete(type_name, op.name or "", msg)
+        # `old.yaml` is what the validator derived the delete permission from
+        # (roles can reference `old.data`) and what the DELETE_BEFORE hook was
+        # templated with. The writer scope pulled since then; the plugin
+        # compares and raises RepoConflict (409) if the entity changed, so a
+        # delete never acts on stale authorization.
+        await rpo.delete(type_name, op.name or "", old.yaml or "", msg)
 
     await action.run(TypeActionHook.DELETE_AFTER, op, s)

@@ -32,6 +32,10 @@ handler: IRepo = repo_plugin.handler
 @keyed_alru_cache(
     key_fn=lambda yaml_text: yaml_text,
     maxsize=10000,
+    # Parsed dicts are mutable and handed to many callers (entities embed
+    # them, `load_data*` returns them directly); hand each caller its own
+    # deep copy so concurrent requests cannot corrupt the cache.
+    copy_result=True,
 )
 async def _parse_yaml_dict_cached(yaml_text: str) -> dict:
     """

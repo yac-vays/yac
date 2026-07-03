@@ -44,7 +44,7 @@ from app.lib import specs as specs_lib
 from app.lib import yaml as yaml_lib
 from app.lib.auth import get_current_user
 from app.main import yac
-from app.model.err import SpecsError
+from app.model.err import RepoConflict, SpecsError
 from app.model.out import Diff, Log, User
 
 from tests.conftest import FakeRepoSession
@@ -99,7 +99,11 @@ class WritableRepoSession(FakeRepoSession):
         self.links[name_link] = name_src
         return Diff(name=name_link, hash=self.repo_hash, patch="")
 
-    async def delete(self, type, name, msg):
+    async def delete(self, type, name, content_old, msg):
+        # Mirror the plugin contract (git_direct._delete): a delete validated
+        # against stale content must conflict, not act.
+        if name in self.files and self.files[name] != content_old:
+            raise RepoConflict("The data has changed in the meantime")
         self.files.pop(name, None)
         self.links.pop(name, None)
 
@@ -500,7 +504,126 @@ async def test_hidden_property_cannot_be_set_when_unstored(
 
 
 #
-# 5) Specs role-key validation (lib-level, runs without the app fixtures)
+# 5) Limits TOCTOU: re-check inside the writer scope
+#
+
+
+class RacingRepoHandler(FakeRepoHandler):
+    """
+    FakeRepoHandler whose *writer* scope reveals one extra entity, simulating
+    a concurrent create that landed between the reader scope (where the
+    router measured the limits and the validator approved them) and the
+    writer scope (where the entity is written).
+    """
+
+    @asynccontextmanager
+    async def writer(self, user=None):
+        self._sess.files.setdefault("sniped", "owner: mallory\n")
+        yield _Untyped(self._sess)
+
+
+def _specs_with_limit(cap: str) -> dict:
+    raw = copy.deepcopy(RAW_SPECS)
+    raw["types"][0]["limits"] = [{"title": "hosts", "max": cap}]
+    return raw
+
+
+async def test_create_limit_recheck_blocks_raced_quota(
+    monkeypatch, client, login, repo_session
+):
+    """
+    Cap 3, two existing entities: the reader-scope check passes (2+1=3), but
+    a "concurrent" create consumes the last slot before the writer scope
+    opens. The writer-scope re-check must reject the create with the same
+    400 the validator would produce, and nothing may be written.
+    """
+    monkeypatch.setattr(specs_lib, "_RAW_DATA", _specs_with_limit("3"))
+    monkeypatch.setattr(repo_lib, "handler", RacingRepoHandler(repo_session))
+
+    login("alice")
+    resp = await client.post(
+        "/entity/host", json={"name": "new01", "yaml": "owner: alice\n"}
+    )
+    assert resp.status_code == 400, resp.text
+    assert 'Limit "hosts" reached: 4/3' in resp.json()["message"]
+    assert "new01" not in repo_session.files  # the raced create was blocked
+
+
+async def test_create_limit_recheck_passes_without_race(
+    monkeypatch, client, login, repo_session
+):
+    """Control: same cap but no interleaved create -> the writer-scope
+    re-check passes and the entity is committed."""
+    monkeypatch.setattr(specs_lib, "_RAW_DATA", _specs_with_limit("3"))
+
+    login("alice")
+    resp = await client.post(
+        "/entity/host", json={"name": "new01", "yaml": "owner: alice\n"}
+    )
+    assert resp.status_code == 201, resp.text
+    assert "new01" in repo_session.files
+
+
+async def test_edit_limit_recheck_blocks_raced_quota(
+    monkeypatch, client, login, repo_session
+):
+    """The same guard protects the edit path: a PATCH that was fine at
+    reader time (web01 is replaced by itself: 1 other + 1 incoming = 2) is
+    rejected once the raced create appears in the writer scope (3 > 2)."""
+    monkeypatch.setattr(specs_lib, "_RAW_DATA", _specs_with_limit("2"))
+    monkeypatch.setattr(repo_lib, "handler", RacingRepoHandler(repo_session))
+
+    login("alice")
+    resp = await client.patch(
+        "/entity/host/web01", json={"name": "web01", "data": {"owner": "zelda"}}
+    )
+    assert resp.status_code == 400, resp.text
+    assert 'Limit "hosts" reached' in resp.json()["message"]
+    assert "owner: zelda" not in repo_session.files["web01"]
+
+
+class MutatingRepoHandler(FakeRepoHandler):
+    """
+    FakeRepoHandler whose *writer* scope reveals a concurrently MODIFIED
+    web01, simulating an edit that landed between the reader scope (where the
+    delete's permission was validated against `old.data`) and the writer
+    scope (where the delete happens).
+    """
+
+    @asynccontextmanager
+    async def writer(self, user=None):
+        self._sess.files["web01"] = "owner: mallory\n"
+        yield _Untyped(self._sess)
+
+
+async def test_delete_conflicts_when_entity_changed_meanwhile(
+    monkeypatch, client, login, repo_session
+):
+    """
+    The delete's authorization (and its templated DELETE hooks) were derived
+    from the reader-scope content. If the entity changed before the writer
+    scope, the delete must 409 like an edit would — never act on stale
+    authorization — and the (new) file must survive.
+    """
+    monkeypatch.setattr(repo_lib, "handler", MutatingRepoHandler(repo_session))
+
+    login("alice")
+    resp = await client.delete("/entity/host/web01")
+    assert resp.status_code == 409, resp.text
+    assert "changed in the meantime" in resp.json()["message"]
+    assert repo_session.files["web01"] == "owner: mallory\n"  # nothing deleted
+
+
+async def test_delete_passes_when_entity_unchanged(client, login, repo_session):
+    """Control: no interleaved change -> the pinned delete goes through."""
+    login("alice")
+    resp = await client.delete("/entity/host/web01")
+    assert resp.status_code == 204, resp.text
+    assert "web01" not in repo_session.files
+
+
+#
+# 6) Specs role-key validation (lib-level, runs without the app fixtures)
 #
 
 

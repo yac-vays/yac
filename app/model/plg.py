@@ -200,7 +200,16 @@ class IRepoSession:
     ) -> Diff: ...
 
     @abstractmethod
-    async def delete(self, type: str, name: str, msg: str) -> None: ...
+    async def delete(self, type: str, name: str, content_old: str, msg: str) -> None:
+        """
+        Delete the entity, but only if its current content still equals
+        `content_old` — the content the caller derived its authorization (and
+        the templated delete hooks) from. A mismatch must raise `RepoConflict`,
+        exactly like `write`: the permissions/roles can depend on the entity
+        data (`old.data` in role conditions), so deleting a concurrently
+        modified entity would act on stale authorization.
+        """
+        ...
 
 
 class IRepoUntyped:

@@ -17,6 +17,12 @@ from collections import OrderedDict
 from functools import wraps
 from typing import Any, Callable
 
+# Strong references to in-flight single-flight computation tasks. asyncio
+# keeps only weak references to tasks, so without this a computation whose
+# leader was cancelled (and thus is no longer awaiting it) could be
+# garbage-collected mid-flight, leaving the waiters hanging.
+_inflight_tasks: set[asyncio.Task] = set()
+
 
 def stable_key(value: Any) -> Any:
     """
@@ -48,8 +54,12 @@ def keyed_alru_cache(
     - `copy_result`: deep-copy on hit so callers cannot corrupt cached entries.
 
     Concurrent misses on the same key are single-flighted: the first caller
-    runs the computation, all others await its result (exceptions propagate
-    to every waiter and never poison the in-flight map).
+    (the leader) starts the computation, all others await its result
+    (exceptions propagate to every waiter and never poison the in-flight
+    map). The computation itself runs in a separate task shielded from the
+    leader: a cancelled leader (e.g. its HTTP request was aborted by a
+    client disconnect) re-raises its own CancelledError but does NOT abort
+    the computation — the waiters are still served the computed value.
     """
 
     def decorator(func):
@@ -79,31 +89,53 @@ def keyed_alru_cache(
                     leader = False
 
             if not leader:
-                # Awaiting the future re-raises the leader's exception (if
-                # any) in every waiter without cancelling the computation.
+                # Awaiting the future re-raises the computation's exception
+                # (if any) in every waiter without cancelling the computation.
                 value = await fut
                 return copy.deepcopy(value) if copy_result else value
 
-            try:
-                value = await func(*args, **kwargs)
-            except BaseException as error:
+            async def compute() -> None:
+                """
+                Run the computation and settle `fut`. Runs as its own task
+                (not in the leader's coroutine) so a cancelled leader cannot
+                abort it; it must therefore never raise — an unawaited task
+                exception would warn at GC — so failures are delivered to the
+                leader and the waiters exclusively via `fut`. Cache-publish
+                and the inflight-pop also happen here, guaranteeing they run
+                even when the leader is gone (inflight entries are always
+                popped exactly once, before `fut` is settled).
+                """
+                try:
+                    value = await func(*args, **kwargs)
+                except BaseException as error:  # pylint: disable=broad-exception-caught
+                    async with lock:
+                        inflight.pop(key, None)
+                    fut.set_exception(error)
+                    # Mark the exception as retrieved so a leader without
+                    # waiters does not trigger "exception was never
+                    # retrieved" warnings.
+                    fut.exception()
+                    return
                 async with lock:
+                    expires = (now + ttl) if ttl is not None else float("inf")
+                    cache[key] = (expires, value)
+                    cache.move_to_end(key)
+                    while len(cache) > maxsize:
+                        cache.popitem(last=False)
                     inflight.pop(key, None)
-                fut.set_exception(error)
-                # Mark the exception as retrieved so a leader without waiters
-                # does not trigger "exception was never retrieved" warnings.
-                fut.exception()
-                raise
+                fut.set_result(value)
 
-            async with lock:
-                expires = (now + ttl) if ttl is not None else float("inf")
-                cache[key] = (expires, value)
-                cache.move_to_end(key)
-                while len(cache) > maxsize:
-                    cache.popitem(last=False)
-                inflight.pop(key, None)
-            fut.set_result(value)
-
+            task = asyncio.get_running_loop().create_task(compute())
+            _inflight_tasks.add(task)
+            task.add_done_callback(_inflight_tasks.discard)
+            # If the leader is cancelled at this await point, the shield
+            # re-raises the CancelledError in the leader only; the task
+            # keeps running and settles `fut` for the waiters.
+            await asyncio.shield(task)
+            # `compute` never raises: by now `fut` is settled with either
+            # the value or the original exception from `func`, which this
+            # await re-raises in the leader (matching the waiters).
+            value = await fut
             return copy.deepcopy(value) if copy_result else value
 
         wrapper.cache_clear = cache.clear  # type: ignore[attr-defined]

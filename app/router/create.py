@@ -66,6 +66,12 @@ async def add_entity(
 
     async with repo.handler.writer(op.user) as raw:
         rpo = raw.session(s.repo.details if s.type else {})
+        # The reader-scope measurement above produced the `usages` the
+        # validator checked (and the UI displays), but a concurrent create
+        # may have consumed the remaining quota since that scope closed.
+        # Re-measure with the writer session and enforce again before
+        # writing (enforcement only; `usages` stays the displayed value).
+        await limits.enforce(rpo, op, s, old, new_data)
         name = op.entity.name if op.entity else None
         if name is None:
             if isinstance(op.entity, (CopyEntity, LinkEntity)):

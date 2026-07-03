@@ -138,6 +138,69 @@ def _copy_result_off_shares_reference() -> None:
     asyncio.run(run())
 
 
+def _cancelled_leader_does_not_abort_waiters() -> None:
+    """A cancelled single-flight leader (e.g. its request was aborted by a
+    client disconnect) must not propagate the CancelledError to unrelated
+    waiters on the same key: the computation keeps running in its own task
+    and the waiters receive the computed value."""
+    calls = {"n": 0}
+
+    @keyed_alru_cache(lambda k: (k,), maxsize=10)
+    async def f(k):
+        calls["n"] += 1
+        await asyncio.sleep(0.05)
+        return f"value-{k}"
+
+    async def run() -> None:
+        leader = asyncio.create_task(f("x"))
+        await asyncio.sleep(0.01)  # let the leader register in-flight
+        waiter = asyncio.create_task(f("x"))
+        await asyncio.sleep(0.01)  # let the waiter attach to the future
+
+        leader.cancel()
+        # The leader re-raises its own cancellation ...
+        try:
+            await leader
+            raise AssertionError("leader should have been cancelled")
+        except asyncio.CancelledError:
+            pass
+        # ... but the waiter is still served the computed value ...
+        assert await waiter == "value-x"
+        # ... which was also published to the cache (no recomputation).
+        assert await f("x") == "value-x"
+        assert calls["n"] == 1
+
+    asyncio.run(run())
+
+
+def _exception_propagates_to_leader_and_waiters() -> None:
+    """A real exception from the computation must still reach the leader
+    AND every waiter (the shielded-task change only affects cancellation)."""
+
+    class Boom(Exception):
+        pass
+
+    @keyed_alru_cache(lambda k: (k,), maxsize=10)
+    async def f(k):
+        await asyncio.sleep(0.02)
+        raise Boom(k)
+
+    async def run() -> None:
+        leader = asyncio.create_task(f("x"))
+        await asyncio.sleep(0.01)  # let the leader register in-flight
+        waiter = asyncio.create_task(f("x"))
+        results = await asyncio.gather(leader, waiter, return_exceptions=True)
+        assert all(isinstance(r, Boom) for r in results), results
+        # The failure is not cached: the next call recomputes (and fails).
+        try:
+            await f("x")
+            raise AssertionError("expected Boom")
+        except Boom:
+            pass
+
+    asyncio.run(run())
+
+
 def _cache_clear_and_size() -> None:
     @keyed_alru_cache(lambda k: (k,), maxsize=10)
     async def f(k):
@@ -182,5 +245,7 @@ def test() -> None:
     _ttl_expiry()
     _copy_result_isolation()
     _copy_result_off_shares_reference()
+    _cancelled_leader_does_not_abort_waiters()
+    _exception_propagates_to_leader_and_waiters()
     _cache_clear_and_size()
     _unhashable_args_pass_through()

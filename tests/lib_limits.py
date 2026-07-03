@@ -11,7 +11,10 @@ Covers the two limits edge cases that were security/UX holes:
 repo/limits layer does not exit at import time.
 """
 
+import pytest
+
 from app.lib import limits
+from app.model.err import RequestError
 from app.model.inp import NewEntity, OperationRequest, UpdateEntity
 from app.model.int import Entity
 from app.model.out import User
@@ -124,6 +127,36 @@ async def test_scope_filters_out_of_scope_entities(fake_repo):
         Entity(name=None, exists=False), {"kind": "bare"},
     )
     assert usages[0].used == 2  # only existing A, C
+
+
+async def test_enforce_raises_when_writer_scope_is_at_cap(fake_repo):
+    """
+    `enforce` is the writer-scope TOCTOU re-check: given a session whose
+    entity count already consumed the cap (as if a concurrent create landed
+    after the reader-scope measurement), it must raise the same RequestError
+    the validator raises, so the HTTP response shape is unchanged.
+    """
+    rpo = fake_repo(files={"A": "x: 1", "B": "x: 1", "C": "x: 1"})
+    lim = TypeLimit.model_construct(
+        title="hosts", on=["create"], scope="true", value="1", max="3"
+    )
+    with pytest.raises(RequestError, match='Limit "hosts" reached: 4/3'):
+        await limits.enforce(
+            rpo, _create_op("x: 1"), _specs_with(lim),
+            Entity(name=None, exists=False), {"x": 1},
+        )
+
+
+async def test_enforce_passes_below_cap(fake_repo):
+    """Control: with a free slot left, `enforce` returns without raising."""
+    rpo = fake_repo(files={"A": "x: 1", "B": "x: 1"})
+    lim = TypeLimit.model_construct(
+        title="hosts", on=["create"], scope="true", value="1", max="3"
+    )
+    await limits.enforce(
+        rpo, _create_op("x: 1"), _specs_with(lim),
+        Entity(name=None, exists=False), {"x": 1},
+    )
 
 
 async def test_limit_not_applicable_to_operation(fake_repo):

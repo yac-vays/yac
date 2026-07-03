@@ -13,7 +13,16 @@ logger = logging.getLogger(__name__)
 
 
 class GitError(Exception):
-    pass
+    """
+    Raised for any failing git invocation. `returncode` carries the exit
+    status when the failure was a non-zero exit (None for other failures,
+    e.g. timeouts), so callers can tell apart commands that answer via the
+    exit status (like `merge-base --is-ancestor`) from real errors.
+    """
+
+    def __init__(self, message: str, *, returncode: int | None = None) -> None:
+        super().__init__(message)
+        self.returncode = returncode
 
 
 class GitTimeoutError(GitError):
@@ -49,7 +58,8 @@ class Repo:
 
         if proc.returncode != 0:
             raise GitError(
-                f"Command git {' '.join(args)} failed with: {stderr.decode()}"
+                f"Command git {' '.join(args)} failed with: {stderr.decode()}",
+                returncode=proc.returncode,
             )
         return stdout.decode()
 
@@ -116,6 +126,23 @@ class Repo:
 
     async def get_hash(self) -> str:
         return (await self.__run("rev-parse", "HEAD", timeout=3)).strip()
+
+    async def is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        """
+        Whether commit `ancestor` is an ancestor of (or equal to) commit
+        `descendant`. `git merge-base --is-ancestor` answers via its exit
+        status: 0 means yes, 1 means no, anything else (e.g. a commit
+        unknown to the local clone) is a real error and raises GitError.
+        """
+        try:
+            await self.__run(
+                "merge-base", "--is-ancestor", ancestor, descendant, timeout=3
+            )
+        except GitError as error:
+            if error.returncode == 1:
+                return False
+            raise
+        return True
 
     async def get_fetch_time(self) -> float:
         file = f"{self.path}/.git/FETCH_HEAD"
