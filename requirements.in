@@ -8,6 +8,7 @@ fastapi[standard]
 httptools # to optimize uvicorn
 httpx
 itsdangerous # required by Authlib
+joserfc # Authlib's JOSE layer, its errors surface unwrapped (see lib/auth.py)
 jinja2
 jsonschema[format]
 ldap3

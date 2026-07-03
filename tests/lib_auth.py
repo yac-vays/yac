@@ -10,6 +10,7 @@ owns: the audience check, the `Bearer ` prefix stripping, and the
 full_name/email primary-vs-fallback template logic.
 """
 
+import joserfc.errors
 import pytest
 
 from app.lib import auth
@@ -77,6 +78,24 @@ async def test_aud_not_accepted_raises(fake_oidc):
 
 async def test_parse_failure_becomes_auth_error(fake_oidc):
     fake_oidc(AuthlibBaseError("bad signature"))
+    with pytest.raises(AuthError):
+        await auth.get_current_user("tok")
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        joserfc.errors.ExpiredTokenError("exp"),
+        joserfc.errors.BadSignatureError(),
+        joserfc.errors.DecodeError("not a JWT"),
+        joserfc.errors.InvalidClaimError("iss"),
+    ],
+)
+async def test_joserfc_failure_becomes_auth_error(fake_oidc, exc):
+    # Since authlib 1.6 `parse_id_token` validates via joserfc, whose errors
+    # do NOT inherit AuthlibBaseError. An expired/forged/garbled token must
+    # still surface as a clean 401 AuthError, not an unhandled 500.
+    fake_oidc(exc)
     with pytest.raises(AuthError):
         await auth.get_current_user("tok")
 
