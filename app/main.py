@@ -97,16 +97,17 @@ DESCRIPTION = f"""
 
 We are using the OpenID Connect provider
 [{urlparse(specs.AUTH.oidc.url).netloc}]({specs.AUTH.oidc.url})
-for authentication. You need to send a valid `id_token` via `Authorization: Bearer`
-header to all API endpoints that require authentication.
+for authentication. You need to send a valid `id_token` or (self-contained JWT)
+`access_token` via `Authorization: Bearer` header to all API endpoints that
+require authentication.
 
 Only the following `client_id`s are accepted:
 `{'` `'.join(specs.AUTH.oidc.client_ids)}`
 
 For interactive user logins, `authentication_code with PKCE` flow (with a
 dummy `nonce` parameter that won't be validated) is recommended. For
-automated login in scripts/software, use the `password` flow instead (therefore
-you will also need the `client_secret`).
+automated login in scripts/software, use the `client_credentials` flow instead
+(therefore you will need the `client_secret`).
 
 ## Source, Issues and Documentation
 

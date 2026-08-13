@@ -22,10 +22,41 @@ class AuthOIDCJWT(BaseModel):
     email_fallback: str = "{sub}@localhost"
 
 
+class AuthOIDCAccessTokenJWT(AuthOIDCJWT):
+    # Access tokens from the `client_credentials` grant carry no user
+    # claims (`name`, `given_name`, ...), so the `sub` (usually the
+    # technical client name) is the only sensible default fallback.
+    full_name_fallback: str = "{sub}"
+
+
+class AuthOIDCAccount(BaseModel):
+    # Static identity attached to a machine client, keyed by the token's
+    # `sub` in `AuthOIDCAccessTokens.accounts`. Unset fields fall back to
+    # the `access_tokens.jwt` format-strings.
+    name: str = ""
+    full_name: str = ""
+    email: str = ""
+
+
+class AuthOIDCAccessTokens(BaseModel):
+    # Accepting OIDC JWT access tokens (RFC 9068, e.g. from the OAuth2
+    # `client_credentials` grant) is enabled by listing at least one
+    # accepted `aud`. A bearer token whose `aud` matches one of these
+    # takes the access-token path instead of the id-token path.
+    audiences: list[str] = []
+    algorithms: list[str] = ["RS256"]
+    # Optional allow-list of accepted `sub` values (empty = any subject
+    # that passes the signature/iss/exp/aud checks).
+    subjects: list[str] = []
+    jwt: AuthOIDCAccessTokenJWT = AuthOIDCAccessTokenJWT()
+    accounts: dict[str, AuthOIDCAccount] = {}
+
+
 class AuthOIDC(BaseModel):
     url: str = "https://localhost/.well-known/openid-configuration"
     client_ids: list[str] = []
     jwt: AuthOIDCJWT = AuthOIDCJWT()
+    access_tokens: AuthOIDCAccessTokens = AuthOIDCAccessTokens()
 
 
 class AuthCORS(BaseModel):
