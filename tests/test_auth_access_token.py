@@ -29,10 +29,11 @@ from app.model.spc import (
 FUTURE = 33279209665  # some year-3024 exp; the registry checks against real time
 
 
-def _jwtish(claims: dict) -> str:
+def _jwtish(claims: dict, typ: str | None = None) -> str:
     """A JWT-*shaped* token (unsigned) — enough for the routing peek."""
+    header = base64.urlsafe_b64encode(json.dumps({"typ": typ} if typ else {}).encode())
     payload = base64.urlsafe_b64encode(json.dumps(claims).encode())
-    return f"e30.{payload.decode().rstrip('=')}.c2ln"
+    return f"{header.decode().rstrip('=')}.{payload.decode().rstrip('=')}.c2ln"
 
 
 def _claims(**over) -> dict:
@@ -125,6 +126,42 @@ async def test_routing_disabled_without_audiences(fake_idp):
     )
     user = await auth.get_current_user(_jwtish(_claims()))
     assert user.name == "u1"
+
+
+async def test_at_jwt_typ_with_audiences_disabled_gets_precise_error(fake_idp):
+    # An RFC 9068 `typ: at+jwt` token can never be an id-token; instead of
+    # the cryptic missing-nonce error, say that access tokens are not enabled.
+    cfg = Auth(oidc=AuthOIDC(client_ids=["client-a"]))
+    fake_idp(auth_cfg=cfg)
+    with pytest.raises(AuthError, match="not enabled"):
+        await auth.get_current_user(_jwtish(_claims(), typ="at+jwt"))
+
+
+async def test_at_jwt_typ_with_wrong_aud_gets_precise_error(fake_idp):
+    fake_idp()
+    with pytest.raises(AuthError, match='"other-api" is not accepted'):
+        await auth.get_current_user(_jwtish(_claims(aud="other-api"), typ="at+jwt"))
+
+
+async def test_at_jwt_typ_is_case_insensitive(fake_idp):
+    fake_idp()
+    with pytest.raises(AuthError, match="is not accepted"):
+        await auth.get_current_user(
+            _jwtish(_claims(aud="other-api"), typ="application/AT+JWT")
+        )
+
+
+async def test_missing_nonce_error_carries_access_token_hint(fake_idp, monkeypatch):
+    # IdPs that omit the `typ` header route to the id-token path and fail on
+    # the missing nonce (authlib's ImplicitIDToken) — the message must hint
+    # at the audience config instead of leaving only the nonce complaint.
+    async def _parse(token, nonce=None):
+        raise joserfc.errors.MissingClaimError("nonce")
+
+    fake_idp(id_claims={})  # id-token path is expected here
+    monkeypatch.setattr(auth.authlib_oauth.oidc, "parse_id_token", _parse)
+    with pytest.raises(AuthError, match="access_tokens.audiences"):
+        await auth.get_current_user(_jwtish(_claims(aud="other-api")))
 
 
 # ----- verified claims checks -----

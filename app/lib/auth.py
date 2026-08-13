@@ -29,7 +29,7 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import Depends
 from fastapi.security.open_id_connect_url import OpenIdConnect
 from joserfc import jwt as jose_jwt
-from joserfc.errors import InvalidKeyIdError, JoseError
+from joserfc.errors import InvalidKeyIdError, JoseError, MissingClaimError
 from joserfc.jwk import KeySet
 
 from app.lib import specs
@@ -62,17 +62,22 @@ def _aud_set(aud) -> set:
     return set()
 
 
-def _unverified_claims(token: str) -> dict:
+def _unverified_part(token: str, index: int) -> dict:
     """
-    Best-effort decode of a JWT payload WITHOUT verification, used only to
-    route the token to the right validation path. Never trust the result.
+    Best-effort decode of a JWT part (0 = header, 1 = payload) WITHOUT
+    verification, used only to route the token to the right validation path
+    and to improve rejection messages. Never trust the result.
     """
     try:
-        payload = token.split(".")[1]
-        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        part = token.split(".")[index]
+        decoded = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
     except (IndexError, ValueError):
         return {}
-    return claims if isinstance(claims, dict) else {}
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def _unverified_claims(token: str) -> dict:
+    return _unverified_part(token, 1)
 
 
 def _is_access_token(token: str) -> bool:
@@ -81,6 +86,28 @@ def _is_access_token(token: str) -> bool:
         return False
     aud = _unverified_claims(token).get("aud", "")
     return bool(_aud_set(aud).intersection(audiences))
+
+
+def _reject_unrouted_access_token(token: str) -> None:
+    """
+    A token with the RFC 9068 header `typ: at+jwt` is definitely an access
+    token, never an id-token; if it did not match the access-token routing it
+    could only go on to fail id-token validation with a cryptic complaint
+    about the missing `nonce` claim, so reject it with the real reason here.
+    The unverified header/claims are only used to phrase the rejection.
+    """
+    if str(_unverified_part(token, 0).get("typ", "")).lower() not in (
+        "at+jwt",
+        "application/at+jwt",
+    ):
+        return
+    if not specs.AUTH.oidc.access_tokens.audiences:
+        raise AuthError(
+            "Access tokens are not enabled on this server"
+            " (no auth.oidc.access_tokens.audiences configured)"
+        )
+    aud = _unverified_claims(token).get("aud", "")
+    raise AuthError(f'The access token audience "{aud}" is not accepted')
 
 
 def _extract_name(jwt_cfg: AuthOIDCJWT, claims: dict) -> str:
@@ -142,8 +169,18 @@ async def _user_from_id_token(token: str) -> User:
         # Since authlib 1.6 the JOSE layer is joserfc, whose errors (expired
         # token, bad signature, malformed JWT, invalid claims) surface
         # unwrapped and do NOT inherit from AuthlibBaseError.
+        hint = ""
+        # A nonce-less but otherwise valid-looking token is usually an access
+        # token that missed the audience routing (some IdPs omit the RFC 9068
+        # `typ` header, so _reject_unrouted_access_token cannot catch it).
+        if isinstance(error, MissingClaimError) and "'nonce'" in str(error):
+            hint = (
+                " — id-tokens must carry a nonce; if this was meant as an"
+                " access token, its aud must match one of"
+                " auth.oidc.access_tokens.audiences"
+            )
         raise AuthError(
-            f"Supplied authentication could not be validated ({error})"
+            f"Supplied authentication could not be validated ({error}){hint}"
         ) from error
 
     jwt_cfg = specs.AUTH.oidc.jwt
@@ -218,6 +255,7 @@ async def get_current_user(token: Annotated[str, Depends(fastapi_oauth2)]) -> Us
     token = token[7:] if token[:7].lower() == "bearer " else token
     if _is_access_token(token):
         return await _user_from_access_token(token)
+    _reject_unrouted_access_token(token)
     return await _user_from_id_token(token)
 
 
