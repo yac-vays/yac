@@ -64,7 +64,7 @@ def get_functions(kind: str) -> dict[str, FunctionType]:
 
 
 @lru_cache(maxsize=None)
-def get_modules(kind: str, require: tuple[str] | None = None) -> dict[str, ModuleType]:
+def _load_modules(kind: str) -> dict[str, ModuleType]:
     modules = {}
     kind_dir = _kind_dir(kind)
     try:
@@ -80,6 +80,11 @@ def get_modules(kind: str, require: tuple[str] | None = None) -> dict[str, Modul
             modules.update({Path(file).stem: module})
         except (pydoc.ErrorDuringImport, ImportError, OSError, SyntaxError) as error:
             raise PluginError(f"Could not import plugin {file}: {error}") from error
+    return modules
+
+
+def get_modules(kind: str, require: tuple[str] | None = None) -> dict[str, ModuleType]:
+    modules = _load_modules(kind)
     if not set(modules.keys()).issuperset(set(require or [])):
         missing = list(set(require or []).difference(modules.keys()))
         raise PluginError(
