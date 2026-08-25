@@ -86,6 +86,19 @@ def test_get_modules_require_present_ok():
     assert "git_direct" in mods
 
 
+def test_get_modules_returns_same_objects_for_all_call_arities():
+    # Regression: the lru_cache used to sit on get_modules itself, so
+    # get_modules("x"), get_modules("x", None) and get_modules("x", require=...)
+    # were distinct cache keys, each re-importing every plugin and yielding
+    # duplicate module (and processor) instances.
+    a = plugin.get_modules("json_schema")
+    b = plugin.get_modules("json_schema", None)
+    c = plugin.get_modules("json_schema", require=("required_defaults",))
+    assert a["required_defaults"] is b["required_defaults"]
+    assert a["required_defaults"] is c["required_defaults"]
+    assert a["required_defaults"].processor is b["required_defaults"].processor
+
+
 # ----- get_sorted ordering + late/early partition -----
 
 def test_get_sorted_partitions_and_orders():
@@ -99,3 +112,14 @@ def test_get_sorted_partitions_and_orders():
     # within a partition, order numbers are non-decreasing
     nums = [p.order()[1] for p in early]
     assert nums == sorted(nums)
+
+
+def test_get_sorted_required_defaults_runs_after_yac_optional():
+    # required_defaults needs the required list that yac_optional builds; a tie
+    # in order numbers would leave their relative order to the filesystem
+    # enumeration of the plugin dir (non-deterministic across deployments).
+    late = plugin.get_sorted("json_schema", "processor", late=True)
+    names = [type(p).__name__ for p in late]
+    assert names.index("YacOptional") < names.index("RequiredDefaults")
+    orders = {type(p).__name__: p.order()[1] for p in late}
+    assert orders["YacOptional"] < orders["RequiredDefaults"]

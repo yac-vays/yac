@@ -106,6 +106,34 @@ async def test_get_toplevel_removed_without_perms_becomes_not_schema():
     assert out.valid is False
 
 
+# ----- get: required_defaults runs after yac_optional (full pipeline) -----
+
+async def test_get_required_props_get_materialising_defaults():
+    # Regression: required_defaults must sort strictly after yac_optional, which
+    # builds the required list. With equal order numbers the relative order was
+    # filesystem-dependent and required_defaults could silently inject nothing
+    # (required objects then never materialise client-side, so their nested
+    # property defaults never reach the data). Only a full-pipeline test can
+    # catch this; the isolated plugin test hands over a ready-made required list.
+    out = await _get(
+        {"type": "object",
+         "properties": {
+             "identity": {"type": "object", "vays_category": "X",
+                          "properties": {"uuid": {"type": "string",
+                                                  "default": "X"}}},
+             "tags": {"type": "array", "vays_category": "X",
+                      "items": {"type": "string"}},
+             "flag": {"type": "boolean", "vays_category": "X"}}},
+        new_data={"identity": {"uuid": "X"}, "tags": [], "flag": False},
+    )
+    props = out.json_schema["properties"]
+    assert props["identity"]["default"] == {}
+    assert props["tags"]["default"] == []
+    assert props["flag"]["default"] is False
+    # an existing default is left alone
+    assert props["identity"]["properties"]["uuid"]["default"] == "X"
+
+
 # ----- get: schema_formats plugin wiring -----
 
 async def test_get_format_checker_uses_schema_formats_plugin():
