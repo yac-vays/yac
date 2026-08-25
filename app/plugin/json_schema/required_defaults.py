@@ -9,8 +9,9 @@ logger = logging.getLogger(__name__)
 class RequiredDefaults(IJsonSchema):
 
     def order(self) -> tuple[bool, int]:
-        # Must run after yac_optional.py to ensure required list is complete
-        return True, 110
+        # Must run after yac_optional.py (True, 110) to ensure the required
+        # list is complete.
+        return True, 120
 
     async def process(
         self, loc: str, json_schema: dict, context: dict, props: dict
