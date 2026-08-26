@@ -67,6 +67,20 @@ def _get_template(strict: bool, nonstr: bool, source: str):
     return _get_env(strict, nonstr).from_string(source)
 
 
+def _compile(strict: bool, nonstr: bool, source: str, loc: str):
+    """
+    Compile via the template cache, converting a Jinja2 syntax error (a
+    specs mistake) into a J2Error so callers report it as a specs error
+    instead of crashing the request.
+    """
+    try:
+        return _get_template(strict, nonstr, source)
+    except jinja2.TemplateSyntaxError as error:
+        raise J2Error(
+            f'Templating str "{source}" failed with: {error}', loc=loc
+        ) from error
+
+
 # Top-level Jinja2 variables that may differ between entities inside one
 # request. An expression that references none of them yields the same value
 # for every entity, so callers may evaluate it once per request and reuse.
@@ -120,6 +134,15 @@ def _get_sync_env(nonstr: bool) -> SandboxedEnvironment:
 @lru_cache(maxsize=1000)
 def _get_sync_template(nonstr: bool, source: str):
     return _get_sync_env(nonstr).from_string(source)
+
+
+def _compile_sync(nonstr: bool, source: str, loc: str):
+    try:
+        return _get_sync_template(nonstr, source)
+    except jinja2.TemplateSyntaxError as error:
+        raise J2Error(
+            f'Templating str "{source}" failed with: {error}', loc=loc
+        ) from error
 
 
 async def render(
@@ -209,7 +232,7 @@ async def render_str(
     s, props, *, allow_nonstr: bool = True, strict: bool = True, loc: str = "#"
 ):
     nonstr = bool(re.match(r"^(\{\{|\{%).+(\}\}|%\})$", s)) and allow_nonstr
-    template = _get_template(strict, nonstr, s)
+    template = _compile(strict, nonstr, s, loc)
     try:
         result = await template.render_async({"loc": loc} | props)
     except RequestError as error:
@@ -225,7 +248,7 @@ async def render_str(
             # Multi-part templates (e.g. "{{ a }} text {{ b }}") match the
             # nonstr heuristic but do not render to a single JSON value;
             # fall back to a plain string render.
-            template = _get_template(strict, False, s)
+            template = _compile(strict, False, s, loc)
             try:
                 return await template.render_async({"loc": loc} | props)
             except RequestError as error:
@@ -298,7 +321,7 @@ def render_sync(o, props: dict, *, skip: str | None = None, loc: str = "#"):
 
 def render_sync_str(s, props, *, allow_nonstr: bool = True, loc: str = "#"):
     nonstr = bool(re.match(r"^(\{\{|\{%).+(\}\}|%\})$", s)) and allow_nonstr
-    template = _get_sync_template(nonstr, s)
+    template = _compile_sync(nonstr, s, loc)
     try:
         result = template.render({"loc": loc} | props)
     except (jinja2.exceptions.UndefinedError, Exception) as error:
@@ -310,7 +333,7 @@ def render_sync_str(s, props, *, allow_nonstr: bool = True, loc: str = "#"):
             # Multi-part templates (e.g. "{{ a }} text {{ b }}") match the
             # nonstr heuristic but do not render to a single JSON value;
             # fall back to a plain string render.
-            template = _get_sync_template(False, s)
+            template = _compile_sync(False, s, loc)
             try:
                 return template.render({"loc": loc} | props)
             except Exception as error:

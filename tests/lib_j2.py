@@ -51,6 +51,22 @@ async def test_render_str_strict_undefined_raises():
         await j2.render_str("{{ missing }}", {})
 
 
+async def test_syntax_error_raises_j2error():
+    # A specs typo must surface as J2Error (-> specs error to the user),
+    # not escape as a raw jinja2.TemplateSyntaxError (-> 500).
+    with pytest.raises(j2.J2Error):
+        await j2.render_test(
+            "not new.data.x|default('')|string).startswith('windows-')", {}
+        )
+    with pytest.raises(j2.J2Error):
+        await j2.render_str("{{ broken )", {})
+
+
+def test_syntax_error_raises_j2error_sync():
+    with pytest.raises(j2.J2Error):
+        j2.render_sync_str("{{ broken )", {})
+
+
 def test_uses_old_data():
     assert j2.uses_old_data("old.data.cpus") is True
     assert j2.uses_old_data("old['data']['cpus']") is True
