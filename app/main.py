@@ -34,6 +34,28 @@ logging.basicConfig(level=consts.ENV.log_level.upper(), handlers=[log_handler])
 
 logger = logging.getLogger(__name__)
 
+
+class HealthAccessLogFilter(logging.Filter):
+    """
+    Demote successful `GET /health` access-log lines (probe noise) from INFO
+    to DEBUG, so they only show up when DEBUG logging is enabled.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            # uvicorn.access args: (client_addr, method, path, http_version, status)
+            _, method, path, _, status_code = record.args  # type: ignore[misc]
+        except (TypeError, ValueError):
+            return True
+        if method != "GET" or path != "/health" or status_code >= 300:
+            return True
+        record.levelno = logging.DEBUG
+        record.levelname = logging.getLevelName(logging.DEBUG)
+        return logging.getLogger(record.name).isEnabledFor(logging.DEBUG)
+
+
+logging.getLogger("uvicorn.access").addFilter(HealthAccessLogFilter())
+
 #
 # Startup / Shutdown
 #
