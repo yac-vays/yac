@@ -287,6 +287,32 @@ async def test_validate_keeps_guarded_properties_for_privileged_user(client, log
     assert schema["properties"]["legacy"]["const"] == "keep-me"
 
 
+async def test_validate_read_covers_stored_document_with_consts(client, login):
+    """
+    Read operations get the same const injection as edit: for carol
+    (see-only) the display schema echoes stored keys without a subschema
+    (`legacy`, `networking.note`) as consts, so the stored document
+    validates instead of false-firing on the default
+    `additionalProperties: false`. Guarded subschemas stay in place as real
+    subschemas — yac_perms is write-side only and ignored on read.
+    """
+    login("carol")
+    resp = await client.post(
+        "/validate",
+        json={"operation": "read", "type": "host", "name": "web01", "entity": None},
+    )
+    assert resp.status_code == 200
+    schemas = resp.json()["schemas"]
+    schema = schemas["json_schema"]
+
+    assert schema["properties"]["legacy"]["const"] == "keep-me"
+    nested = schema["properties"]["networking"]["properties"]
+    assert nested["note"]["const"] == "nested-const-note"
+    assert schema["properties"]["top_secret"]["type"] == "string"
+    assert nested["vlan_secret"]["type"] == "string"
+    assert schemas["valid"] is True
+
+
 #
 # 2) Cross-router permission consistency
 #

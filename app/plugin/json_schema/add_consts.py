@@ -26,8 +26,13 @@ class AddConsts(IJsonSchema):
         (including the raw YAML) anyway, as there is no read protection below
         entity level. The injected `const` is also what keeps such values
         present-but-immutable for users lacking the guarding perm.
+
+        Read operations get the same consts: the display schema then covers
+        the whole stored document, so stored keys without a subschema neither
+        fail the read validation on `additionalProperties: false` nor show up
+        as unknown properties in a schema-aware YAML viewer.
         """
-        if props["operation"] != "edit":
+        if props["operation"] not in ("edit", "read"):
             return json_schema, context
 
         if json_schema.get("type", "") != "object":
