@@ -14,6 +14,7 @@ from app.model.inp import OperationRequest
 from app.model.inp import PathName
 from app.model.inp import PathType
 from app.model.inp import QueryActions
+from app.model.inp import QueryForce
 from app.model.inp import QueryMsg
 from app.model.inp import ReplaceEntity
 from app.model.inp import UpdateEntity
@@ -36,10 +37,15 @@ async def update_entity(
     entity: ReplaceEntity,
     msg: QueryMsg = "Edit",
     run: QueryActions = [],
+    force: QueryForce = False,
 ) -> Diff:
     """
     Will validate the given data, overwrite the existing entity and, if
     configured and/or requested, run actions.
+
+    With `force` (admin override, requires the "adm" permission), the write is
+    accepted even when the data fails schema validation; YAML syntax, name
+    rules, permissions, conflicts and limits are still enforced.
     """
     op = OperationRequest(
         request_headers=dict(request.headers),
@@ -50,6 +56,7 @@ async def update_entity(
         name=entity_name,
         actions=run,
         entity=entity,
+        force=force,
     )
 
     s = await specs.read(op)
@@ -60,7 +67,11 @@ async def update_entity(
         new_data, _ = validator.incoming_new_data(op, old)
         usages = await limits.measure(hash, rpo, op, s, old, new_data)
 
-    await validator.test_all(op, s, old, new, perms, usages)
+    result = await validator.test_all(op, s, old, new, perms, usages)
+    if force and not result.schemas.valid:
+        # Audit trail: the repo history must show that this commit was written
+        # past a failing schema validation.
+        msg = f"{msg} (admin override: schema validation bypassed)"
 
     await action.run(TypeActionHook.EDIT_BEFORE, op, s)
 

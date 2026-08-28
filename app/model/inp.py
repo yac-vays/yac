@@ -18,6 +18,16 @@ QueryLimit = Annotated[int, Query(gt=0, le=10000)]
 QueryActions = Annotated[
     list[Annotated[str, Field(pattern=consts.ACTION_PATTERN)]], Query()
 ]
+QueryForce = Annotated[
+    bool,
+    Query(
+        description=(
+            "Write the entity even when its data fails schema validation"
+            ' (requires the "adm" permission). YAML syntax, name rules,'
+            " permissions, conflicts and limits are still enforced."
+        )
+    ),
+]
 
 
 class Entity(BaseModel):
@@ -118,3 +128,8 @@ class OperationRequest(Operation):
     request_headers: dict
     request_ip: str
     user: out.User
+    # Admin override (the `force` query parameter of the write endpoints): skip
+    # SCHEMA enforcement for this write. Gated on the "adm" permission in
+    # `validator.test_all`. Deliberately NOT part of `Operation` (the /validate
+    # request body): validation results must always report the real state.
+    force: bool = False

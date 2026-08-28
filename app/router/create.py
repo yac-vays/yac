@@ -16,6 +16,7 @@ from app.model.inp import NewEntity
 from app.model.inp import OperationRequest
 from app.model.inp import PathType
 from app.model.inp import QueryActions
+from app.model.inp import QueryForce
 from app.model.inp import QueryMsg
 from app.model.out import Diff
 from app.model.out import TypeActionHook
@@ -36,10 +37,15 @@ async def add_entity(
     entity: NewEntity | CopyEntity | LinkEntity,
     msg: QueryMsg = "Create",
     run: QueryActions = [],
+    force: QueryForce = False,
 ) -> Diff:
     """
     Will validate the given data, create the entity and, if configured and/or
     requested, run actions.
+
+    With `force` (admin override, requires the "adm" permission), the entity is
+    created even when its data fails schema validation; YAML syntax, name
+    rules, permissions, conflicts and limits are still enforced.
     """
     op = OperationRequest(
         request_headers=dict(request.headers),
@@ -50,6 +56,7 @@ async def add_entity(
         name=None,
         actions=run,
         entity=entity,
+        force=force,
     )
 
     s = await specs.read(op)
@@ -61,6 +68,10 @@ async def add_entity(
         usages = await limits.measure(hash, rpo, op, s, old, new_data)
 
     result = await validator.test_all(op, s, old, new, perms, usages)
+    if force and not result.schemas.valid:
+        # Audit trail: the repo history must show that this commit was written
+        # past a failing schema validation.
+        msg = f"{msg} (admin override: schema validation bypassed)"
 
     await action.run(TypeActionHook.CREATE_BEFORE, op, s)
 

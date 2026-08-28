@@ -83,6 +83,8 @@ class WritableRepoSession(FakeRepoSession):
 
     async def write(self, type, name, content_old, content_new, msg):
         self.files[name] = content_new
+        # Recorded so tests can assert on the commit message (audit markers).
+        self.last_msg = msg
         return Diff(name=name, hash=self.repo_hash, patch="")
 
     async def write_rename(self, type, name_old, name_new, content_old, content_new, msg):
@@ -782,3 +784,117 @@ def test_wellformed_role_keys_pass():
     # Non-list shapes are left for pydantic to report later -- no raise here.
     specs_lib._validate_role_keys({"roles": "not-a-list"})
     specs_lib._validate_role_keys({})
+
+
+#
+# 9) Admin override: the `force` query parameter on the write endpoints
+#
+
+INVALID_WEB01_YAML = WEB01_YAML.replace("owner: alice", "owner: 123")
+
+
+def _put_body(yaml_new: str) -> dict:
+    return {"name": "web01", "yaml_old": WEB01_YAML, "yaml_new": yaml_new}
+
+
+async def test_force_requires_adm_perm(client, login, repo_session):
+    """
+    erin may edit (edt) but holds no adm: `force` itself is forbidden (403) —
+    NOT reduced to the 400 data error the same request would produce without
+    the flag. The flag is an explicit privilege, not a hint.
+    """
+    login("erin")
+    resp = await client.put(
+        "/entity/host/web01", params={"force": True}, json=_put_body(INVALID_WEB01_YAML)
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["title"] == "Forbidden"
+    assert repo_session.files["web01"] == WEB01_YAML  # unchanged
+
+
+async def test_invalid_data_rejected_for_admin_without_force(client, login, repo_session):
+    """Holding adm alone never bypasses validation: the override is opt-in."""
+    login("alice")
+    resp = await client.put("/entity/host/web01", json=_put_body(INVALID_WEB01_YAML))
+    assert resp.status_code == 400, resp.text
+    assert repo_session.files["web01"] == WEB01_YAML  # unchanged
+
+
+async def test_force_bypasses_schema_validation_with_audit_marker(
+    client, login, repo_session
+):
+    """
+    alice (adm) + force: the schema-invalid document is written verbatim and
+    the commit message records the override for the repo history.
+    """
+    login("alice")
+    resp = await client.put(
+        "/entity/host/web01", params={"force": True}, json=_put_body(INVALID_WEB01_YAML)
+    )
+    assert resp.status_code == 200, resp.text
+    assert repo_session.files["web01"] == INVALID_WEB01_YAML
+    assert "admin override: schema validation bypassed" in repo_session.last_msg
+
+
+async def test_force_with_valid_data_leaves_no_audit_marker(client, login, repo_session):
+    """A forced write that passes validation is an ordinary commit."""
+    login("alice")
+    valid = WEB01_YAML.replace("owner: alice", "owner: zelda")
+    resp = await client.put(
+        "/entity/host/web01", params={"force": True}, json=_put_body(valid)
+    )
+    assert resp.status_code == 200, resp.text
+    assert "admin override" not in repo_session.last_msg
+
+
+async def test_force_still_rejects_malformed_yaml(client, login, repo_session):
+    """The override skips SCHEMA enforcement only: syntax errors still block."""
+    login("alice")
+    resp = await client.put(
+        "/entity/host/web01",
+        params={"force": True},
+        json=_put_body("owner: [unclosed\n"),
+    )
+    assert resp.status_code == 400, resp.text
+    assert repo_session.files["web01"] == WEB01_YAML  # unchanged
+
+
+async def test_force_create_bypasses_schema_validation(client, login, repo_session):
+    login("alice")
+    resp = await client.post(
+        "/entity/host",
+        params={"force": True},
+        json={"name": "web09", "yaml": "owner: 123\n"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert repo_session.files["web09"] == "owner: 123\n"
+    assert "admin override: schema validation bypassed" in repo_session.last_msg
+
+
+async def test_force_create_requires_adm_perm(client, login, repo_session):
+    login("erin")  # erin has add, but not adm
+    resp = await client.post(
+        "/entity/host",
+        params={"force": True},
+        json={"name": "web09", "yaml": "owner: 123\n"},
+    )
+    assert resp.status_code == 403, resp.text
+    assert "web09" not in repo_session.files
+
+
+async def test_validate_reports_expanded_perms(client, login):
+    """
+    /validate now echoes the user's expanded entity perms, so a UI can decide
+    whether to offer the admin override (in create mode there is no stored
+    entity to read them from).
+    """
+    login("alice")
+    resp = await client.post("/validate", json=_validate_body({"owner": "x"}))
+    assert resp.status_code == 200, resp.text
+    assert "adm" in resp.json()["perms"]
+
+    login("erin")
+    resp = await client.post("/validate", json=_validate_body({"owner": "x"}))
+    assert resp.status_code == 200, resp.text
+    perms = resp.json()["perms"]
+    assert "edt" in perms and "adm" not in perms

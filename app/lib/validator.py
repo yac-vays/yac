@@ -7,6 +7,7 @@ from app.lib import plugin
 from app.lib import schema
 from app.lib import yaml
 from app.model.err import RequestError
+from app.model.err import RequestForbidden
 from app.model.inp import CopyEntity
 from app.model.inp import LinkEntity
 from app.model.inp import NewEntity
@@ -112,6 +113,13 @@ async def test_all(
     result for the UI and enforced here so the standard error handling applies.
     """
 
+    # The admin override (`force` on the write endpoints) is only available to
+    # users holding the "adm" permission — enforced here, not (only) in the UI.
+    # `force` can only arrive via the write routers, which always call with
+    # raise_on_error=True; /validate cannot set it.
+    if op.force and "adm" not in perms:
+        raise RequestForbidden('You need the "adm" permission to force a write.')
+
     request = Request(valid=True)
 
     new_data, yaml_error = incoming_new_data(op, old)
@@ -158,7 +166,10 @@ async def test_all(
             request.valid = False
             request.message = str(error)
 
-    if raise_on_error and not schemas.valid:
+    # An admin override (`force`, gated on "adm" above) skips exactly this
+    # SCHEMA enforcement — everything before it (YAML syntax, name/request
+    # rules, permissions, conflicts, limits) raised already when violated.
+    if raise_on_error and not schemas.valid and not op.force:
         # A change without content changes (a pure rename or a no-op) moves
         # the stored YAML as-is, so stored data that no longer matches the
         # current schema must not block it. The validity is still reported
@@ -166,7 +177,9 @@ async def test_all(
         if op.operation != "edit" or has_content_changes(op):
             raise RequestError(schemas.message)
 
-    return ValidationResult(schemas=schemas, request=request, usages=usages)
+    return ValidationResult(
+        schemas=schemas, request=request, usages=usages, perms=perms
+    )
 
 
 async def test_ls(op: OperationRequest, specs: Specs) -> None:

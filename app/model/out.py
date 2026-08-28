@@ -294,6 +294,15 @@ class ValidationResult(BaseModel):
             )
         ),
     ] = []
+    perms: Annotated[
+        list[str],
+        Field(
+            description=(
+                "The user's (expanded) permissions for this entity, e.g. so a"
+                ' UI can offer the "adm" admin override where applicable'
+            )
+        ),
+    ] = []
 
 
 #
