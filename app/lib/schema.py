@@ -69,6 +69,18 @@ async def get(
             valid=True,
         )
     except jsonschema.ValidationError as error:
+        loc_path = [str(i) for i in list(error.path)]
+        # A `required` violation is anchored on the PARENT object by
+        # jsonschema, which for top-level properties is the document root —
+        # useless for a UI that wants to mark the offending field. The missing
+        # property is derivable structurally (first required name absent from
+        # the instance), so point `data_loc` at the property itself.
+        if error.validator == "required" and isinstance(error.instance, dict):
+            missing = next(
+                (p for p in error.validator_value if p not in error.instance), None
+            )
+            if missing is not None:
+                loc_path.append(str(missing))
         return out.Schema(
             json_schema=json_schema,
             ui_schema=ui_schema,
@@ -77,7 +89,7 @@ async def get(
             message=error.message,
             validator=str(error.validator),
             json_schema_loc="/".join(["#"] + [str(i) for i in list(error.schema_path)]),
-            data_loc="/".join(["#"] + [str(i) for i in list(error.path)]),
+            data_loc="/".join(["#"] + loc_path),
         )
 
 

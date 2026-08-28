@@ -898,3 +898,31 @@ async def test_validate_reports_expanded_perms(client, login):
     assert resp.status_code == 200, resp.text
     perms = resp.json()["perms"]
     assert "edt" in perms and "adm" not in perms
+
+
+#
+# 10) Located `required` errors: data_loc points at the MISSING property
+#
+
+
+async def test_required_error_locates_missing_property(client, login):
+    """
+    jsonschema anchors `required` on the parent object (the document root for
+    top-level properties); the schema layer re-anchors data_loc on the missing
+    property itself so UIs can mark the offending field.
+    """
+    login("alice")
+    resp = await client.post(
+        "/validate",
+        json={
+            "operation": "edit",
+            "type": "host",
+            "name": "web01",
+            "entity": {"name": "web01", "data": {"owner": "~undefined"}},
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["schemas"]["valid"] is False
+    assert body["schemas"]["validator"] == "required"
+    assert body["schemas"]["data_loc"] == "#/owner"
