@@ -107,6 +107,12 @@ class TypeLimit(BaseModel):
     max: str
     # Operations this limit is enforced on. `delete` can never exceed a cap.
     on: list[Literal["create", "edit"]] = ["create", "edit"]
+    # Optional data-loc of the entity-data property this limit relates to,
+    # in the same `#/key/subkey` syntax as `data_loc` (e.g. `#/cpus` or
+    # `#/disks/data_gb`; quote it in YAML, `#` starts a comment). Purely
+    # informational for UIs (VAYS anchors the usage indicator on that field);
+    # never evaluated.
+    path: str | None = None
 
 
 class Type(out.Type):

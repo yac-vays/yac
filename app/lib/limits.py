@@ -149,6 +149,7 @@ async def measure(
                 used=total,
                 max=cap,
                 ok=total <= cap,
+                path=lim.path,
             )
         )
 

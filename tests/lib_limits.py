@@ -159,6 +159,29 @@ async def test_enforce_passes_below_cap(fake_repo):
     )
 
 
+async def test_path_is_propagated_to_usage(fake_repo):
+    # The optional `path` UI hint (data-loc syntax, like `data_loc`) must be
+    # copied verbatim into the usage.
+    old = Entity(name="A", exists=True, data={"cpus": 4})
+    lim = TypeLimit.model_construct(**_CPUS_LIMIT, path="#/cpus")
+    usages = await limits.measure(
+        "h", _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
+    )
+    assert usages[0].path == "#/cpus"
+
+
+async def test_path_defaults_to_none(fake_repo):
+    old = Entity(name="A", exists=True, data={"cpus": 4})
+    lim = TypeLimit.model_construct(**_CPUS_LIMIT)
+    usages = await limits.measure(
+        "h", _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
+    )
+    # Pathless limits serialize `path: null` -- the wire shape VAYS's runtime
+    # type-check (`path: Maybe String`) relies on.
+    assert usages[0].path is None
+    assert usages[0].model_dump()["path"] is None
+
+
 async def test_limit_not_applicable_to_operation(fake_repo):
     # A limit that only applies on `create` yields no usage on an `edit`.
     rpo = fake_repo(files={"A": "cpus: 4"})

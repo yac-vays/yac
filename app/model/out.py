@@ -280,6 +280,19 @@ class LimitUsage(BaseModel):
         bool,
         Field(description="Whether `used` is still within `max`"),
     ] = True
+    path: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Data-loc of the entity-data property this limit relates to"
+                " (copied from the limit spec; same `#/key/subkey` syntax as"
+                " `data_loc`, e.g. `#/cpus`). Lets a UI anchor the usage next"
+                " to the matching field; null when the limit is not tied to a"
+                " single field."
+            ),
+            examples=["#/cpus"],
+        ),
+    ] = None
 
 
 class ValidationResult(BaseModel):
