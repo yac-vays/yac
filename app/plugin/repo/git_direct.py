@@ -364,6 +364,19 @@ class GitRepo(IRepo):
             # instance or directly to the repo in the millisecond between
             # pull and push. If this occurs more often than expected
             # (~ never), we can implement a retry mechanism here.
+            #
+            # The git output only lives in the chained exception, which the
+            # error handler does not log -- so log it here. A timeout is
+            # special: the push may well have reached the remote already
+            # (the client process is killed, not the server-side update), so
+            # the commit can be on the remote although the user got an error.
+            if isinstance(error, git.GitTimeoutError):
+                logger.error(
+                    f"Commit/push from {self.path} timed out ({error}); the"
+                    " push may have succeeded on the remote nevertheless"
+                )
+            else:
+                logger.error(f"Commit/push from {self.path} failed: {error}")
             await self._cleanup(user)
             raise RepoError(
                 f"Unable to commit and push changes from {self.path}"

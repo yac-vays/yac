@@ -29,6 +29,15 @@ class GitTimeoutError(GitError):
     pass
 
 
+# Network operations (clone / pull / push) share a generous timeout: a slow
+# remote must not look like a failure. This matters twice for pull, which the
+# git_direct plugin answers with a full reclone, and for push, whose
+# server-side ref update usually completes even when the client is killed on
+# timeout (the user then sees an error for a commit that did land). Local
+# commands keep their short timeouts.
+NETWORK_TIMEOUT = 30
+
+
 class Repo:
 
     def __init__(self, path: str, env: dict[str, str]) -> None:
@@ -71,7 +80,12 @@ class Repo:
         self.loaded = True
 
     async def clone(
-        self, url: str, *, depth: int = 1, branch: str = "main", timeout: int = 30
+        self,
+        url: str,
+        *,
+        depth: int = 1,
+        branch: str = "main",
+        timeout: int = NETWORK_TIMEOUT,
     ) -> None:
         try:
             await Path(self.path).mkdir(parents=True, exist_ok=True)
@@ -89,7 +103,7 @@ class Repo:
         )
         self.loaded = True
 
-    async def pull(self, timeout: int = 5) -> None:
+    async def pull(self, timeout: int = NETWORK_TIMEOUT) -> None:
         await self.__run("pull", timeout=timeout)
 
     async def add(self, files: list[str]) -> None:
@@ -98,7 +112,7 @@ class Repo:
     async def commit(self, msg: str) -> None:
         await self.__run("commit", "-m", msg, timeout=3)
 
-    async def push(self, timeout: int = 5) -> None:
+    async def push(self, timeout: int = NETWORK_TIMEOUT) -> None:
         await self.__run("push", timeout=timeout)
 
     async def is_dirty(self) -> bool:
