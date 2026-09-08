@@ -209,3 +209,65 @@ def test_update_replaces_lists_but_merges_dicts():
     # dict patch merges (b preserved); list patch replaces wholesale.
     out = yaml.load_as_dict(yaml.update(base, {'obj': {'a': 9}, 'lst': [7]}))
     assert out == {'obj': {'a': 9, 'b': 2}, 'lst': [7]}
+
+
+STRUCT_OLD = """---
+# header
+owner: alice   # who
+legacy: keep
+networking:
+  ip: 10.0.0.1
+  # nested comment
+  note: n
+list:
+  - a
+  # in list
+  - b
+"""
+
+
+def test_has_structural_changes_data_changes_are_not_structural():
+    h = yaml.has_structural_changes
+    assert not h(STRUCT_OLD, STRUCT_OLD)
+    # values
+    assert not h(STRUCT_OLD, STRUCT_OLD.replace('note: n', 'note: m'))
+    assert not h(STRUCT_OLD, STRUCT_OLD.replace('  - b\n', '  - c\n'))
+    # a changed value takes its quoting from the new document
+    assert not h(STRUCT_OLD, STRUCT_OLD.replace('owner: alice', 'owner: "bob"'))
+    # removed keys (top-level, nested, whole object), whatever comment is
+    # attached to them (eol or following line) goes with them
+    assert not h(STRUCT_OLD, STRUCT_OLD.replace('legacy: keep\n', ''))
+    assert not h(STRUCT_OLD, STRUCT_OLD.replace('owner: alice   # who\n', ''))
+    assert not h(STRUCT_OLD, STRUCT_OLD.replace('  ip: 10.0.0.1\n', ''))
+    assert not h(STRUCT_OLD, STRUCT_OLD.replace(
+        'networking:\n  ip: 10.0.0.1\n  # nested comment\n  note: n\n', ''))
+    # added keys, wherever they are inserted
+    assert not h(STRUCT_OLD, STRUCT_OLD + 'newkey: 1\n')
+    assert not h(STRUCT_OLD, STRUCT_OLD.replace('legacy: keep\n', 'legacy: keep\nmid: 1\n'))
+    assert not h(STRUCT_OLD, STRUCT_OLD.replace('  ip: 10.0.0.1\n', '  first: 0\n  ip: 10.0.0.1\n'))
+    # blank lines are spacing, not structure
+    assert not h(STRUCT_OLD, STRUCT_OLD.replace('legacy: keep\n', 'legacy: keep\n\n'))
+    # an empty stored document has no structure to preserve
+    assert not h('', STRUCT_OLD)
+
+
+def test_has_structural_changes_detects_non_data_changes():
+    h = yaml.has_structural_changes
+    # comments: removed (top-level, eol, nested, inside an unchanged list),
+    # edited, added
+    assert h(STRUCT_OLD, STRUCT_OLD.replace('# header\n', ''))
+    assert h(STRUCT_OLD, STRUCT_OLD.replace('   # who', ''))
+    assert h(STRUCT_OLD, STRUCT_OLD.replace('  # nested comment\n', ''))
+    assert h(STRUCT_OLD, STRUCT_OLD.replace('  # in list\n', ''))
+    assert h(STRUCT_OLD, STRUCT_OLD.replace('# header', '# hdr'))
+    assert h(STRUCT_OLD, STRUCT_OLD + '# new\n')
+    # order of existing keys
+    assert h(STRUCT_OLD, STRUCT_OLD.replace(
+        'owner: alice   # who\nlegacy: keep\n', 'legacy: keep\nowner: alice   # who\n'))
+    # quoting / style of an unchanged value
+    assert h(STRUCT_OLD, STRUCT_OLD.replace('owner: alice', 'owner: "alice"'))
+    assert h(STRUCT_OLD, STRUCT_OLD.replace('note: n', 'note: |-\n    n'))
+    # anchors
+    assert h(STRUCT_OLD, STRUCT_OLD.replace('owner: alice', 'owner: &o alice').replace('note: n', 'note: *o'))
+    # wiping the document
+    assert h(STRUCT_OLD, '')

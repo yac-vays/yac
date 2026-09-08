@@ -5,11 +5,12 @@ they are exercised directly (one `processor.process(loc, schema, ctx, props)`
 call) since each is a pure transform of the schema dict.
 """
 
+from app.consts import REMOVED
 from app.plugin.json_schema.add_consts import processor as add_consts
 from app.plugin.json_schema.additional_properties import processor as additional_properties
 from app.plugin.json_schema.required_defaults import processor as required_defaults
 from app.plugin.json_schema.yac_editable import processor as yac_editable
-from app.plugin.json_schema.yac_if_cleanup import processor as yac_if_cleanup
+from app.plugin.json_schema.removed_cleanup import processor as removed_cleanup
 from app.plugin.json_schema.yac_optional import processor as yac_optional
 from app.plugin.json_schema.yac_perms import processor as yac_perms
 
@@ -127,6 +128,42 @@ async def test_add_consts_preserves_existing_data_as_const():
     assert out["properties"]["extra"]["const"] == "keep"
 
 
+async def test_add_consts_unknown_key_is_optional_only_with_cln():
+    # Not defined by the schema at all: exactly what "cln" is for.
+    def schema():
+        return {"type": "object", "properties": {"known": {"type": "string"}}}
+    old = {"data": {"known": "v", "extra": "keep"}}
+    out = await _run(add_consts, schema(), {"operation": "edit", "old": old, "user": {"perms": ["edt"]}})
+    assert out["properties"]["extra"] == {"const": "keep", "yac_optional": False}
+    out = await _run(add_consts, schema(), {"operation": "edit", "old": old, "user": {"perms": ["edt", "cln"]}})
+    assert out["properties"]["extra"] == {"const": "keep", "yac_optional": True}
+
+
+async def test_add_consts_perms_removed_key_is_always_required():
+    # Defined by the schema but removed by yac_perms / yac_editable: the
+    # marker is replaced by an immutable const, even for "cln" holders.
+    for reason in ("perms", "editable"):
+        schema = {"type": "object", "properties": {"guarded": {REMOVED: reason, "not": True}}}
+        props = {
+            "operation": "edit",
+            "old": {"data": {"guarded": "secret"}},
+            "user": {"perms": ["edt", "cln"]},
+        }
+        out, ctx = await _process(add_consts, schema, props)
+        assert out["properties"]["guarded"] == {"const": "secret"}
+        assert ctx["add_consts_state"]["#/properties/guarded"] == reason
+
+
+async def test_add_consts_leaves_if_removed_key_alone():
+    # Defined by the schema but its yac_if is false: the data has to go, so
+    # no const is injected (removed_cleanup drops the marker afterwards).
+    schema = {"type": "object", "properties": {"cond": {REMOVED: "if", "not": True}}}
+    props = {"operation": "edit", "old": {"data": {"cond": "stale"}}, "user": {"perms": ["edt"]}}
+    out, ctx = await _process(add_consts, schema, props)
+    assert out["properties"]["cond"] == {REMOVED: "if", "not": True}
+    assert "add_consts_state" not in ctx
+
+
 async def test_add_consts_noop_on_create():
     schema = {"type": "object", "properties": {"known": {"type": "string"}}}
     props = {"operation": "create", "old": {"data": {}}, "user": {"perms": []}}
@@ -137,10 +174,16 @@ async def test_add_consts_noop_on_create():
 # ----- yac_editable -----
 
 async def test_yac_editable_removes_unchangable_subschema_on_change():
+    schema, _ = await yac_editable.process(
+        "#/properties/x", {"type": "object", "yac_editable": False}, {}, {"operation": "edit"}
+    )
+    # marked as removed (dropped by removed_cleanup) -> field cannot be modified
+    assert schema == {REMOVED: "editable", "not": True}
+    # at the top level there is no parent object to consult the marker
     schema, _ = await _process(
         yac_editable, {"type": "object", "yac_editable": False}, {"operation": "edit"}
     )
-    assert schema is None  # removed -> field cannot be modified
+    assert schema is None
 
     # editable=True (or non-edit op) keeps the schema and drops the marker.
     out = await _run(
@@ -175,7 +218,7 @@ async def test_yac_perms_removes_guarded_subschema_without_side_effects():
         _perms_ctx(),
         _perms_props(["edt"]),
     )
-    assert schema is None
+    assert schema == {REMOVED: "perms", "not": True}
     assert set(ctx.keys()) == {"yac_perms"}  # no removal bookkeeping
 
 
@@ -190,7 +233,7 @@ async def test_yac_perms_removed_oneof_option_has_no_field_wide_effect():
         _perms_ctx(),
         _perms_props(["edt"]),
     )
-    assert schema is None
+    assert schema == {REMOVED: "perms", "not": True}
     assert set(ctx.keys()) == {"yac_perms"}
 
 
@@ -204,12 +247,28 @@ async def test_yac_perms_keeps_subschema_for_holder_and_consumes_keyword():
     assert schema == {"type": "string"}
 
 
-# ----- yac_if_cleanup -----
+# ----- removed_cleanup -----
 
-async def test_yac_if_cleanup_drops_false_subschema():
-    # yac_if left at False (condition unmet) -> the subschema is removed.
-    schema, _ = await _process(yac_if_cleanup, {"type": "object", "yac_if": False}, {})
-    assert schema is None
-    # no yac_if marker -> untouched.
-    out = await _run(yac_if_cleanup, {"type": "object", "x": 1}, {})
-    assert out == {"type": "object", "x": 1}
+async def test_removed_cleanup_drops_marked_children():
+    # Marked subschemas (by yac_if / yac_perms / yac_editable) are dropped by
+    # the cleanup running on their PARENT: from properties, composition
+    # lists and single-subschema keywords alike.
+    marker = {REMOVED: "perms", "not": True}
+    schema = {
+        "type": "object",
+        "properties": {"keep": {"type": "string"}, "drop": marker},
+        "oneOf": [{"const": "a"}, marker],
+        "items": marker,
+        "then": {"type": "string"},
+    }
+    out = await _run(removed_cleanup, schema, {})
+    assert out == {
+        "type": "object",
+        "properties": {"keep": {"type": "string"}},
+        "oneOf": [{"const": "a"}],
+        "then": {"type": "string"},
+    }
+    # a marker itself is left alone: this is its own post-order pass, only
+    # the parent's pass may drop it (after add_consts consulted it there)
+    out = await _run(removed_cleanup, dict(marker), {})
+    assert out == marker

@@ -1,3 +1,4 @@
+from app.lib import locs
 from app.model.err import SchemaSpecsError
 from app.lib import j2
 from app.model.plg import IJsonSchema
@@ -13,7 +14,9 @@ class YacIf(IJsonSchema):
         """
         Removes subschemas where yac_if evaluates to false.
 
-        Also see the yac_if_cleanup plugin, which will do the actual cleanup.
+        The subschema is only *marked* as removed here (so add_consts.py can
+        still see that the schema defines this data); the removed_cleanup
+        plugin does the actual removal afterwards.
         """
         if "yac_if" not in json_schema:
             return json_schema, context
@@ -29,8 +32,7 @@ class YacIf(IJsonSchema):
             raise SchemaSpecsError(f"{loc}/yac_if is not a boolean or string")
 
         if not condition:
-            json_schema = {"yac_if": False, "not": {}}
-            # will be cleaned up in the yac_if_cleanup plugin!
+            json_schema = locs.removed(loc, "if")
         else:
             json_schema.pop("yac_if")
 

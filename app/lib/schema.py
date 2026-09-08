@@ -43,7 +43,7 @@ async def get(
     except j2.J2Error as error:
         raise SchemaSpecsError(f"{error.loc}: {error}") from error
 
-    json_schema, ui_schema, _ = await handle_schema(
+    json_schema, ui_schema, context = await handle_schema(
         "#", json_schema, {}, {}, schema_props
     )
 
@@ -69,28 +69,58 @@ async def get(
             valid=True,
         )
     except jsonschema.ValidationError as error:
-        loc_path = [str(i) for i in list(error.path)]
-        # A `required` violation is anchored on the PARENT object by
-        # jsonschema, which for top-level properties is the document root —
-        # useless for a UI that wants to mark the offending field. The missing
-        # property is derivable structurally (first required name absent from
-        # the instance), so point `data_loc` at the property itself.
-        if error.validator == "required" and isinstance(error.instance, dict):
-            missing = next(
-                (p for p in error.validator_value if p not in error.instance), None
-            )
-            if missing is not None:
-                loc_path.append(str(missing))
+        message, data_loc = _describe(error, context)
         return out.Schema(
             json_schema=json_schema,
             ui_schema=ui_schema,
             data=new_data,
             valid=False,
-            message=error.message,
+            message=message,
             validator=str(error.validator),
             json_schema_loc="/".join(["#"] + [str(i) for i in list(error.schema_path)]),
-            data_loc="/".join(["#"] + loc_path),
+            data_loc=data_loc,
         )
+
+
+def _describe(error: jsonschema.ValidationError, context: dict) -> tuple[str, str]:
+    """
+    The (message, data_loc) to report for a validation error.
+
+    A `required` violation is anchored on the PARENT object by jsonschema,
+    which for top-level properties is the document root — useless for a UI
+    that wants to mark the offending field. The missing property is derivable
+    structurally (first required name absent from the instance), so point
+    `data_loc` at the property itself.
+
+    If that property is a required `const` injected by add_consts.py, the
+    stored key was removed although the user may not do that; say so instead
+    of the misleading "is a required property" (`add_consts_state` in the
+    context records "unknown" or the removal reason, see locs.specification).
+    """
+    loc_path = [str(i) for i in list(error.path)]
+    message = error.message
+    if error.validator == "required" and isinstance(error.instance, dict):
+        missing = next(
+            (p for p in error.validator_value if p not in error.instance), None
+        )
+        if missing is not None:
+            loc_path.append(str(missing))
+            schema_loc = "/".join(
+                ["#"]
+                + [str(i) for i in list(error.schema_path)[:-1]]
+                + ["properties", str(missing)]
+            )
+            state = context.get("add_consts_state", {}).get(schema_loc)
+            if state == "unknown":
+                message = (
+                    f"'{missing}' is not covered by the schema, removing it"
+                    ' requires the "cln" permission'
+                )
+            elif state == "perms":
+                message = f"'{missing}' may not be removed (missing permission)"
+            elif state == "editable":
+                message = f"'{missing}' may not be removed (not editable)"
+    return message, "/".join(["#"] + loc_path)
 
 
 async def handle_schema(

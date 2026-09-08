@@ -9,6 +9,7 @@
 #   bob    - entity-level edit (see/edt/cln) but NO secrets, add, del, act
 #   carol  - read-only (see)
 #   erin   - can create/edit (see/add/edt/cln) but NO secrets
+#   frank  - entity-level edit (see/edt) WITHOUT cln
 #   others - no role at all (not even `see`)
 version: 0
 repo:
@@ -23,6 +24,7 @@ roles:
   - "host:all:edt+cln": "user.name == 'bob'"
   - "host:all:see": "user.name == 'carol'"
   - "host:all:see+add+edt+cln": "user.name == 'erin'"
+  - "host:all:edt": "user.name == 'frank'"
 types:
   - name: host
     title: Hosts
@@ -67,5 +69,11 @@ schema:
       yac_optional: true
       oneOf:
         - const: linux
+        - const: windows
         - const: windows-special
           yac_perms: [secrets]
+    linux_only:
+      # only defined while os is linux (section 8 of the router tests)
+      type: string
+      yac_optional: true
+      yac_if: "new.data.os | default('linux') == 'linux'"

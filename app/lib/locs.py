@@ -13,6 +13,8 @@ import os
 import logging
 from typing import Any, Callable
 
+from app import consts
+
 logger = logging.getLogger(__name__)
 
 SUBSCHEMAS = [
@@ -190,10 +192,30 @@ def get_most_specific(loc: str, loc_list: list[str]) -> str | None:
     return result
 
 
-def is_specified(key: str, schema: dict | bool | None) -> bool:
+DEFINED = "defined"
+
+
+def removed(loc: str, reason: str) -> dict | None:
     """
-    Checks if a property (key) is defined explicitly in a json_schema specifying
-    an object.
+    What a json_schema plugin returns for a subschema it removes: a marker
+    (see consts.REMOVED) that add_consts.py on the parent object can consult
+    and removed_cleanup.py drops afterwards. At the top level there is no
+    parent, so the schema is removed right away (None).
+    """
+    if loc == "#":
+        return None
+    return {consts.REMOVED: reason, "not": True}
+
+
+
+def specification(key: str, schema: dict | bool | None) -> str | None:
+    """
+    How a property (key) is defined in a json_schema specifying an object:
+
+    - `DEFINED` if a live subschema for the key exists,
+    - the removal reason (see consts.REMOVED, e.g. "if", "perms") if the only
+      subschema(s) found were removed by the json_schema plugins,
+    - `None` if the key is not defined at all.
 
     This is a bit fuzzy and we'll never be able to tell for 100% due to the
     design of json_schema. To keep the complexity low, we only consider some
@@ -201,20 +223,41 @@ def is_specified(key: str, schema: dict | bool | None) -> bool:
     """
     if not isinstance(schema, dict):
         # Not considering trivial schemas as a specification of the key!
+        return None
+
+    reason: str | None = None
+
+    def consider(state: str | None) -> bool:
+        nonlocal reason
+        if state == DEFINED:
+            return True
+        if state is not None and reason is None:
+            reason = state
         return False
 
     if key in schema.get("properties", {}):
-        return True
+        sub = schema["properties"][key]
+        marker = sub.get(consts.REMOVED) if isinstance(sub, dict) else None
+        if consider(DEFINED if marker is None else str(marker)):
+            return DEFINED
 
     for subschema in ["then", "else"]:
         if subschema in schema:
-            if is_specified(key, schema[subschema]):
-                return True
+            if consider(specification(key, schema[subschema])):
+                return DEFINED
 
     for subschema_list in ["oneOf", "allOf", "anyOf"]:
         if subschema_list in schema and isinstance(schema[subschema_list], list):
             for subschema in schema[subschema_list]:
-                if is_specified(key, subschema):
-                    return True
+                if consider(specification(key, subschema)):
+                    return DEFINED
 
-    return False
+    return reason
+
+
+def is_specified(key: str, schema: dict | bool | None) -> bool:
+    """
+    Checks if a property (key) is defined explicitly (live or removed by a
+    plugin) in a json_schema specifying an object. See `specification`.
+    """
+    return specification(key, schema) is not None

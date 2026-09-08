@@ -12,11 +12,11 @@ from app.model.plg import IValidator
 
 
 class PermissionTester(IValidator):
-    def __assert_perm(self, perm: str, perms: list[str] | None):
+    def __assert_perm(
+        self, perm: str, perms: list[str] | None, what: str = "execute this operation"
+    ):
         if perm not in (perms or []):
-            raise RequestForbidden(
-                f'You need the "{perm}" permission to execute this operation.'
-            )
+            raise RequestForbidden(f'You need the "{perm}" permission to {what}.')
 
     def order(self) -> tuple[bool, int]:
         return True, 10
@@ -44,17 +44,19 @@ class PermissionTester(IValidator):
                 self.__assert_perm("lnk", perms)
 
         elif op.operation == "edit":
+            # "cln" covers what the schema does not: comments, key order,
+            # quoting / style. Which DATA changes are allowed (including the
+            # removal of keys) is decided by the schema alone, see
+            # plugin/json_schema/add_consts.py for keys the schema does not
+            # define.
             has_changes = True
             if isinstance(op.entity, UpdateEntity):
+                # A patch can only express data changes: YAC itself builds
+                # the new YAML by applying it to the stored document, which
+                # preserves comments, key order and styles by construction.
+                # So a patch is never structural and needs no "cln" check.
                 if not op.entity.data:
                     has_changes = False
-                try:
-                    yaml_old = old.yaml or ""
-                    yaml_new = yaml.update(yaml_old, op.entity.data)
-                    if yaml.has_structural_changes(yaml_old, yaml_new):
-                        self.__assert_perm("cln", perms)
-                except yaml.YAMLError as error:
-                    raise RequestError(str(error)) from error
             elif isinstance(op.entity, ReplaceEntity):
                 if op.entity.yaml_old == op.entity.yaml_new:
                     has_changes = False
@@ -62,7 +64,11 @@ class PermissionTester(IValidator):
                     if yaml.has_structural_changes(
                         op.entity.yaml_old, op.entity.yaml_new
                     ):
-                        self.__assert_perm("cln", perms)
+                        self.__assert_perm(
+                            "cln",
+                            perms,
+                            "change comments, key order or formatting of the YAML",
+                        )
                 except yaml.YAMLError as error:
                     raise RequestError(str(error)) from error
             else:

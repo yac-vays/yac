@@ -12,6 +12,17 @@ LICENSE = {
     "url": "https://www.gnu.org/licenses/gpl-3.0.html",
 }
 
+# Schema keyword set by the json_schema plugins that remove a subschema
+# (yac_if, yac_perms, yac_editable) in place of removing it right away. The
+# value is the reason ("if", "perms", "editable"). add_consts.py needs it to
+# tell "defined by the schema but removed for this request" apart from "not
+# defined at all"; removed_cleanup.py drops the marked subschemas afterwards.
+# The marker schema is `{REMOVED: <reason>, "not": True}`: `not: true` rejects
+# everything should it ever survive, and being a boolean subschema it is not
+# recursed into by lib.schema (a `not: {}` would be, and the inherited perms
+# would mark it again, endlessly).
+REMOVED = "yac_removed"
+
 # Must not allow / to avoid non-permitted file access!
 NAME_PATTERN = r"^[a-zA-Z0-9_\-\.]{1,200}$"
 TYPE_PATTERN = r"^[a-zA-Z0-9_\-\.]{1,200}$"

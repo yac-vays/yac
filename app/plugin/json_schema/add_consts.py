@@ -20,12 +20,24 @@ class AddConsts(IJsonSchema):
         This will only add data on the object property level, so lists are either
         considered as defined or they are added as a single constant.
 
-        This deliberately includes data whose subschema was removed by
-        yac_perms.py: property-level perms are write-side only — anyone who
-        reaches the edit schema holds `see` and can read the whole entity
-        (including the raw YAML) anyway, as there is no read protection below
-        entity level. The injected `const` is also what keeps such values
-        present-but-immutable for users lacking the guarding perm.
+        Whether the injected `const` may be dropped depends on WHY the schema
+        has no live subschema for the key (see consts.REMOVED):
+
+        - not defined by the schema at all: this is exactly what the "cln"
+          perm is for, so the const is optional for "cln" holders and
+          required for everybody else;
+        - defined, but removed by yac_perms / yac_editable: the const is
+          always required. Property-level perms are write-side only — anyone
+          who reaches the edit schema holds `see` and can read the whole
+          entity (including the raw YAML) anyway, as there is no read
+          protection below entity level — and the required `const` is what
+          keeps such values present-but-immutable. "cln" does not override
+          that: the key IS covered by the schema;
+        - defined, but removed by yac_if: nothing is injected. The condition
+          no longer holds, so the data has to go; removing it is an ordinary
+          data change (needs no "cln"), enforced by the parent object's
+          `additionalProperties: false` once removed_cleanup.py dropped the
+          marker.
 
         Read operations get the same consts: the display schema then covers
         the whole stored document, so stored keys without a subschema neither
@@ -47,18 +59,29 @@ class AddConsts(IJsonSchema):
             data = locs.extract(data_loc, props["old"]["data"])
             if isinstance(data, dict):
                 for key in data.keys():
-                    if locs.is_specified(key, json_schema):
+                    state = locs.specification(key, json_schema)
+                    if state in (locs.DEFINED, "if"):
                         logger.debug(
-                            f"Not adding data {data_loc}/{key} to schema {loc}/properties/{key} "
-                            "due to existing subschema"
+                            f"Not adding data {data_loc}/{key} to schema"
+                            f" {loc}/properties/{key} due to existing subschema"
+                            f" ({state})"
                         )
-                    else:
-                        if "properties" not in json_schema:
-                            json_schema["properties"] = {}
+                        continue
+
+                    if "properties" not in json_schema:
+                        json_schema["properties"] = {}
+                    if state is None:
                         json_schema["properties"][key] = {
                             "const": data[key],
                             "yac_optional": "cln" in props["user"]["perms"],
                         }
+                    else:
+                        # removed by perms / editable: immutable, never optional
+                        json_schema["properties"][key] = {"const": data[key]}
+                    # for lib.schema to phrase the validation error of a removal
+                    context.setdefault("add_consts_state", {})[
+                        f"{loc}/properties/{key}"
+                    ] = state or "unknown"
 
         return json_schema, context
 

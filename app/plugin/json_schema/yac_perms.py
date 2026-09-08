@@ -20,21 +20,25 @@ class YacPerms(IJsonSchema):
         level of the schema, the perms defined in the next higher level will be used.
         Top-level, the default ist [add, edt].
 
-        If inside object properties, yac_optional.py takes care of cleaning up the
-        required list.
+        The subschema is only *marked* as removed (see consts.REMOVED); the
+        removed_cleanup plugin drops it afterwards. If inside object
+        properties, yac_optional.py takes care of cleaning up the required
+        list.
 
         yac_perms is WRITE-side only — it never hides data. Reading is
         controlled solely by the entity-level `see` perm: a user reads the
         whole entity (data, raw YAML) or nothing at all. So `see` (or its
         absence) in a schema-level yac_perms list has no read effect, and
         stored values at removed subschemas are still echoed back into the
-        generated schema by add_consts.py as read-only `const` nodes — which
-        is also what enforces their immutability. Setting a value the user
-        may not write is rejected by plain schema validation: the guarded
-        subschema is absent from the user's schema, so the write fails the
-        `const` pin or the object's `additionalProperties: false` (schemas
-        that explicitly open objects opt out of that enforcement for keys
-        without a stored value).
+        generated schema by add_consts.py as read-only, *required* `const`
+        nodes — which is also what enforces their immutability (the "cln"
+        perm does not override this: the key IS defined by the schema, it is
+        just not writable for this user). Setting a value the user may not
+        write is rejected by plain schema validation: the guarded subschema
+        is absent from the user's schema, so the write fails the `const` pin
+        or the object's `additionalProperties: false` (schemas that
+        explicitly open objects opt out of that enforcement for keys without
+        a stored value).
         """
         if props["operation"] == "read":
             # Ignore permissions (to allow having a schema to display a VAYS from in read-only
@@ -71,14 +75,14 @@ class YacPerms(IJsonSchema):
 
         if perms_loc is None:
             logger.warning(f"removed {loc} from schema due to undefined perms")
-            return None, context
+            return locs.removed(loc, "perms"), context
 
         if len(user_perms.intersection(set(context["yac_perms"][perms_loc]))) <= 0:
             logger.info(
                 f"removed {loc} from schema due to missing perms (requires one of: "
                 f'{context["yac_perms"][perms_loc]})'
             )
-            return None, context
+            return locs.removed(loc, "perms"), context
 
         return json_schema, context
 

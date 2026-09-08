@@ -84,3 +84,24 @@ def test_is_specified_combinators_and_nondict():
     assert locs.is_specified('k', {'oneOf': [{}, {}]}) is False
     assert locs.is_specified('k', None) is False
     assert locs.is_specified('k', 'not-a-schema') is False
+
+def test_specification_and_removed():
+    from app.consts import REMOVED
+
+    live = {'type': 'object', 'properties': {'a': {'type': 'string'}}}
+    assert locs.specification('a', live) == locs.DEFINED
+    assert locs.specification('b', live) is None
+    assert locs.specification('a', True) is None
+
+    marked = {'type': 'object', 'properties': {'a': {REMOVED: 'perms', 'not': True}}}
+    assert locs.specification('a', marked) == 'perms'
+    assert locs.is_specified('a', marked)  # defined, just not live
+
+    # a live definition anywhere wins over a removed one
+    mixed = {'oneOf': [marked, live]}
+    assert locs.specification('a', mixed) == locs.DEFINED
+    nested = {'then': marked, 'else': {'properties': {'a': {REMOVED: 'if', 'not': True}}}}
+    assert locs.specification('a', nested) == 'perms'  # first reason found
+
+    assert locs.removed('#', 'perms') is None
+    assert locs.removed('#/properties/a', 'if') == {REMOVED: 'if', 'not': True}

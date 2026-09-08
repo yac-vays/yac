@@ -5,9 +5,13 @@ Raises: [app.lib.yaml.YAMLError, app.model.err.RequestConflict]
 import io
 import logging
 import re
+from collections import Counter
 from typing import Any
 
 import ruamel.yaml
+import ruamel.yaml.comments
+import ruamel.yaml.tokens
+from ruamel.yaml.scalarbool import ScalarBoolean
 import yaml as _pyyaml
 
 from app.model.err import RequestConflict
@@ -212,18 +216,163 @@ def dump(data: dict | YAMLObject | None) -> str:
     return buf.getvalue().decode("utf-8")
 
 
+# Structural-change detection
+#
+# A change is "structural" if the new YAML differs from the old YAML by more
+# than a data patch can express. Data changes (values, added keys, removed
+# keys) are governed by the schema; everything else (comments, key order,
+# quoting / scalar style, anchors) is what the "cln" permission covers.
+#
+# Implementation: project the data of the new document onto the old one
+# (which keeps the old comments, key order and styles, like `update` does),
+# then compare the two documents with their comments stripped -- that covers
+# key order, quoting / style and anchors. Comments are compared separately as
+# a multiset, because ruamel attaches comment lines to the *preceding* key, so
+# deleting a key silently drops the comment that follows it while the new
+# document (parsed on its own) still carries that comment elsewhere.
+
+_COMMENT_SLOTS = ("comment", "_items", "_post", "_pre")
+
+
+def _plain(value: Any) -> Any:
+    """
+    Reduce a (possibly ruamel-typed) scalar to its plain Python value so data
+    comparisons ignore quoting / style, but keep int, float, bool and str apart
+    (`1` vs `1.0` vs `true` is a data change in JSON-schema terms).
+    """
+    if isinstance(value, (bool, ScalarBoolean)):
+        return bool(value)
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return float(value)
+    if isinstance(value, str):
+        return str(value)
+    return value
+
+
+def _data_equal(a: Any, b: Any) -> bool:
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_data_equal(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(map(_data_equal, a, b))
+    pa, pb = _plain(a), _plain(b)
+    return type(pa) is type(pb) and pa == pb
+
+
+def _project(old: Any, new: Any) -> None:
+    """
+    Apply the data of `new` onto `old` in place with the same semantics as
+    `update` (mappings are merged, lists and scalars replaced wholesale).
+    Replaced values are the *nodes of `new`* so their quoting / style is taken
+    over as-is; new keys are inserted at the position they have in `new` (so a
+    plain insertion is not a reorder of the existing keys).
+    """
+    for key in [k for k in old if k not in new]:
+        del old[key]
+        # ruamel does not reliably drop the key's comment entry along with it
+        old.ca.items.pop(key, None)
+    prev = None
+    for key, value in new.items():
+        if key in old:
+            if isinstance(old[key], dict) and isinstance(value, dict):
+                _project(old[key], value)
+            elif not _data_equal(old[key], value):
+                old[key] = value
+        else:
+            pos = 0 if prev is None else list(old.keys()).index(prev) + 1
+            old.insert(pos, key, value)
+        prev = key
+
+
+def _walk(node: Any) -> Any:
+    yield node
+    if isinstance(node, dict):
+        for value in node.values():
+            yield from _walk(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _walk(item)
+
+
+def _comment_tokens(node: Any) -> Any:
+    seen: set[int] = set()
+
+    def tokens(x: Any) -> Any:
+        if isinstance(x, ruamel.yaml.tokens.CommentToken):
+            if id(x) not in seen:
+                seen.add(id(x))
+                yield x
+        elif isinstance(x, (list, tuple)):
+            for i in x:
+                yield from tokens(i)
+        elif isinstance(x, dict):
+            for i in x.values():
+                yield from tokens(i)
+
+    for sub in _walk(node):
+        ca = getattr(sub, ruamel.yaml.comments.Comment.attrib, None)
+        if ca is not None:
+            yield from tokens([getattr(ca, slot) for slot in _COMMENT_SLOTS])
+
+
+def _comments(node: Any) -> Counter:
+    """
+    Multiset of the comment lines of a document. Blank lines (which ruamel
+    stores inside the comment tokens) are ignored: they are pure spacing.
+    """
+    lines: Counter = Counter()
+    for token in _comment_tokens(node):
+        for line in token.value.splitlines():
+            line = line.strip()
+            if line.startswith("#"):
+                lines[line] += 1
+    return lines
+
+
+def _strip_comments(node: Any) -> Any:
+    for sub in _walk(node):
+        ca = getattr(sub, ruamel.yaml.comments.Comment.attrib, None)
+        if ca is not None:
+            ca.comment = None
+            ca._items = {}  # pylint: disable=protected-access
+            ca._post = []  # pylint: disable=protected-access
+            ca._pre = None  # pylint: disable=protected-access
+    return node
+
+
 def has_structural_changes(yaml_old: str, yaml_new: str) -> bool:
+    """
+    True if `yaml_new` differs from `yaml_old` beyond what a data patch (see
+    `update`) can express: comments, key order (of existing keys), quoting /
+    scalar style of unchanged values, anchors. Pure data changes -- including
+    removing keys -- are never structural; whether they are allowed is the
+    schema's business.
+
+    Comments may only vanish together with the key they are attached to; any
+    other comment removal, addition or edit is structural. Blank lines are
+    ignored. Known blind spot: a comment change inside a list whose content
+    also changed is not detected (the list is replaced wholesale).
+    """
     old = load(yaml_old)
     new = load(yaml_new)
 
-    # ruamel cannot handle cases where one is None
     if old is None:
         return False
     if new is None:
         return True
 
-    old.update(new)
-    return dump(old) != dump(new)
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return dump(old) != dump(new)
+
+    comments_old = _comments(old)
+    _project(old, new)
+    comments_projected = _comments(old)
+    comments_new = _comments(new)
+
+    if not comments_projected <= comments_new <= comments_old:
+        return True
+    return dump(_strip_comments(old)) != dump(_strip_comments(new))
 
 
 def update(yaml: str, diff: dict) -> str:

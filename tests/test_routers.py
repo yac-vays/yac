@@ -26,6 +26,7 @@ Permission matrix (from tests/fixtures/routers.yml):
   bob:   edt+cln         -> see/edt/cln, but NO add/del/act/secrets
   carol: see             -> read-only
   erin:  see+add+edt+cln -> can create/edit, but NO secrets
+  frank: edt             -> see/edt WITHOUT cln
   dave:  (no role)       -> nothing, not even `see`
 """
 
@@ -63,6 +64,19 @@ networking:
   ip: 10.0.0.1
   note: nested-const-note
   vlan_secret: {NESTED_SECRET}
+"""
+
+# For the "cln" tests (section 8): comments, an unknown key, a perms-guarded
+# key and a yac_if-gated key.
+WEB03_YAML = f"""---
+# managed by the router tests
+owner: frank  # the owner
+networking:
+  ip: 10.0.0.3
+  vlan_secret: {NESTED_SECRET}
+legacy: old-stuff
+os: linux
+linux_only: yes-please
 """
 
 
@@ -926,3 +940,134 @@ async def test_required_error_locates_missing_property(client, login):
     assert body["schemas"]["valid"] is False
     assert body["schemas"]["validator"] == "required"
     assert body["schemas"]["data_loc"] == "#/owner"
+
+
+#
+# 8) "cln" covers what the schema does not: comments, key order, formatting
+#
+
+@pytest.fixture
+def web03(repo_session):
+    """Adds web03 (kept out of the default files so the limit tests' counts
+    stay as documented)."""
+    repo_session.files["web03"] = WEB03_YAML
+    return repo_session
+
+
+def _put03(yaml_new: str) -> dict:
+    return {"name": "web03", "yaml_old": WEB03_YAML, "yaml_new": yaml_new}
+
+
+async def test_patch_removing_optional_key_needs_no_cln(client, login, web03):
+    """
+    frank (edt, no cln) unsets an optional key the schema defines. Removing
+    data is a data change governed by the schema, not a structural one.
+    """
+    login("frank")
+    resp = await client.patch(
+        "/entity/host/web03",
+        json={"name": "web03", "data": {"networking": {"ip": "~undefined"}}},
+    )
+    assert resp.status_code == 200, resp.text
+    stored = web03.files["web03"]
+    assert "ip:" not in stored
+    assert "# managed by the router tests" in stored  # comments untouched
+
+
+async def test_patch_yac_if_transition_needs_no_cln(client, login, web03):
+    """
+    frank switches `os`, which makes `linux_only` disappear from the schema.
+    VAYS strips such keys and re-emits them as `~undefined`; that removal is
+    an ordinary data change.
+    """
+    login("frank")
+    resp = await client.patch(
+        "/entity/host/web03",
+        json={"name": "web03", "data": {"os": "windows", "linux_only": "~undefined"}},
+    )
+    assert resp.status_code == 200, resp.text
+    assert "linux_only" not in web03.files["web03"]
+    assert "os: windows" in web03.files["web03"]
+
+
+async def test_put_removing_defined_key_needs_no_cln(client, login, web03):
+    """Same as the patch, via the raw-YAML path (VAYS expert mode)."""
+    login("frank")
+    resp = await client.put(
+        "/entity/host/web03", json=_put03(WEB03_YAML.replace("  ip: 10.0.0.3\n", ""))
+    )
+    assert resp.status_code == 200, resp.text
+    assert "ip:" not in web03.files["web03"]
+
+
+async def test_put_removing_unknown_key_needs_cln(client, login, web03):
+    """
+    `legacy` is not defined by the schema: add_consts pins it as a required
+    const for frank (no cln), so the removal fails schema validation with a
+    message that names the missing perm. bob (cln) may clean it up.
+    """
+    without_legacy = WEB03_YAML.replace("legacy: old-stuff\n", "")
+
+    login("frank")
+    resp = await client.put("/entity/host/web03", json=_put03(without_legacy))
+    assert resp.status_code == 400, resp.text
+    assert '"cln"' in resp.json()["message"]
+    assert "legacy" in resp.json()["message"]
+    assert web03.files["web03"] == WEB03_YAML
+
+    login("bob")
+    resp = await client.put("/entity/host/web03", json=_put03(without_legacy))
+    assert resp.status_code == 200, resp.text
+    assert "legacy" not in web03.files["web03"]
+
+
+async def test_put_removing_guarded_key_is_immutable_even_with_cln(
+    client, login, web03
+):
+    """
+    `networking.vlan_secret` IS defined by the schema, just guarded by a perm
+    bob lacks: cln does not override yac_perms, the const stays required.
+    """
+    login("bob")
+    resp = await client.put(
+        "/entity/host/web03",
+        json=_put03(WEB03_YAML.replace(f"  vlan_secret: {NESTED_SECRET}\n", "")),
+    )
+    assert resp.status_code == 400, resp.text
+    assert "vlan_secret" in resp.json()["message"]
+    assert "permission" in resp.json()["message"]
+    assert web03.files["web03"] == WEB03_YAML
+
+
+@pytest.mark.parametrize(
+    "yaml_new",
+    [
+        WEB03_YAML.replace("# managed by the router tests\n", ""),  # comment removed
+        WEB03_YAML.replace("  # the owner", ""),  # eol comment removed
+        WEB03_YAML.replace("# managed", "# handled"),  # comment edited
+        WEB03_YAML.replace("os: linux\nlinux_only: yes-please\n", "linux_only: yes-please\nos: linux\n"),
+        WEB03_YAML.replace("os: linux", 'os: "linux"'),  # requoted, unchanged
+    ],
+    ids=["comment-removed", "eol-comment-removed", "comment-edited", "reordered", "requoted"],
+)
+async def test_put_structural_change_needs_cln(client, login, web03, yaml_new):
+    login("frank")
+    resp = await client.put("/entity/host/web03", json=_put03(yaml_new))
+    assert resp.status_code == 403, resp.text
+    assert '"cln"' in resp.json()["message"]
+    assert web03.files["web03"] == WEB03_YAML
+
+    login("bob")
+    resp = await client.put("/entity/host/web03", json=_put03(yaml_new))
+    assert resp.status_code == 200, resp.text
+    assert web03.files["web03"] == yaml_new
+
+
+async def test_put_changed_value_with_quotes_needs_no_cln(client, login, web03):
+    """The quoting of a CHANGED value is taken from the new document."""
+    login("frank")
+    resp = await client.put(
+        "/entity/host/web03", json=_put03(WEB03_YAML.replace("owner: frank", 'owner: "fred"'))
+    )
+    assert resp.status_code == 200, resp.text
+    assert 'owner: "fred"' in web03.files["web03"]

@@ -1,3 +1,4 @@
+from app.lib import locs
 from app.model.err import SchemaSpecsError
 from app.model.plg import IJsonSchema
 
@@ -11,8 +12,12 @@ class YacEditable(IJsonSchema):
     ) -> tuple[dict | bool | None, dict]:
         """
         Removes subschemas where yac_editable is false if the operation is edit.
-        (If inside object properties, yac_optional.py takes care of cleaning up the required
-        list.)
+
+        The subschema is only *marked* as removed (see consts.REMOVED): stored
+        data at this location is echoed back by add_consts.py as an immutable
+        const, and removed_cleanup.py drops the marker afterwards. (If inside
+        object properties, yac_optional.py takes care of cleaning up the
+        required list.)
         """
         # TODO IDEA: instead of removing: add const to the schema and update all vays renderers to make them disabled when there is a const in the subschema
         if "yac_editable" not in json_schema:
@@ -26,7 +31,7 @@ class YacEditable(IJsonSchema):
             raise SchemaSpecsError(f"{loc}/yac_editable is not a boolean")
 
         if not json_schema["yac_editable"]:
-            return None, context
+            return locs.removed(loc, "editable"), context
 
         json_schema.pop("yac_editable")
         return json_schema, context
