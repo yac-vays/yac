@@ -13,7 +13,7 @@ import logging
 import re
 import sys
 from typing import Any
-from os.path import dirname, abspath, realpath
+from os.path import dirname, abspath, realpath, join, commonpath
 
 from pydantic import ValidationError
 
@@ -93,10 +93,10 @@ def _process_includes_sync(data: Any, base_path: str) -> Any:
             base_real = realpath(abspath(base_path))
 
             for inc_file in includes:
-                inc_file_path = f"{base_path}/{inc_file}"
+                inc_file_path = join(base_path, inc_file)
                 inc_real = realpath(abspath(inc_file_path))
 
-                if inc_real != base_real and not inc_real.startswith(base_real + "/"):
+                if commonpath([base_real, inc_real]) != base_real:
                     logger.critical(
                         f"Included specs file at {inc_file_path} is outside of"
                         f" the specs base directory {base_path}"

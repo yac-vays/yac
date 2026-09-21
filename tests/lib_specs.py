@@ -90,6 +90,19 @@ def test_include_outside_base_dir_aborts(tmp_path):
         specs._process_includes_sync(data, str(tmp_path))
 
 
+def test_include_from_root_base_dir(tmp_path, monkeypatch):
+    # specs mounted directly at /yac.yml -> base dir is "/"; the escape guard
+    # must not reject sibling includes there (regression: "//inc.yml is
+    # outside of the specs base directory /")
+    (tmp_path / "inc.yml").write_text("a: 1\n")
+    # map the fake root "/" onto tmp_path so the test does not touch the real /
+    real_abspath = specs.abspath
+    monkeypatch.setattr(specs, "abspath", lambda p: real_abspath(str(tmp_path) + p))
+    data = {"yac_include": "inc.yml"}
+    out = specs._process_includes_sync(data, "/")
+    assert out == {"a": 1}
+
+
 def test_process_includes_passes_through_plain_data(tmp_path):
     data = {"a": 1, "b": [1, 2, {"c": 3}]}
     assert specs._process_includes_sync(data, str(tmp_path)) == data
