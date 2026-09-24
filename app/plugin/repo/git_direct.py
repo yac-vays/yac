@@ -24,6 +24,12 @@ process startup; changes require a pod restart.
                         where a dirty read will not update the data again.
                         default: 0
 
+Remote outages: when the remote cannot be reached (or answers 5xx, e.g. 503
+in maintenance), the local checkout is kept and reads are answered from it,
+flagged as stale (see app.lib.staleness). Writes, and reads without any
+checkout yet, fail with 503 (RepoUnavailable / RepoMaintenance). After a
+failure the remote is left alone for REMOTE_BACKOFF_SECONDS.
+
 Details:
 
   <type-name>: The path for YAML files of this entity type.
@@ -49,8 +55,11 @@ from anyio import Path, open_file
 from app.lib import git
 from app.lib import j2
 from app.lib import specs as _specs
+from app.lib import staleness
 from app.model.err import RepoClientError
 from app.model.err import RepoConflict
+from app.model.err import RepoMaintenance
+from app.model.err import RepoUnavailable
 from app.model.err import RepoError
 from app.model.err import RepoNotFound
 from app.model.err import RepoTimeoutError
@@ -59,6 +68,7 @@ from app.model.out import Diff
 from app.model.out import User
 from app.model.plg import IRepo
 from app.model.plg import IRepoSession
+from app.model.plg import RepoState
 from app.model.plg import IRepoUntyped
 
 
@@ -69,6 +79,13 @@ BRANCH = _CONN.get("branch", "main")
 KEY_FILE = _CONN.get("ssh_key_file", "/home/yac/.ssh/id_rsa")
 KNOWN_HOSTS = _CONN.get("ssh_known_hosts_file", "/home/yac/.ssh/known_hosts")
 DIRTY_MAX = int(_CONN.get("dirty_max_age", 0))
+
+# After a failed remote operation, reads do not touch the remote again for
+# this long: they answer from the local checkout right away (flagged as
+# stale, see app.lib.staleness) or, without a checkout, fail fast with 503.
+# Writes always retry, they cannot proceed without the remote. Keeps an
+# outage from turning every read into a wait on a dead connection.
+REMOTE_BACKOFF_SECONDS = 10
 
 
 # Module-level cache of rendered globs/paths keyed by (type, template). Path
@@ -260,6 +277,19 @@ class GitRepo(IRepo):
             self._reader_update_lock
         )
         self._writer_lock: asyncio.Lock = asyncio.Lock()
+        # Remote-connection diagnostics, see `state()`.
+        self._synced: float | None = None
+        self._remote_error: str | None = None
+        self._remote_failed: float | None = None
+        self._remote_maintenance: bool = False
+
+    def state(self) -> RepoState:
+        return RepoState(
+            synced=self._synced,
+            error=self._remote_error,
+            failed=self._remote_failed,
+            maintenance=self._remote_maintenance,
+        )
 
     @asynccontextmanager
     async def reader(
@@ -267,11 +297,7 @@ class GitRepo(IRepo):
     ) -> AsyncGenerator[_GitRepoUntyped, None]:
         logger.debug(f"Acquiring git reader lock for {self.path}...")
         if not dirty or await self._is_outdated():
-            logger.debug(
-                f"Upgrading lock to git writer lock to pull repo at {self.path}!"
-            )
-            async with self.writer(user):
-                pass
+            await self._refresh_for_read(user)
 
         async with self._reader_update_lock:
             while self._reader_count == -1:
@@ -319,6 +345,56 @@ class GitRepo(IRepo):
     # flag.
     # ------------------------------------------------------------------ #
 
+    async def _refresh_for_read(self, user: User | None) -> None:
+        """
+        Bring the checkout up to date before a read. If the remote is
+        unavailable but a checkout exists, the read goes ahead on the last
+        known state (marked stale for the response); only without any
+        checkout does the outage surface as an error.
+        """
+        if self._loaded and self._in_backoff():
+            staleness.mark_stale(self._synced)
+            return
+        logger.debug(f"Upgrading lock to git writer lock to pull repo at {self.path}!")
+        try:
+            async with self.writer(user):
+                pass
+        except RepoUnavailable:
+            if not self._loaded:
+                raise
+            logger.warning(f"Serving last known state from {self.path}")
+            staleness.mark_stale(self._synced)
+
+    def _in_backoff(self) -> bool:
+        return (
+            self._remote_failed is not None
+            and time.time() - self._remote_failed < REMOTE_BACKOFF_SECONDS
+        )
+
+    def _remote_failure(self, error: git.GitError) -> RepoUnavailable:
+        """
+        Record a failed remote operation and build the error to raise for
+        it. The user-facing message is fixed; the git output only goes to
+        the log (it may reveal the remote URL).
+        """
+        self._remote_error = str(error)
+        self._remote_failed = time.time()
+        self._remote_maintenance = bool(getattr(error, "maintenance", False))
+        logger.error(f"Remote git repository unavailable: {error}")
+        return self._unavailable()
+
+    def _unavailable(self) -> RepoUnavailable:
+        """The error for the recorded remote failure (maintenance or not)."""
+        if self._remote_maintenance:
+            return RepoMaintenance(RepoMaintenance.default_message)
+        return RepoUnavailable(RepoUnavailable.default_message)
+
+    def _remote_success(self) -> None:
+        self._synced = time.time()
+        self._remote_error = None
+        self._remote_failed = None
+        self._remote_maintenance = False
+
     async def _is_outdated(self) -> bool:
         gr = _make_git_repo(self.path, None)
         try:
@@ -330,27 +406,50 @@ class GitRepo(IRepo):
 
     async def _pull(self, user: User | None) -> None:
         gr = _make_git_repo(self.path, user)
-        try:
-            if not self._loaded:
+        if not self._loaded:
+            try:
                 await gr.load()
                 self._loaded = True
+            except git.GitError:
+                await self._reclone(user, gr)
+                return
+        try:
             logger.debug(f"Pulling git repo at {self.path}")
             await gr.pull()
-        except git.GitError:
-            try:
-                await rmtree(self.path)
-            except FileNotFoundError:
-                pass  # it may not be there yet
-            except OSError as error:
-                raise RepoError(f"Cannot delete {self.path}") from error
-            logger.info(f"Cloning git repo to {self.path}")
-            try:
-                await gr.clone(URL, branch=BRANCH)
-                self._loaded = True
-            except git.GitError as error:
-                raise RepoError(
-                    f"Cannot clone repo to {self.path}: {error}"
-                ) from error
+        except (git.GitRemoteError, git.GitTimeoutError) as error:
+            # The remote is down or not answering: keep the checkout, it is
+            # the best data we have (readers serve it, writers fail).
+            raise self._remote_failure(error) from error
+        except git.GitError as error:
+            # A problem with the checkout itself (corrupt, diverged, ...):
+            # start over from the remote.
+            logger.warning(f"Pull at {self.path} failed ({error}), recloning")
+            await self._reclone(user, gr)
+            return
+        self._remote_success()
+
+    async def _reclone(self, user: User | None, gr: git.Repo) -> None:
+        del user
+        self._loaded = False
+        try:
+            await rmtree(self.path)
+        except FileNotFoundError:
+            pass  # it may not be there yet
+        except OSError as error:
+            raise RepoError(f"Cannot delete {self.path}") from error
+        if self._in_backoff():
+            # Nothing to lose here (no checkout), but no point in hammering
+            # a remote that just failed either.
+            raise self._unavailable()
+        logger.info(f"Cloning git repo to {self.path}")
+        try:
+            await gr.clone(URL, branch=BRANCH)
+        except (git.GitRemoteError, git.GitTimeoutError) as error:
+            raise self._remote_failure(error) from error
+        except git.GitError as error:
+            raise RepoError(f"Cannot clone repo to {self.path}: {error}") from error
+        self._loaded = True
+        self._remote_success()
 
     async def _push(self, user: User | None, files: list[str], msg: str) -> None:
         gr = _make_git_repo(self.path, user)
@@ -359,6 +458,9 @@ class GitRepo(IRepo):
             await gr.commit(f"[YAC] {msg}")
             logger.debug(f"Pushing new git commit from {self.path} to remote")
             await gr.push()
+        except git.GitRemoteError as error:
+            await self._cleanup(user)
+            raise self._remote_failure(error) from error
         except git.GitError as error:
             # Very unlikely scenario where someone pushes from a different
             # instance or directly to the repo in the millisecond between
@@ -384,8 +486,18 @@ class GitRepo(IRepo):
         await self._cleanup(user)
 
     async def _cleanup(self, user: User | None) -> None:
+        """
+        Put the checkout back to the remote's state after a failed write:
+        drop uncommitted changes AND any local commit that was not pushed
+        (otherwise a commit the user got an error for would ride along with
+        the next successful write).
+        """
         gr = _make_git_repo(self.path, user)
-        if not await gr.is_dirty():
+        try:
+            unpushed = await gr.get_hash() != await gr.get_hash(f"origin/{BRANCH}")
+        except git.GitError:
+            unpushed = True
+        if not unpushed and not await gr.is_dirty():
             return
         try:
             logger.debug(f"Cleaning git repo at {self.path}")

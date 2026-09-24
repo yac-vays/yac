@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import AsyncGenerator
 
 
@@ -229,6 +230,28 @@ class IRepoUntyped:
     def session(self, details: dict) -> IRepoSession: ...
 
 
+@dataclass
+class RepoState:
+    """
+    Diagnostic snapshot of the repo plugin's connection to the remote, as
+    reported by `GET /status`.
+
+      synced:  unix timestamp of the last successful sync with the remote
+               (None if there was none yet in this process).
+      error:   description of the last failed remote operation, or None if
+               the last one succeeded.
+      failed:  unix timestamp of that failure (None if the last one
+               succeeded).
+      maintenance: whether that failure was the git server's HTTP 503
+               (maintenance mode) rather than an unreachable remote.
+    """
+
+    synced: float | None = None
+    error: str | None = None
+    failed: float | None = None
+    maintenance: bool = False
+
+
 class IRepo:
     """
     Process-level handle for the repository. Owns the on-disk path and the
@@ -236,6 +259,13 @@ class IRepo:
     `reader` / `writer`; the caller derives a typed `IRepoSession` from it
     once the entity-type `details` are known (typically after parsing specs).
     """
+
+    def state(self) -> RepoState:
+        """
+        Remote-connection diagnostics for `GET /status`. Plugins that do not
+        track this report an empty state.
+        """
+        return RepoState()
 
     @asynccontextmanager
     @abstractmethod

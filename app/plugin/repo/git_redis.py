@@ -52,12 +52,15 @@ from redis.exceptions import RedisError
 from app.lib import git
 from app.lib import plugin
 from app.lib import specs as _specs
+from app.lib import staleness
 from app.model.err import RepoError
 from app.model.err import RepoNotFound
+from app.model.err import RepoUnavailable
 from app.model.out import Diff
 from app.model.out import User
 from app.model.plg import IRepo
 from app.model.plg import IRepoSession
+from app.model.plg import RepoState
 from app.model.plg import IRepoUntyped
 
 
@@ -311,6 +314,9 @@ class GitRedisRepo(IRepo):
             )
         return self._client
 
+    def state(self) -> RepoState:
+        return _gd().state()
+
     @asynccontextmanager
     async def reader(
         self, user: User | None, *, dirty: bool = False
@@ -370,6 +376,10 @@ class GitRedisRepo(IRepo):
             try:
                 async with _gd().writer(user):
                     return await self._rebuild_snapshot(client)
+            except RepoUnavailable as error:
+                # The remote is down: the published snapshot (if any) is
+                # the best data there is, so serve it as stale.
+                return await self._stale_snapshot(client, error)
             finally:
                 try:
                     await client.delete(_KEY_PULL_LOCK)
@@ -380,10 +390,37 @@ class GitRedisRepo(IRepo):
         deadline = time.monotonic() + PULL_LOCK_TTL
         while time.monotonic() < deadline:
             await asyncio.sleep(0.2)
+            # Check the lock *before* the snapshot: a snapshot published
+            # between the two checks is then still seen, whereas a lock
+            # released without a fresh snapshot means the refresh failed.
+            refreshing = await client.get(_KEY_PULL_LOCK)
             snapshot_hash = await self._usable_snapshot(client, dirty=dirty)
             if snapshot_hash is not None:
                 return snapshot_hash
+            if not refreshing:
+                return await self._stale_snapshot(
+                    client,
+                    RepoUnavailable(RepoUnavailable.default_message),
+                )
         raise RepoError("git_redis: snapshot refresh timed out")
+
+    async def _stale_snapshot(
+        self, client: "redis_async.Redis", error: RepoUnavailable
+    ) -> str:
+        """
+        The hash of the published snapshot when a refresh failed because
+        the remote is unavailable, marking the request as stale. Raises
+        `error` when there is no complete snapshot to fall back on.
+        """
+        latest = await client.get(_KEY_LATEST)
+        if not latest or not await client.get(f"ready:{latest}"):
+            raise error
+        synced = await client.get(_KEY_SYNCED)
+        staleness.mark_stale(float(synced) if synced else None)
+        logger.warning(
+            "git_redis: remote unavailable, serving stale snapshot %s", latest[:8]
+        )
+        return latest
 
     async def _usable_snapshot(
         self, client: "redis_async.Redis", *, dirty: bool

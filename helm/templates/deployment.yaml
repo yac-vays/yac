@@ -107,16 +107,21 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+          # Liveness only means "the process is alive". It deliberately does
+          # NOT use /status: that one talks to the remote git repository, and
+          # a remote outage is nothing a pod restart could fix (it used to
+          # take the pod down - and keep it down - whenever the git server
+          # was unreachable). /status remains available for monitoring.
           livenessProbe:
             httpGet:
-              path: /status
+              path: /health
               port: http
             timeoutSeconds: 5
-            failureThreshold: 2
-            periodSeconds: 300
+            failureThreshold: 3
+            periodSeconds: 30
           readinessProbe:
-            # /health is the cheap liveness endpoint (no repo/spec work,
-            # unlike /status) - fine to hit it every few seconds.
+            # /health is the cheap endpoint (no repo/spec work, unlike
+            # /status) - fine to hit it every few seconds.
             httpGet:
               path: /health
               port: http

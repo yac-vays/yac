@@ -15,6 +15,8 @@ from app.lib import repo
 from app.lib import hacks
 from app.lib import plugin
 from app.lib import specs
+from app.lib import staleness
+from app.model.err import RepoUnavailable
 from app.model.err import YACError
 from app.router import arbitrary
 from app.router import edit
@@ -94,8 +96,18 @@ def _cleanup_stale_repo_dirs() -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     del app
     _cleanup_stale_repo_dirs()
-    async with repo.handler.reader(None):
-        pass  # only initiate repo
+    try:
+        async with repo.handler.reader(None):
+            pass  # only initiate repo
+    except RepoUnavailable as error:
+        # The remote being down is no reason not to start (a restart could
+        # not fix it either): requests answer 503 until the first successful
+        # clone. Any other error (bad URL, bad credentials, ...) still fails
+        # the startup, so a misconfiguration is noticed.
+        logger.error(
+            f"Data repository unavailable at startup ({error}); starting"
+            " anyway, requests fail with 503 until the remote is reachable"
+        )
     yield
     # On clean shutdown, remove our own repo dir so it does not linger until
     # another worker happens to start and run the stale-dir sweep.
@@ -164,7 +176,12 @@ yac.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Lets browsers read the stale-data headers (see app.lib.staleness).
+    expose_headers=staleness.EXPOSED_HEADERS,
 )
+# Flags responses served from the last known state while the remote data
+# repository is unavailable.
+yac.add_middleware(staleness.StaleResponseMiddleware)
 
 yac.include_router(status.router, tags=["Status"])
 yac.include_router(read.router, tags=["Entities"])

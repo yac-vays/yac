@@ -1,4 +1,5 @@
 import enum
+from datetime import datetime
 from typing import Any
 from typing import Literal, Callable
 from typing_extensions import Annotated
@@ -548,5 +549,41 @@ class Meta(BaseModel):
     oidc_client_ids: list[str]
 
 
+class RepoStatus(BaseModel):
+    available: Annotated[
+        bool,
+        Field(
+            description=(
+                "Whether the remote data repository could be reached the last"
+                " time it was needed."
+            )
+        ),
+    ]
+    stale: Annotated[
+        bool,
+        Field(
+            description=(
+                "Whether reads are currently answered from the last known state"
+                " because the remote is unavailable."
+            )
+        ),
+    ]
+    synced: Annotated[
+        datetime | None,
+        Field(description="Time of the last successful sync with the remote."),
+    ]
+    error: Annotated[
+        str | None,
+        Field(description="Why the remote is unavailable (None when it is not)."),
+    ]
+
+
 class Status(BaseModel):
-    hash: Annotated[str, Field(description=consts.DESC_HASH)]
+    hash: Annotated[
+        str | None,
+        Field(
+            description=consts.DESC_HASH
+            + " None when no data is available at all (503)."
+        ),
+    ]
+    repo: RepoStatus

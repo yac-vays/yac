@@ -66,6 +66,10 @@ class FakeRedis:
     async def get(self, key):
         return self.store.get(key)
 
+    async def delete(self, *keys):
+        for key in keys:
+            self.store.pop(key, None)
+
     async def set(self, key, value, nx=False, ex=None):
         del ex
         if nx and key in self.store:
@@ -224,3 +228,51 @@ async def test_undecidable_ancestry_falls_back_to_publish(handler, monkeypatch):
     assert result == "H0"  # published despite the newer-looking `latest`
     assert client.store["latest"] == "H0"
     await _drain_cleanups(handler)
+
+
+#
+# Remote outage: serve the published snapshot as stale
+#
+
+
+async def test_refresh_failure_serves_stale_snapshot(handler, monkeypatch):
+    """The refresh pull fails because the remote is down: the (complete)
+    published snapshot is returned and the request is marked stale."""
+    from contextlib import asynccontextmanager
+    from app.lib import staleness
+    from app.model.err import RepoUnavailable
+
+    class DownGitDirect(FakeGitDirect):
+        @asynccontextmanager
+        async def writer(self, user):
+            del user
+            raise RepoUnavailable("down")
+            yield  # pylint: disable=unreachable
+
+    monkeypatch.setattr(grs, "_git_direct", DownGitDirect())
+    client = FakeRedis(store={"latest": "H1", "ready:H1": "1", "synced": "100.0"})
+
+    with staleness.request_scope() as state:
+        result = await handler._ensure_snapshot(None, client, dirty=False)
+        assert state.stale is True
+        assert state.synced == 100.0
+    assert result == "H1"
+    assert "pull_lock" not in client.store  # released for the next attempt
+
+
+async def test_refresh_failure_without_snapshot_raises(handler, monkeypatch):
+    from contextlib import asynccontextmanager
+    from app.model.err import RepoUnavailable
+
+    class DownGitDirect(FakeGitDirect):
+        @asynccontextmanager
+        async def writer(self, user):
+            del user
+            raise RepoUnavailable("down")
+            yield  # pylint: disable=unreachable
+
+    monkeypatch.setattr(grs, "_git_direct", DownGitDirect())
+    client = FakeRedis(store={})
+
+    with pytest.raises(RepoUnavailable):
+        await handler._ensure_snapshot(None, client, dirty=False)

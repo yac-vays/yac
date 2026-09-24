@@ -86,6 +86,34 @@ class RepoTimeoutError(RepoError):
     title = "Data Repository did not answer timely"
 
 
+class RepoUnavailable(RepoError):
+    """
+    The remote data repository cannot be reached (network/DNS/connection
+    failure or an HTTP 5xx from the git server) and no local copy can stand
+    in. Reads normally survive such outages by serving the last known state
+    (see the repo plugins); this is raised when that is impossible or when
+    the operation needs the remote (writes, first clone).
+    """
+
+    code = 503
+    title = "Data Repository Unavailable"
+    default_message = (
+        "The data repository cannot be reached at the moment. Please try again"
+        " later."
+    )
+
+
+class RepoMaintenance(RepoUnavailable):
+    """
+    The git server answered HTTP 503, which it does while in maintenance.
+    """
+
+    title = "Data Repository in Maintenance"
+    default_message = (
+        "The data repository is in maintenance. Please try again later."
+    )
+
+
 class RepoClientError(RepoError):
     code = 400
     title = "Not Allowed"
@@ -123,7 +151,7 @@ class AuthError(YACError):
 
 def http_responses() -> dict:
     result = {}
-    for c in [400, 401, 403, 404, 409, 500]:
+    for c in [400, 401, 403, 404, 409, 500, 503]:
         result.update(
             {
                 c: {

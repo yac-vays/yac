@@ -1,11 +1,12 @@
 """
 A library to run non-blocking (async) git commands and kill them after a timeout.
 
-Raises: [app.lib.git.GitError, app.lib.git.GitTimeoutError]
+Raises: [app.lib.git.GitError, app.lib.git.GitTimeoutError, app.lib.git.GitRemoteError]
 """
 
 import asyncio
 import logging
+import re
 
 from anyio import Path
 
@@ -27,6 +28,72 @@ class GitError(Exception):
 
 class GitTimeoutError(GitError):
     pass
+
+
+class GitRemoteError(GitError):
+    """
+    A network operation (clone / pull / push) failed because the remote could
+    not be reached or answered with a server error -- as opposed to a failure
+    on our side (rejected push, bad credentials, corrupt checkout), which
+    stays a plain GitError. `maintenance` is set when the server answered
+    HTTP 503, the status git servers return while in maintenance.
+
+    Only HTTP(S) remotes expose the server's status code; over SSH a
+    maintenance window looks like any other failure to read from the remote.
+    """
+
+    def __init__(
+        self, message: str, *, returncode: int | None = None, maintenance: bool = False
+    ) -> None:
+        super().__init__(message, returncode=returncode)
+        self.maintenance = maintenance
+
+
+# Patterns (in git's stderr, LANG=C) that identify a remote that is down or
+# unreachable rather than a problem with our request. Kept deliberately
+# narrow: an authentication failure or a rejected push must not look like an
+# outage.
+_MAINTENANCE_RE = re.compile(r"The requested URL returned error: 503\b")
+_UNAVAILABLE_RE = re.compile(
+    r"The requested URL returned error: 5\d\d\b"
+    r"|Could not resolve host"
+    r"|Failed to connect to"
+    r"|Connection refused"
+    r"|Connection timed out"
+    r"|Connection reset by peer"
+    r"|Network is unreachable"
+    r"|Empty reply from server"
+    r"|Recv failure"
+    r"|ssh: connect to host .* port \d+:"
+)
+
+# Credentials embedded in remote URLs (https://user:token@host/...) show up
+# verbatim in git's error output; strip them before the text reaches logs or
+# exceptions.
+_URL_CREDENTIALS_RE = re.compile(r"(://)[^/@\s]+@")
+
+
+def redact_credentials(text: str) -> str:
+    return _URL_CREDENTIALS_RE.sub(r"\1***@", text)
+
+
+def classify_remote_failure(error: GitError) -> GitError:
+    """
+    Turn a GitError from a network command into a GitRemoteError if its
+    output shows the remote was unreachable or answered 5xx; otherwise
+    return the error unchanged. Timeouts are left alone: callers treat them
+    specially (a timed-out push may well have landed).
+    """
+    if isinstance(error, (GitRemoteError, GitTimeoutError)):
+        return error
+    message = str(error)
+    if _UNAVAILABLE_RE.search(message) is None:
+        return error
+    return GitRemoteError(
+        message,
+        returncode=error.returncode,
+        maintenance=_MAINTENANCE_RE.search(message) is not None,
+    )
 
 
 # Network operations (clone / pull / push) share a generous timeout: a slow
@@ -67,10 +134,25 @@ class Repo:
 
         if proc.returncode != 0:
             raise GitError(
-                f"Command git {' '.join(args)} failed with: {stderr.decode()}",
+                redact_credentials(
+                    f"Command git {' '.join(args)} failed with: {stderr.decode()}"
+                ),
                 returncode=proc.returncode,
             )
         return stdout.decode()
+
+    async def __run_remote(self, *args: str, timeout: int) -> str:
+        """
+        Like `__run`, for commands that talk to the remote: a failure caused
+        by the remote being down surfaces as GitRemoteError.
+        """
+        try:
+            return await self.__run(*args, timeout=timeout)
+        except GitError as error:
+            classified = classify_remote_failure(error)
+            if classified is error:
+                raise
+            raise classified from error
 
     async def load(self) -> None:
         try:
@@ -91,7 +173,7 @@ class Repo:
             await Path(self.path).mkdir(parents=True, exist_ok=True)
         except OSError as error:
             raise GitError(f"Unable to create {self.path}: {error}") from error
-        await self.__run(
+        await self.__run_remote(
             "clone",
             "--depth",
             str(depth),
@@ -104,7 +186,7 @@ class Repo:
         self.loaded = True
 
     async def pull(self, timeout: int = NETWORK_TIMEOUT) -> None:
-        await self.__run("pull", timeout=timeout)
+        await self.__run_remote("pull", timeout=timeout)
 
     async def add(self, files: list[str]) -> None:
         await self.__run("add", *files, timeout=3)
@@ -113,7 +195,7 @@ class Repo:
         await self.__run("commit", "-m", msg, timeout=3)
 
     async def push(self, timeout: int = NETWORK_TIMEOUT) -> None:
-        await self.__run("push", timeout=timeout)
+        await self.__run_remote("push", timeout=timeout)
 
     async def is_dirty(self) -> bool:
         try:
@@ -138,8 +220,8 @@ class Repo:
             args.append("-ff")
         await self.__run(*args, timeout=3)
 
-    async def get_hash(self) -> str:
-        return (await self.__run("rev-parse", "HEAD", timeout=3)).strip()
+    async def get_hash(self, ref: str = "HEAD") -> str:
+        return (await self.__run("rev-parse", ref, timeout=3)).strip()
 
     async def is_ancestor(self, ancestor: str, descendant: str) -> bool:
         """
