@@ -191,3 +191,20 @@ redis:
     # Extra args appended to the `redis-server` command. Use this to tune
     # maxmemory, eviction policy, etc.
     args: []
+
+# Availability during node maintenance (NaaS docs, availability.md). The three
+# measures work together: spread the replicas over different nodes, pause
+# before SIGTERM so the ingress stops routing to a stopping pod first, and let
+# the platform evict only one pod at a time (maxUnavailable - never
+# minAvailable, which can block a node drain).
+topologySpread:
+  enabled: true
+  # ScheduleAnyway = soft preference; DoNotSchedule = require distinct nodes
+  whenUnsatisfiable: ScheduleAnyway
+preStop:
+  # Native sleep hook (no shell needed). The process must then exit on SIGTERM
+  # within terminationGracePeriodSeconds (default 30 s).
+  seconds: 5
+pdb:
+  # PodDisruptionBudget with maxUnavailable: 1 (only created for replicaCount > 1)
+  enabled: true

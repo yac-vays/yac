@@ -37,6 +37,17 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      {{- if .Values.topologySpread.enabled }}
+      # spread the replicas over different nodes (see values: topologySpread)
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              app: {{ include "name" . }}
+              component: api
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -119,12 +130,12 @@ spec:
             timeoutSeconds: 2
             failureThreshold: 20
             periodSeconds: 3
+          # A stopping pod is removed from the Service and gets SIGTERM at the
+          # same moment; pause so the ingress stops routing to it first.
           lifecycle:
             preStop:
-              exec:
-                # Give the load balancer time to remove the
-                # pod before terminating (for zero downtime)
-                command: ["/bin/sh", "-c", "sleep 20"]
+              sleep:
+                seconds: {{ int .Values.preStop.seconds }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

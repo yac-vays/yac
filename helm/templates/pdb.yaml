@@ -1,0 +1,17 @@
+{{- if and .Values.pdb.enabled (gt (int .Values.replicaCount) 1) }}
+# Lets the platform evict one pod at a time during node drains. maxUnavailable
+# (not minAvailable) so the budget can never block a drain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "fullname" . }}
+  labels:
+    app: {{ include "name" . }}
+    chart: {{ include "chart" . }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: {{ include "name" . }}
+      component: api
+{{- end }}
