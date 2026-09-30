@@ -41,6 +41,9 @@ Details:
               default: 0
 """
 
+import logging
+from time import monotonic
+
 import httpx
 
 from app.lib import j2
@@ -48,6 +51,8 @@ from app.model import out
 from app.model.err import LogError
 from app.model.err import LogSpecsError
 from app.model.plg import ILog
+
+logger = logging.getLogger(__name__)
 
 
 class HttpLog(ILog):
@@ -74,19 +79,7 @@ class HttpLog(ILog):
         if not isinstance(headers, dict):
             raise LogSpecsError('In details.headers for log plugin "http": not a dict')
 
-        try:
-            async with httpx.AsyncClient(
-                headers={"Accept": "application/json", **headers},
-                verify=d.get("ssl_verify", True),
-                timeout=d.get("timeout", 5),
-            ) as client:
-                logs = await client.request(
-                    method=d.get("method", "GET"),
-                    url=d.get("url", ""),
-                )
-            logs.raise_for_status()
-        except httpx.HTTPError as error:
-            raise LogError(f"Could not fetch logs over http: {error}") from error
+        logs = await self.__fetch(d, headers)
 
         try:
             body = logs.json()
@@ -130,6 +123,38 @@ class HttpLog(ILog):
             result.append(entry)
 
         return result
+
+    async def __fetch(self, d: dict, headers: dict) -> httpx.Response:
+        # A failure while connecting (DNS, TCP, TLS) means the request was never
+        # sent, so it is always safe to retry once. This hides transient network
+        # hiccups that would otherwise show up as an empty log in the UI.
+        for attempt in (1, 2):
+            start = monotonic()
+            try:
+                async with httpx.AsyncClient(
+                    headers={"Accept": "application/json", **headers},
+                    verify=d.get("ssl_verify", True),
+                    timeout=d.get("timeout", 5),
+                ) as client:
+                    response = await client.request(
+                        method=d.get("method", "GET"),
+                        url=d.get("url", ""),
+                    )
+                response.raise_for_status()
+                return response
+            except httpx.HTTPError as error:
+                # Timeouts stringify to "", so always name the exception type.
+                reason = (
+                    f"{type(error).__name__} after "
+                    f"{monotonic() - start:.1f}s: {error}"
+                )
+                if attempt == 1 and isinstance(
+                    error, (httpx.ConnectError, httpx.ConnectTimeout)
+                ):
+                    logger.warning("Retrying log fetch over http: %s", reason)
+                    continue
+                raise LogError(f"Could not fetch logs over http: {reason}") from error
+        raise AssertionError("unreachable")
 
     async def __render(self, data: dict, key: str, typ, default, props: dict):
         try:

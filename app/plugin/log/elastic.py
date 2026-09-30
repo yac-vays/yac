@@ -76,7 +76,10 @@ class ElasticLog(ILog):
                 )
             logs.raise_for_status()
         except httpx.HTTPError as error:
-            raise LogError(f"Could not run elastic log eql query: {error}") from error
+            raise LogError(
+                "Could not run elastic log eql query: "
+                f"{type(error).__name__}: {error}"
+            ) from error
 
         result = []
         for l in logs.json().get("hits", {}).get("events", []):

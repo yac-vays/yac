@@ -66,7 +66,12 @@ def http_mod(monkeypatch):
     monkeypatch.setattr(
         mod,
         "httpx",
-        types.SimpleNamespace(AsyncClient=_FakeClient, HTTPError=httpx.HTTPError),
+        types.SimpleNamespace(
+            AsyncClient=_FakeClient,
+            HTTPError=httpx.HTTPError,
+            ConnectError=httpx.ConnectError,
+            ConnectTimeout=httpx.ConnectTimeout,
+        ),
     )
     return mod
 
@@ -114,3 +119,48 @@ async def test_http_error_becomes_log_error(http_mod, monkeypatch):
     monkeypatch.setattr(_FakeClient, "request", _boom)
     with pytest.raises(LogError):
         await http_mod.log.get("install", False, False, details=DETAILS, props=PROPS)
+
+
+async def test_connect_failure_is_retried_once(http_mod, monkeypatch):
+    calls = []
+
+    async def _flaky(self, method, url):
+        calls.append(url)
+        if len(calls) == 1:
+            raise httpx.ConnectTimeout("")
+        return _FakeResp(DATA)
+
+    monkeypatch.setattr(_FakeClient, "request", _flaky)
+    logs = await http_mod.log.get("install", False, False, details=DETAILS, props=PROPS)
+    assert len(calls) == 2
+    assert [l.message for l in logs] == ["Installer started", "Installer finished"]
+
+
+async def test_read_timeout_is_not_retried_and_names_the_error(http_mod, monkeypatch):
+    from app.model.err import LogError
+
+    calls = []
+
+    async def _slow(self, method, url):
+        calls.append(url)
+        raise httpx.ReadTimeout("")
+
+    monkeypatch.setattr(_FakeClient, "request", _slow)
+    with pytest.raises(LogError, match=r"ReadTimeout after \d+\.\ds"):
+        await http_mod.log.get("install", False, False, details=DETAILS, props=PROPS)
+    assert len(calls) == 1
+
+
+async def test_persistent_connect_failure_gives_up_after_retry(http_mod, monkeypatch):
+    from app.model.err import LogError
+
+    calls = []
+
+    async def _down(self, method, url):
+        calls.append(url)
+        raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr(_FakeClient, "request", _down)
+    with pytest.raises(LogError, match="ConnectError"):
+        await http_mod.log.get("install", False, False, details=DETAILS, props=PROPS)
+    assert len(calls) == 2

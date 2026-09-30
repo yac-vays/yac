@@ -61,7 +61,9 @@ class HttpAction(IAction):
                     content=d.get("body"),
                 )
         except httpx.HTTPError as error:
-            raise ActionError(f"Could not run HTTP request: {error}") from error
+            raise ActionError(
+                f"Could not run HTTP request: {type(error).__name__}: {error}"
+            ) from error
 
         if response.status_code in d.get(
             "success", [200, 201, 202, 203, 204, 205, 206, 207, 208, 226]
