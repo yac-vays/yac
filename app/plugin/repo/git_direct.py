@@ -527,6 +527,19 @@ class GitRepo(IRepo):
             logger.warning(f"Resolved path escapes the repository: {file}")
             raise RepoClientError("The resolved file path escapes the repository")
 
+    async def _make_parents(self, file: str) -> None:
+        """
+        Create the missing parent directories of a file about to be written:
+        git does not track empty directories, so the first entity of a type
+        (or of a nested path) may have no directory to land in yet. Must be
+        called after `_assert_inside_repo`, which pins the resolved parent
+        inside the repository.
+        """
+        try:
+            await Path(dirname(file)).mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise RepoError(f"Could not create directory for {file}") from error
+
     async def _read_file(self, file: str, *, what: str, absolute: bool = True) -> str:
         """
         `what` describes the entity (type/name) for the client-facing
@@ -668,6 +681,7 @@ class GitRepo(IRepo):
         elif len(content_old) > 0:
             raise RepoConflict("The file has been deleted in the meantime")
 
+        await self._make_parents(file_abs)
         try:
             async with await open_file(file_abs, "w+", encoding="utf-8") as f:
                 logger.debug(f"Writing file {file_abs}")
@@ -719,6 +733,7 @@ class GitRepo(IRepo):
         if await self._exists(type_name, name_new, details):
             raise RepoClientError("The file already exists")
 
+        await self._make_parents(file_new)
         try:
             async with await open_file(file_new, "w+", encoding="utf-8") as f:
                 logger.debug(f"Writing file {file_new}")
@@ -766,6 +781,7 @@ class GitRepo(IRepo):
             file_src, what=f"{type_name} {name_src}", absolute=True
         )
 
+        await self._make_parents(file_dest)
         try:
             async with await open_file(file_dest, "w+", encoding="utf-8") as f:
                 logger.debug(f"Writing file {file_dest}")
@@ -804,6 +820,7 @@ class GitRepo(IRepo):
         await self._assert_inside_repo(link)
         await self._assert_inside_repo(src)
 
+        await self._make_parents(link)
         try:
             await Path(link).symlink_to(self._make_relative(src, link))
         except FileExistsError as error:

@@ -222,6 +222,109 @@ async def test_writes_are_pushed_to_remote(repo, tmp_path):
     assert (verify / "hosts" / "pushed.yml").read_text() == "cpu: 1\n"
 
 
+async def test_writes_create_missing_parent_dirs(repo, tmp_path):
+    # git does not track empty dirs: the type's directory may not exist yet
+    details = {"vm": "vms/{{ name }}.yml", "deep": "a/b/{{ name }}.yml"}
+    async with repo.writer(USER) as untyped:
+        s = untyped.session(details)
+        assert await s.list("vm") == []
+        await s.write("vm", "one", "", "cpu: 1\n", "create")
+        await s.write("deep", "two", "", "cpu: 2\n", "create nested")
+        assert await s.list("vm") == ["one"]
+        assert await s.list("deep") == ["two"]
+
+    verify = tmp_path / "verify"
+    _git(tmp_path, "clone", "-q", str(tmp_path / "remote.git"), str(verify))
+    assert (verify / "vms" / "one.yml").read_text() == "cpu: 1\n"
+    assert (verify / "a" / "b" / "two.yml").read_text() == "cpu: 2\n"
+
+
+async def test_name_as_directory_full_cycle(repo, tmp_path):
+    """
+    Every operation for a type whose name is a directory in the middle of the
+    path: each entity lives in its own (initially missing) directory tree.
+    """
+    details = {"svc": "a/{{ name }}/b/data-from-yac.yml"}
+    async with repo.writer(USER) as untyped:
+        s = untyped.session(details)
+        assert await s.list("svc") == []
+        assert await s.exists("svc", "src") is False
+
+        # create, read, edit
+        diff = await s.write("svc", "src", "", "cpu: 1\n", "create")
+        assert diff.name == "src"
+        assert "+++ b/a/src/b/data-from-yac.yml" in diff.patch
+        assert await s.exists("svc", "src") is True
+        assert await s.get("svc", "src") == "cpu: 1\n"
+        await s.write("svc", "src", "cpu: 1\n", "cpu: 2\n", "edit")
+        assert await s.get("svc", "src") == "cpu: 2\n"
+
+        # copy, then rename the copy (both into missing directories)
+        await s.copy("svc", "cp", "src", "copy")
+        assert await s.get("svc", "cp") == "cpu: 2\n"
+        diff = await s.write_rename(
+            "svc", "cp", "mv", "cpu: 2\n", "cpu: 3\n", "rename"
+        )
+        assert "--- a/a/cp/b/data-from-yac.yml" in diff.patch
+        assert "+++ b/a/mv/b/data-from-yac.yml" in diff.patch
+        assert await s.exists("svc", "cp") is False
+        assert await s.get("svc", "mv") == "cpu: 3\n"
+
+        # link across the per-entity directories
+        await s.link("svc", "ln", "src", "link")
+        assert await s.is_link("svc", "ln") is True
+        assert await s.is_link("svc", "src") is False
+        assert await s.get_link("svc", "ln") == "src"
+        assert await s.get("svc", "ln") == "cpu: 2\n"
+        assert await repo._has_link("svc", "src", details) is True
+        assert await repo._has_link("svc", "mv", details) is False
+        with pytest.raises(RepoClientError):
+            await s.delete("svc", "src", "cpu: 2\n", "del linked")
+        with pytest.raises(RepoClientError):
+            await s.write("svc", "ln", "cpu: 2\n", "cpu: 9\n", "edit link")
+
+        # rename/copy onto an existing entity is rejected
+        with pytest.raises(RepoClientError):
+            await s.write_rename("svc", "mv", "src", "cpu: 3\n", "x: 1\n", "rn")
+        with pytest.raises(RepoClientError):
+            await s.copy("svc", "src", "mv", "copy")
+
+        assert await s.list("svc") == ["ln", "mv", "src"]
+
+        # delete: the leftover empty directories must not show up as entities
+        await s.delete("svc", "mv", "cpu: 3\n", "del")
+        assert await s.exists("svc", "mv") is False
+        assert await s.list("svc") == ["ln", "src"]
+
+        # re-create into the (now empty, already existing) directory
+        await s.write("svc", "mv", "", "cpu: 4\n", "re-create")
+        assert await s.get("svc", "mv") == "cpu: 4\n"
+
+    # a reader scope sees the same state
+    async with repo.reader(USER) as untyped:
+        s = untyped.session(details)
+        assert await s.list("svc") == ["ln", "mv", "src"]
+        assert await s.get_link("svc", "ln") == "src"
+
+    # and so does the remote
+    verify = tmp_path / "verify"
+    _git(tmp_path, "clone", "-q", str(tmp_path / "remote.git"), str(verify))
+    base = verify / "a"
+    assert (base / "src" / "b" / "data-from-yac.yml").read_text() == "cpu: 2\n"
+    assert (base / "mv" / "b" / "data-from-yac.yml").read_text() == "cpu: 4\n"
+    assert not (base / "cp").exists()
+    link = base / "ln" / "b" / "data-from-yac.yml"
+    assert link.is_symlink()
+    assert str(link.readlink()) == "../../src/b/data-from-yac.yml"
+
+
+async def test_parent_that_is_a_file_fails_cleanly(repo):
+    async with repo.writer(USER) as untyped:
+        s = untyped.session({"x": "hosts/a.yml/{{ name }}.yml"})
+        with pytest.raises(RepoError):
+            await s.write("x", "n", "", "cpu: 1\n", "create")
+
+
 # ----- scope + safety guards -----
 
 async def test_reader_scope_rejects_writes(repo):
