@@ -20,6 +20,7 @@ from app.model.inp import ReplaceEntity
 from app.model.inp import UpdateEntity
 from app.model.out import Diff
 from app.model.out import TypeActionHook
+from app.model.plg import CommitMsg
 
 router = APIRouter()
 
@@ -35,7 +36,7 @@ async def update_entity(
     type_name: PathType,
     entity_name: PathName,
     entity: ReplaceEntity,
-    msg: QueryMsg = "Edit",
+    msg: QueryMsg = "",
     run: QueryActions = [],
     force: QueryForce = False,
 ) -> Diff:
@@ -68,10 +69,11 @@ async def update_entity(
         usages = await limits.measure(hash, rpo, op, s, old, new_data)
 
     result = await validator.test_all(op, s, old, new, perms, usages)
+    commit = CommitMsg(body=msg)
     if force and not result.schemas.valid:
         # Audit trail: the repo history must show that this commit was written
         # past a failing schema validation.
-        msg = f"{msg} (admin override: schema validation bypassed)"
+        commit.note = "admin override: schema validation bypassed"
 
     await action.run(TypeActionHook.EDIT_BEFORE, op, s)
 
@@ -85,7 +87,7 @@ async def update_entity(
         await limits.enforce(rpo, op, s, old, new_data)
         if entity_name == entity.name:
             diff = await rpo.write(
-                type_name, entity_name, entity.yaml_old, entity.yaml_new, msg
+                type_name, entity_name, entity.yaml_old, entity.yaml_new, commit
             )
         else:
             diff = await rpo.write_rename(
@@ -94,7 +96,7 @@ async def update_entity(
                 entity.name or entity_name,
                 entity.yaml_old,
                 entity.yaml_new,
-                msg,
+                commit,
             )
 
     await action.run(TypeActionHook.EDIT_AFTER, op, s)
@@ -113,7 +115,7 @@ async def change_entity(
     type_name: PathType,
     entity_name: PathName,
     entity: UpdateEntity,
-    msg: QueryMsg = "Edit",
+    msg: QueryMsg = "",
     run: QueryActions = [],
 ) -> Diff:
     """
@@ -157,7 +159,9 @@ async def change_entity(
         # with the writer session right before writing.
         await limits.enforce(rpo, op, s, old, new_data)
         if entity_name == entity.name:
-            diff = await rpo.write(type_name, entity_name, yaml_old, yaml_new, msg)
+            diff = await rpo.write(
+                type_name, entity_name, yaml_old, yaml_new, CommitMsg(body=msg)
+            )
 
         else:
             diff = await rpo.write_rename(
@@ -166,7 +170,7 @@ async def change_entity(
                 entity.name or entity_name,
                 yaml_old,
                 yaml_new,
-                msg,
+                CommitMsg(body=msg),
             )
 
     await action.run(TypeActionHook.EDIT_AFTER, op, s)

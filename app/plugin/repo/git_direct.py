@@ -66,6 +66,7 @@ from app.model.err import RepoTimeoutError
 from app.model.err import RepoSpecsError
 from app.model.out import Diff
 from app.model.out import User
+from app.model.plg import CommitMsg
 from app.model.plg import IRepo
 from app.model.plg import IRepoSession
 from app.model.plg import RepoState
@@ -210,7 +211,7 @@ class _GitRepoSession(IRepoSession):
             raise RepoError("Write operation outside writer scope")
 
     async def write(
-        self, type: str, name: str, content_old: str, content_new: str, msg: str
+        self, type: str, name: str, content_old: str, content_new: str, msg: CommitMsg
     ) -> Diff:
         self._require_writing()
         return await self._h._write(
@@ -224,7 +225,7 @@ class _GitRepoSession(IRepoSession):
         name_new: str,
         content_old: str,
         content_new: str,
-        msg: str,
+        msg: CommitMsg,
     ) -> Diff:
         self._require_writing()
         return await self._h._write_rename(
@@ -239,7 +240,7 @@ class _GitRepoSession(IRepoSession):
         )
 
     async def copy(
-        self, type: str, name_dest: str, name_src: str, msg: str
+        self, type: str, name_dest: str, name_src: str, msg: CommitMsg
     ) -> Diff:
         self._require_writing()
         return await self._h._copy(
@@ -247,14 +248,16 @@ class _GitRepoSession(IRepoSession):
         )
 
     async def link(
-        self, type: str, name_link: str, name_src: str, msg: str
+        self, type: str, name_link: str, name_src: str, msg: CommitMsg
     ) -> Diff:
         self._require_writing()
         return await self._h._link(
             self._user, self._details, type, name_link, name_src, msg
         )
 
-    async def delete(self, type: str, name: str, content_old: str, msg: str) -> None:
+    async def delete(
+        self, type: str, name: str, content_old: str, msg: CommitMsg
+    ) -> None:
         self._require_writing()
         await self._h._delete(self._user, self._details, type, name, content_old, msg)
 
@@ -451,11 +454,21 @@ class GitRepo(IRepo):
         self._loaded = True
         self._remote_success()
 
-    async def _push(self, user: User | None, files: list[str], msg: str) -> None:
+    async def _push(
+        self, user: User | None, files: list[str], subject: str, msg: CommitMsg
+    ) -> None:
+        """
+        Commit and push `files`. The commit message is the `subject` describing
+        the change (`Edited <path>`) plus the caller's `msg` (see `CommitMsg`).
+        """
         gr = _make_git_repo(self.path, user)
+        subject = f"[YAC] {subject}"
+        if msg.note:
+            subject = f"{subject} ({msg.note})"
+        body = msg.body.replace("\r\n", "\n").strip()
         try:
             await gr.add(files)
-            await gr.commit(f"[YAC] {msg}")
+            await gr.commit(f"{subject} ...\n\n{body}" if body else subject)
             logger.debug(f"Pushing new git commit from {self.path} to remote")
             await gr.push()
         except git.GitRemoteError as error:
@@ -664,13 +677,14 @@ class GitRepo(IRepo):
         name: str,
         content_old: str,
         content_new: str,
-        msg: str,
+        msg: CommitMsg,
     ) -> Diff:
         path_rel = await _render_path(type_name, name, details)
         file_abs = f"{self.path}/{path_rel}"
         await self._assert_inside_repo(file_abs)
 
-        if await self._exists(type_name, name, details):
+        exists = await self._exists(type_name, name, details)
+        if exists:
             content = await self._get(type_name, name, details)
             if content != content_old:
                 raise RepoConflict("The data has changed in the meantime")
@@ -689,7 +703,9 @@ class GitRepo(IRepo):
         except OSError as error:
             raise RepoError(f"Could not write file {file_abs}") from error
 
-        await self._push(user, [file_abs], msg)
+        await self._push(
+            user, [file_abs], f"{'Edited' if exists else 'Created'} {path_rel}", msg
+        )
         patch = "\n".join(
             unified_diff(
                 content_old.split("\n"),
@@ -711,7 +727,7 @@ class GitRepo(IRepo):
         name_new: str,
         content_old: str,
         content_new: str,
-        msg: str,
+        msg: CommitMsg,
     ) -> Diff:
         path_old = await _render_path(type_name, name_old, details)
         path_new = await _render_path(type_name, name_new, details)
@@ -746,7 +762,12 @@ class GitRepo(IRepo):
         except OSError as error:
             raise RepoError(f"Could not delete file {file_old}") from error
 
-        await self._push(user, [file_old, file_new], msg)
+        await self._push(
+            user,
+            [file_old, file_new],
+            f"Edited {path_new} (renamed from {os.path.basename(path_old)})",
+            msg,
+        )
         patch = "\n".join(
             unified_diff(
                 content_old.split("\n"),
@@ -766,7 +787,7 @@ class GitRepo(IRepo):
         type_name: str,
         name_dest: str,
         name_src: str,
-        msg: str,
+        msg: CommitMsg,
     ) -> Diff:
         if await self._exists(type_name, name_dest, details):
             raise RepoClientError("The file already exists")
@@ -789,7 +810,12 @@ class GitRepo(IRepo):
         except OSError as error:
             raise RepoError(f"Could not create file {file_dest}") from error
 
-        await self._push(user, [file_dest], msg)
+        await self._push(
+            user,
+            [file_dest],
+            f"Created {path_dest} (copy of {os.path.basename(file_src)})",
+            msg,
+        )
         patch = "\n".join(
             unified_diff(
                 [],
@@ -809,7 +835,7 @@ class GitRepo(IRepo):
         type_name: str,
         name_link: str,
         name_src: str,
-        msg: str,
+        msg: CommitMsg,
     ) -> Diff:
         if not await self._exists(type_name, name_src, details):
             raise RepoNotFound("The file does not exist")
@@ -828,7 +854,12 @@ class GitRepo(IRepo):
         except OSError as error:
             raise RepoError(f"Could not create symlink {link}") from error
 
-        await self._push(user, [link], msg)
+        await self._push(
+            user,
+            [link],
+            f"Created {path_link} (link to {os.path.basename(src)})",
+            msg,
+        )
         patch = "\n".join(
             unified_diff(
                 [],
@@ -848,7 +879,7 @@ class GitRepo(IRepo):
         type_name: str,
         name: str,
         content_old: str,
-        msg: str,
+        msg: CommitMsg,
     ) -> None:
         if not await self._exists(type_name, name, details):
             raise RepoNotFound("The file does not exist")
@@ -871,7 +902,9 @@ class GitRepo(IRepo):
         except OSError as error:
             raise RepoError(f"Could not delete file {file}") from error
 
-        await self._push(user, [file], msg)
+        await self._push(
+            user, [file], f"Deleted {os.path.relpath(file, self.path)}", msg
+        )
 
 
 handler = GitRepo()

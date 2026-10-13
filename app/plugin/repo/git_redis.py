@@ -58,6 +58,7 @@ from app.model.err import RepoNotFound
 from app.model.err import RepoUnavailable
 from app.model.out import Diff
 from app.model.out import User
+from app.model.plg import CommitMsg
 from app.model.plg import IRepo
 from app.model.plg import IRepoSession
 from app.model.plg import RepoState
@@ -233,7 +234,7 @@ class _GitRedisSession(IRepoSession):
         raise RepoError("Write operation outside writer scope")
 
     async def write(
-        self, type: str, name: str, content_old: str, content_new: str, msg: str
+        self, type: str, name: str, content_old: str, content_new: str, msg: CommitMsg
     ) -> Diff:
         del type, name, content_old, content_new, msg
         self._no_write()
@@ -245,20 +246,26 @@ class _GitRedisSession(IRepoSession):
         name_new: str,
         content_old: str,
         content_new: str,
-        msg: str,
+        msg: CommitMsg,
     ) -> Diff:
         del type, name_old, name_new, content_old, content_new, msg
         self._no_write()
 
-    async def copy(self, type: str, name_dest: str, name_src: str, msg: str) -> Diff:
+    async def copy(
+        self, type: str, name_dest: str, name_src: str, msg: CommitMsg
+    ) -> Diff:
         del type, name_dest, name_src, msg
         self._no_write()
 
-    async def link(self, type: str, name_link: str, name_src: str, msg: str) -> Diff:
+    async def link(
+        self, type: str, name_link: str, name_src: str, msg: CommitMsg
+    ) -> Diff:
         del type, name_link, name_src, msg
         self._no_write()
 
-    async def delete(self, type: str, name: str, content_old: str, msg: str) -> None:
+    async def delete(
+        self, type: str, name: str, content_old: str, msg: CommitMsg
+    ) -> None:
         del type, name, content_old, msg
         self._no_write()
 

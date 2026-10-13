@@ -126,6 +126,22 @@ class IValidator(ISortable):
         )
 
 
+@dataclass
+class CommitMsg:
+    """
+    The caller's part of the commit message of a write. The repo plugin
+    generates the subject itself, from the operation and the file (e.g.
+    `Edited hosts/web01.yml`).
+
+      note: appended to the subject in parentheses, e.g. an audit marker.
+      body: free text (the client's `msg`), committed as the message body.
+            The subject then ends with ` ...` to hint at it.
+    """
+
+    note: str = ""
+    body: str = ""
+
+
 class IRepoSession:
     """
     Typed view of the repository for one request scope, given an entity-type
@@ -176,7 +192,7 @@ class IRepoSession:
 
     @abstractmethod
     async def write(
-        self, type: str, name: str, content_old: str, content_new: str, msg: str
+        self, type: str, name: str, content_old: str, content_new: str, msg: CommitMsg
     ) -> Diff: ...
 
     @abstractmethod
@@ -187,21 +203,23 @@ class IRepoSession:
         name_new: str,
         content_old: str,
         content_new: str,
-        msg: str,
+        msg: CommitMsg,
     ) -> Diff: ...
 
     @abstractmethod
     async def copy(
-        self, type: str, name_dest: str, name_src: str, msg: str
+        self, type: str, name_dest: str, name_src: str, msg: CommitMsg
     ) -> Diff: ...
 
     @abstractmethod
     async def link(
-        self, type: str, name_link: str, name_src: str, msg: str
+        self, type: str, name_link: str, name_src: str, msg: CommitMsg
     ) -> Diff: ...
 
     @abstractmethod
-    async def delete(self, type: str, name: str, content_old: str, msg: str) -> None:
+    async def delete(
+        self, type: str, name: str, content_old: str, msg: CommitMsg
+    ) -> None:
         """
         Delete the entity, but only if its current content still equals
         `content_old` — the content the caller derived its authorization (and

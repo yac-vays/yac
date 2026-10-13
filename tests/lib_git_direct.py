@@ -18,6 +18,7 @@ import pytest
 
 import app.plugin.repo.git_direct as gd
 from app.model.out import User
+from app.model.plg import CommitMsg
 from app.model.err import (
     RepoClientError,
     RepoConflict,
@@ -132,34 +133,35 @@ async def test_full_write_cycle(repo):
     async with repo.writer(USER) as untyped:
         s = untyped.session(DETAILS)
 
-        diff = await s.write("host", "new", "", "cpu: 1\n", "create new")
+        diff = await s.write("host", "new", "", "cpu: 1\n", CommitMsg())
         assert diff.name == "new" and "+cpu: 1" in diff.patch
         assert await s.exists("host", "new") is True
 
         # conflict: supplied old content does not match what's on disk
         with pytest.raises(RepoConflict):
-            await s.write("host", "new", "STALE", "cpu: 2\n", "x")
+            await s.write("host", "new", "STALE", "cpu: 2\n", CommitMsg())
 
         # writing identical content is rejected as a no-op
         with pytest.raises(RepoClientError):
-            await s.write("host", "new", "cpu: 1\n", "cpu: 1\n", "x")
+            await s.write("host", "new", "cpu: 1\n", "cpu: 1\n", CommitMsg())
 
         # copy then link onto the copy's *source*
-        await s.copy("host", "clone", "new", "copy")
+        await s.copy("host", "clone", "new", CommitMsg())
         assert await s.exists("host", "clone") is True
-        await s.link("host", "alias", "new", "link")
+        await s.link("host", "alias", "new", CommitMsg())
         assert await s.is_link("host", "alias") is True
 
         # the linked source must not be deletable
         with pytest.raises(RepoClientError):
-            await s.delete("host", "new", "cpu: 1\n", "del")
+            await s.delete("host", "new", "cpu: 1\n", CommitMsg())
 
         # rename the clone, then delete it
         await s.write_rename(
-            "host", "clone", "clone2", await s.get("host", "clone"), "cpu: 9\n", "rn"
+            "host", "clone", "clone2", await s.get("host", "clone"), "cpu: 9\n",
+            CommitMsg(),
         )
         assert await s.exists("host", "clone2") and not await s.exists("host", "clone")
-        await s.delete("host", "clone2", "cpu: 9\n", "del")
+        await s.delete("host", "clone2", "cpu: 9\n", CommitMsg())
         assert await s.exists("host", "clone2") is False
 
 
@@ -168,7 +170,7 @@ async def test_write_to_deleted_file_conflicts(repo):
         s = untyped.session(DETAILS)
         # claiming a non-empty old content for a file that does not exist
         with pytest.raises(RepoConflict):
-            await s.write("host", "ghost", "cpu: 1\n", "cpu: 2\n", "x")
+            await s.write("host", "ghost", "cpu: 1\n", "cpu: 2\n", CommitMsg())
 
 
 async def test_delete_with_stale_content_conflicts(repo):
@@ -181,10 +183,10 @@ async def test_delete_with_stale_content_conflicts(repo):
     async with repo.writer(USER) as untyped:
         s = untyped.session(DETAILS)
         with pytest.raises(RepoConflict):
-            await s.delete("host", "b", "STALE-CONTENT\n", "del")
+            await s.delete("host", "b", "STALE-CONTENT\n", CommitMsg())
         assert await s.exists("host", "b") is True
 
-        await s.delete("host", "b", "cpu: 8\n", "del")
+        await s.delete("host", "b", "cpu: 8\n", CommitMsg())
         assert await s.exists("host", "b") is False
 
 
@@ -193,7 +195,8 @@ async def test_rename_same_name_rejected(repo):
         s = untyped.session(DETAILS)
         with pytest.raises(RepoClientError):
             await s.write_rename(
-                "host", "a", "a", await s.get("host", "a"), "cpu: 5\n", "rn"
+                "host", "a", "a", await s.get("host", "a"), "cpu: 5\n",
+                CommitMsg(),
             )
 
 
@@ -201,25 +204,59 @@ async def test_copy_onto_existing_rejected(repo):
     async with repo.writer(USER) as untyped:
         s = untyped.session(DETAILS)
         with pytest.raises(RepoClientError):
-            await s.copy("host", "b", "a", "copy")  # b already exists
+            await s.copy("host", "b", "a", CommitMsg())  # b already exists
 
 
 async def test_link_to_missing_source_rejected(repo):
     async with repo.writer(USER) as untyped:
         s = untyped.session(DETAILS)
         with pytest.raises(RepoNotFound):
-            await s.link("host", "alias", "ghost", "link")
+            await s.link("host", "alias", "ghost", CommitMsg())
 
 
 async def test_writes_are_pushed_to_remote(repo, tmp_path):
     async with repo.writer(USER) as untyped:
         s = untyped.session(DETAILS)
-        await s.write("host", "pushed", "", "cpu: 1\n", "create")
+        await s.write("host", "pushed", "", "cpu: 1\n", CommitMsg())
 
     # a fresh clone of the remote sees the new file -> the push really happened
     verify = tmp_path / "verify"
     _git(tmp_path, "clone", "-q", str(tmp_path / "remote.git"), str(verify))
     assert (verify / "hosts" / "pushed.yml").read_text() == "cpu: 1\n"
+
+
+async def test_commit_messages_name_operation_and_file(repo):
+    """
+    The commit subject is generated from the operation and the repo path,
+    plus the caller's note (e.g. the admin-override audit marker). The
+    caller's free text becomes the body, hinted at by ` ...` in the subject.
+    """
+    async with repo.writer(USER) as untyped:
+        s = untyped.session(DETAILS)
+        await s.write("host", "new", "", "cpu: 1\n", CommitMsg())
+        await s.write(
+            "host", "new", "cpu: 1\n", "cpu: 2\n",
+            CommitMsg(note="admin override", body="fix typo\r\nsee #42\n"),
+        )
+        await s.copy("host", "clone", "new", CommitMsg())
+        await s.link("host", "alias", "b", CommitMsg())
+        await s.write_rename(
+            "host", "clone", "clone2", "cpu: 2\n", "cpu: 3\n", CommitMsg()
+        )
+        await s.delete("host", "clone2", "cpu: 3\n", CommitMsg(body="cleanup"))
+
+    log = subprocess.run(
+        ["git", "log", "--format=%B%x00", "-6"],
+        cwd=repo.path, check=True, capture_output=True, text=True,
+    ).stdout.split("\x00")
+    assert [m.strip() for m in log[:-1]] == [
+        "[YAC] Deleted hosts/clone2.yml ...\n\ncleanup",
+        "[YAC] Edited hosts/clone2.yml (renamed from clone.yml)",
+        "[YAC] Created hosts/alias.yml (link to b.yml)",
+        "[YAC] Created hosts/clone.yml (copy of new.yml)",
+        "[YAC] Edited hosts/new.yml (admin override) ...\n\nfix typo\nsee #42",
+        "[YAC] Created hosts/new.yml",
+    ]
 
 
 async def test_writes_create_missing_parent_dirs(repo, tmp_path):
@@ -228,8 +265,8 @@ async def test_writes_create_missing_parent_dirs(repo, tmp_path):
     async with repo.writer(USER) as untyped:
         s = untyped.session(details)
         assert await s.list("vm") == []
-        await s.write("vm", "one", "", "cpu: 1\n", "create")
-        await s.write("deep", "two", "", "cpu: 2\n", "create nested")
+        await s.write("vm", "one", "", "cpu: 1\n", CommitMsg())
+        await s.write("deep", "two", "", "cpu: 2\n", CommitMsg())
         assert await s.list("vm") == ["one"]
         assert await s.list("deep") == ["two"]
 
@@ -251,19 +288,19 @@ async def test_name_as_directory_full_cycle(repo, tmp_path):
         assert await s.exists("svc", "src") is False
 
         # create, read, edit
-        diff = await s.write("svc", "src", "", "cpu: 1\n", "create")
+        diff = await s.write("svc", "src", "", "cpu: 1\n", CommitMsg())
         assert diff.name == "src"
         assert "+++ b/a/src/b/data-from-yac.yml" in diff.patch
         assert await s.exists("svc", "src") is True
         assert await s.get("svc", "src") == "cpu: 1\n"
-        await s.write("svc", "src", "cpu: 1\n", "cpu: 2\n", "edit")
+        await s.write("svc", "src", "cpu: 1\n", "cpu: 2\n", CommitMsg())
         assert await s.get("svc", "src") == "cpu: 2\n"
 
         # copy, then rename the copy (both into missing directories)
-        await s.copy("svc", "cp", "src", "copy")
+        await s.copy("svc", "cp", "src", CommitMsg())
         assert await s.get("svc", "cp") == "cpu: 2\n"
         diff = await s.write_rename(
-            "svc", "cp", "mv", "cpu: 2\n", "cpu: 3\n", "rename"
+            "svc", "cp", "mv", "cpu: 2\n", "cpu: 3\n", CommitMsg()
         )
         assert "--- a/a/cp/b/data-from-yac.yml" in diff.patch
         assert "+++ b/a/mv/b/data-from-yac.yml" in diff.patch
@@ -271,7 +308,7 @@ async def test_name_as_directory_full_cycle(repo, tmp_path):
         assert await s.get("svc", "mv") == "cpu: 3\n"
 
         # link across the per-entity directories
-        await s.link("svc", "ln", "src", "link")
+        await s.link("svc", "ln", "src", CommitMsg())
         assert await s.is_link("svc", "ln") is True
         assert await s.is_link("svc", "src") is False
         assert await s.get_link("svc", "ln") == "src"
@@ -279,25 +316,25 @@ async def test_name_as_directory_full_cycle(repo, tmp_path):
         assert await repo._has_link("svc", "src", details) is True
         assert await repo._has_link("svc", "mv", details) is False
         with pytest.raises(RepoClientError):
-            await s.delete("svc", "src", "cpu: 2\n", "del linked")
+            await s.delete("svc", "src", "cpu: 2\n", CommitMsg())
         with pytest.raises(RepoClientError):
-            await s.write("svc", "ln", "cpu: 2\n", "cpu: 9\n", "edit link")
+            await s.write("svc", "ln", "cpu: 2\n", "cpu: 9\n", CommitMsg())
 
         # rename/copy onto an existing entity is rejected
         with pytest.raises(RepoClientError):
-            await s.write_rename("svc", "mv", "src", "cpu: 3\n", "x: 1\n", "rn")
+            await s.write_rename("svc", "mv", "src", "cpu: 3\n", "x: 1\n", CommitMsg())
         with pytest.raises(RepoClientError):
-            await s.copy("svc", "src", "mv", "copy")
+            await s.copy("svc", "src", "mv", CommitMsg())
 
         assert await s.list("svc") == ["ln", "mv", "src"]
 
         # delete: the leftover empty directories must not show up as entities
-        await s.delete("svc", "mv", "cpu: 3\n", "del")
+        await s.delete("svc", "mv", "cpu: 3\n", CommitMsg())
         assert await s.exists("svc", "mv") is False
         assert await s.list("svc") == ["ln", "src"]
 
         # re-create into the (now empty, already existing) directory
-        await s.write("svc", "mv", "", "cpu: 4\n", "re-create")
+        await s.write("svc", "mv", "", "cpu: 4\n", CommitMsg())
         assert await s.get("svc", "mv") == "cpu: 4\n"
 
     # a reader scope sees the same state
@@ -322,7 +359,7 @@ async def test_parent_that_is_a_file_fails_cleanly(repo):
     async with repo.writer(USER) as untyped:
         s = untyped.session({"x": "hosts/a.yml/{{ name }}.yml"})
         with pytest.raises(RepoError):
-            await s.write("x", "n", "", "cpu: 1\n", "create")
+            await s.write("x", "n", "", "cpu: 1\n", CommitMsg())
 
 
 # ----- scope + safety guards -----
@@ -331,7 +368,7 @@ async def test_reader_scope_rejects_writes(repo):
     async with repo.reader(USER) as untyped:
         s = untyped.session(DETAILS)
         with pytest.raises(RepoError):
-            await s.write("host", "x", "", "y", "m")
+            await s.write("host", "x", "", "y", CommitMsg())
         # but reads + hash still work in a reader scope
         assert await s.exists("host", "a") is True
         assert len(await s.get_hash()) == 40

@@ -20,6 +20,7 @@ from app.model.inp import QueryForce
 from app.model.inp import QueryMsg
 from app.model.out import Diff
 from app.model.out import TypeActionHook
+from app.model.plg import CommitMsg
 
 router = APIRouter()
 
@@ -35,7 +36,7 @@ async def add_entity(
     user: CurrentUser,
     type_name: PathType,
     entity: NewEntity | CopyEntity | LinkEntity,
-    msg: QueryMsg = "Create",
+    msg: QueryMsg = "",
     run: QueryActions = [],
     force: QueryForce = False,
 ) -> Diff:
@@ -68,10 +69,11 @@ async def add_entity(
         usages = await limits.measure(hash, rpo, op, s, old, new_data)
 
     result = await validator.test_all(op, s, old, new, perms, usages)
+    commit = CommitMsg(body=msg)
     if force and not result.schemas.valid:
         # Audit trail: the repo history must show that this commit was written
         # past a failing schema validation.
-        msg = f"{msg} (admin override: schema validation bypassed)"
+        commit.note = "admin override: schema validation bypassed"
 
     await action.run(TypeActionHook.CREATE_BEFORE, op, s)
 
@@ -96,11 +98,11 @@ async def add_entity(
             )
 
         if isinstance(op.entity, CopyEntity):
-            diff = await rpo.copy(type_name, name, op.entity.copy_name, msg)
+            diff = await rpo.copy(type_name, name, op.entity.copy_name, commit)
         elif isinstance(op.entity, LinkEntity):
-            diff = await rpo.link(type_name, name, op.entity.link_name, msg)
+            diff = await rpo.link(type_name, name, op.entity.link_name, commit)
         elif isinstance(op.entity, NewEntity):
-            diff = await rpo.write(type_name, name, "", op.entity.yaml, msg)
+            diff = await rpo.write(type_name, name, "", op.entity.yaml, commit)
         else:
             raise ServerError("Cannot happen!")
 

@@ -847,7 +847,7 @@ async def test_force_bypasses_schema_validation_with_audit_marker(
     )
     assert resp.status_code == 200, resp.text
     assert repo_session.files["web01"] == INVALID_WEB01_YAML
-    assert "admin override: schema validation bypassed" in repo_session.last_msg
+    assert repo_session.last_msg.note == "admin override: schema validation bypassed"
 
 
 async def test_force_with_valid_data_leaves_no_audit_marker(client, login, repo_session):
@@ -858,7 +858,7 @@ async def test_force_with_valid_data_leaves_no_audit_marker(client, login, repo_
         "/entity/host/web01", params={"force": True}, json=_put_body(valid)
     )
     assert resp.status_code == 200, resp.text
-    assert "admin override" not in repo_session.last_msg
+    assert repo_session.last_msg.note == ""
 
 
 async def test_force_still_rejects_malformed_yaml(client, login, repo_session):
@@ -882,7 +882,7 @@ async def test_force_create_bypasses_schema_validation(client, login, repo_sessi
     )
     assert resp.status_code == 201, resp.text
     assert repo_session.files["web09"] == "owner: 123\n"
-    assert "admin override: schema validation bypassed" in repo_session.last_msg
+    assert repo_session.last_msg.note == "admin override: schema validation bypassed"
 
 
 async def test_force_create_requires_adm_perm(client, login, repo_session):

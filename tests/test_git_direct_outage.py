@@ -17,6 +17,7 @@ from app.lib import git
 from app.lib import staleness
 from app.model.err import RepoMaintenance
 from app.model.err import RepoUnavailable
+from app.model.plg import CommitMsg
 
 from tests.lib_git_direct import DETAILS, USER, repo  # noqa: F401  (fixture)
 
@@ -139,7 +140,7 @@ async def test_push_failure_is_503_and_leaves_a_clean_tree(repo, monkeypatch):
     with pytest.raises(RepoUnavailable):
         async with repo.writer(USER) as untyped:
             s = untyped.session(DETAILS)
-            await s.write("host", "a", "cpu: 4\n", "cpu: 5\n", "bump")
+            await s.write("host", "a", "cpu: 4\n", "cpu: 5\n", CommitMsg(body="bump"))
     gr = gd._make_git_repo(repo.path, USER)
     assert await gr.is_dirty() is False
     async with repo.reader(USER, dirty=True) as untyped:

@@ -14,6 +14,7 @@ from app.model.inp import PathType
 from app.model.inp import QueryActions
 from app.model.inp import QueryMsg
 from app.model.out import TypeActionHook
+from app.model.plg import CommitMsg
 
 router = APIRouter()
 
@@ -29,7 +30,7 @@ async def delete_entity(
     user: CurrentUser,
     type_name: PathType,
     entity_name: PathName,
-    msg: QueryMsg = "Delete",
+    msg: QueryMsg = "",
     run: QueryActions = [],
 ) -> None:
     """
@@ -64,6 +65,6 @@ async def delete_entity(
         # templated with. The writer scope pulled since then; the plugin
         # compares and raises RepoConflict (409) if the entity changed, so a
         # delete never acts on stale authorization.
-        await rpo.delete(type_name, op.name or "", old.yaml or "", msg)
+        await rpo.delete(type_name, op.name or "", old.yaml or "", CommitMsg(body=msg))
 
     await action.run(TypeActionHook.DELETE_AFTER, op, s)

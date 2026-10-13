@@ -12,7 +12,17 @@ PathName = Annotated[str, Path(alias="name", pattern=consts.NAME_PATTERN)]
 PathAction = Annotated[str, Path(alias="action", pattern=consts.ACTION_PATTERN)]
 
 QuerySearch = Annotated[str, Query(pattern=consts.SEARCH_PATTERN)]
-QueryMsg = Annotated[str, Query(pattern=consts.MSG_PATTERN)]
+QueryMsg = Annotated[
+    str,
+    Query(
+        pattern=consts.MSG_PATTERN,
+        description=(
+            "Free text for the body of the commit message (its subject is"
+            " generated from the operation and file, e.g. `Edited"
+            " hosts/web01.yml ...`)"
+        ),
+    ),
+]
 QuerySkip = Annotated[int, Query(ge=0)]
 QueryLimit = Annotated[int, Query(gt=0, le=10000)]
 QueryActions = Annotated[
