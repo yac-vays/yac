@@ -6,6 +6,7 @@ import re
 
 from app import consts
 from app.lib import j2
+from app.lib import locs
 from app.lib import perms
 from app.lib import plugin
 from app.lib import props
@@ -211,9 +212,18 @@ def to_detailed_entity(
 ) -> DetailedEntity:
     options = {}
     if type_spec is not None:
+        data = entity.data or {}
         for o in type_spec.options:
-            if o.name in (entity.data or {}) or o.default is not None:
-                options[o.name] = (entity.data or {}).get(o.name, o.default)
+            if o.name.startswith("#"):
+                # data-loc (e.g. `#/spec/users`) for values below the top level
+                try:
+                    value = locs.extract(o.name, data)
+                except ValueError:  # non-numeric index into a list
+                    value = None
+                if value is not None or o.default is not None:
+                    options[o.name] = o.default if value is None else value
+            elif o.name in data or o.default is not None:
+                options[o.name] = data.get(o.name, o.default)
 
     return DetailedEntity(
         name=entity.name or "",

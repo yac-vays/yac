@@ -325,7 +325,16 @@ class ValidationResult(BaseModel):
 
 
 class TypeOption(BaseModel):
-    name: Annotated[str, Field(examples=["os"])]
+    name: Annotated[
+        str,
+        Field(
+            description=(
+                "The top-level data key, or a data-loc (e.g. `#/spec/users`) for a"
+                " nested value; also the key of the value in the entity's `options`"
+            ),
+            examples=["os", "#/spec/users"],
+        ),
+    ]
     title: Annotated[str, Field(examples=["Operating System"])]
     default: Annotated[
         Any | None,
