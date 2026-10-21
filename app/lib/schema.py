@@ -3,6 +3,9 @@ Raises: [app.model.err.SchemaSpecsError]
 """
 
 import logging
+import math
+from decimal import Decimal
+from decimal import InvalidOperation
 from typing import Any
 
 import jsonschema
@@ -19,6 +22,37 @@ from app.model import spc
 from app.model.err import SchemaSpecsError
 
 logger = logging.getLogger(__name__)
+
+
+_FLOAT_MULTIPLE_OF = jsonschema.Draft7Validator.VALIDATORS["multipleOf"]
+
+
+def _decimal_multiple_of(validator, d_b, instance, schema):
+    """
+    `multipleOf` in decimal (as the numbers are written in YAML/JSON) instead
+    of binary floating point: 0.035 IS a multiple of 0.005, although
+    0.035 / 0.005 is 7.000000000000001 in floats (which jsonschema rejects).
+    `str()` of a float is its shortest round-trip repr, i.e. what was written.
+    inf/nan are never a multiple (jsonschema itself raises on them); a quotient
+    beyond the decimal precision falls back to jsonschema's float check.
+    """
+    if not validator.is_type(instance, "number"):
+        return
+    if isinstance(instance, float) and not math.isfinite(instance):
+        yield jsonschema.ValidationError(f"{instance!r} is not a multiple of {d_b}")
+        return
+    try:
+        failed = Decimal(str(instance)) % Decimal(str(d_b)) != 0
+    except (InvalidOperation, ValueError):
+        yield from _FLOAT_MULTIPLE_OF(validator, d_b, instance, schema)
+        return
+    if failed:
+        yield jsonschema.ValidationError(f"{instance!r} is not a multiple of {d_b}")
+
+
+Draft7Validator = jsonschema.validators.extend(
+    jsonschema.Draft7Validator, {"multipleOf": _decimal_multiple_of}
+)
 
 
 async def get(
@@ -58,7 +92,7 @@ async def get(
         logger.debug(f"Adding {name} format_checker {type(funct)}")
         format_checker.checks(name)(funct)
 
-    validator = jsonschema.Draft7Validator(json_schema, format_checker=format_checker)
+    validator = Draft7Validator(json_schema, format_checker=format_checker)
 
     try:
         validator.validate(new_data)

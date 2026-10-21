@@ -20,6 +20,9 @@ from app.model.spc import TypeLimit
 # overwhelming the thread pool.
 _SCAN_CONCURRENCY = 32
 
+# Decimal places kept of a limit sum (see measure).
+_SUM_DECIMALS = 9
+
 
 async def _contribution(
     lim: TypeLimit, base: dict, name: str, data: dict
@@ -134,6 +137,10 @@ async def measure(
         total += await _scan_existing(
             lim, base, op.type_name, rpo, existing, needs_data, edited, new_data or {}
         )
+        # Float sums of decimal values carry noise (0.1 + 0.2), which would
+        # show up in the usage (0.30000000000000004/2.5) and could tip a sum
+        # exactly at the cap over it.
+        total = round(total, _SUM_DECIMALS)
 
         cap_props = {**base, "old": base["new"], "name": new_name}
         try:
