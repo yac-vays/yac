@@ -2,8 +2,11 @@
 Raises: [app.model.err.SchemaSpecsError]
 """
 
+import asyncio
+import inspect
 import logging
 import math
+from collections.abc import Callable
 from decimal import Decimal
 from decimal import InvalidOperation
 from typing import Any
@@ -87,12 +90,7 @@ async def get(
     elif isinstance(json_schema, bool):
         json_schema = {} if json_schema else {"not": {}}
 
-    format_checker = jsonschema.FormatChecker()
-    for name, funct in plugin.get_functions("schema_formats").items():
-        logger.debug(f"Adding {name} format_checker {type(funct)}")
-        format_checker.checks(name)(funct)
-
-    validator = Draft7Validator(json_schema, format_checker=format_checker)
+    validator = await _validator(json_schema, new_data)
 
     try:
         validator.validate(new_data)
@@ -114,6 +112,63 @@ async def get(
             json_schema_loc="/".join(["#"] + [str(i) for i in list(error.schema_path)]),
             data_loc=data_loc,
         )
+
+
+def _is_async(funct: Any) -> bool:
+    # alru_cache & co. wrap the coroutine function in a callable object
+    return inspect.iscoroutinefunction(funct) or inspect.iscoroutinefunction(
+        getattr(funct, "__wrapped__", None)
+    )
+
+
+async def _validator(json_schema: dict, data: Any) -> Any:
+    """
+    The validator with the schema_formats plugins as format checkers.
+
+    jsonschema calls format checkers synchronously, but a plugin may be async
+    (e.g. a lookup in an external service). Those values are resolved upfront:
+    a collecting pass validates with every unresolved value counted as valid and
+    records it, then all recorded values are checked concurrently. A result can
+    steer the validation into other branches (anyOf, if/then/else, ...) with
+    further values, so this repeats until a pass records nothing new. That
+    terminates, as every round resolves at least one of the finitely many
+    (format, value) pairs in the data. The returned validator only looks the
+    results up.
+    """
+    functs = plugin.get_functions("schema_formats")
+    results: dict[tuple[str, str], bool] = {}
+    pending: dict[tuple[str, str], Any] = {}
+
+    def lookup(name: str) -> Callable[[Any], bool]:
+        def check(instance: Any) -> bool:
+            key = (name, repr(instance))
+            if key in results:
+                return results[key]
+            pending[key] = instance
+            return True
+
+        return check
+
+    format_checker = jsonschema.FormatChecker()
+    for name, funct in functs.items():
+        logger.debug(f"Adding {name} format_checker {type(funct)}")
+        format_checker.checks(name)(lookup(name) if _is_async(funct) else funct)
+    validator = Draft7Validator(json_schema, format_checker=format_checker)
+
+    if not any(_is_async(funct) for funct in functs.values()):
+        return validator
+
+    while True:
+        pending.clear()
+        for _ in validator.iter_errors(data):
+            pass
+        if not pending:
+            return validator
+        keys = list(pending)
+        checked = await asyncio.gather(
+            *(functs[key[0]](pending[key]) for key in keys)
+        )
+        results.update({key: bool(valid) for key, valid in zip(keys, checked)})
 
 
 def _describe(error: jsonschema.ValidationError, context: dict) -> tuple[str, str]:
