@@ -84,6 +84,24 @@ def get_log(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     }
 
 
+def get_links_base(
+    op: inp.OperationRequest, request_spec: spc.Request
+) -> dict:
+    """
+    The per-request portion of link props; `app.lib.links` shallow-extends it
+    per entity with `old`/`name`.
+    """
+    return {
+        "env": consts.ENV.env,
+        "request": {
+            "ip": op.request_ip,
+            "headers": __request_headers(op.request_headers, request_spec),
+        },
+        "user": dict(op.user),
+        "type": op.type_name,
+    }
+
+
 def get_roles_base(
     op: inp.OperationRequest, request_spec: spc.Request
 ) -> dict:

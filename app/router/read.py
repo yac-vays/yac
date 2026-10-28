@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from fastapi import Request
 from fastapi.responses import PlainTextResponse
 
+from app.lib import links
 from app.lib import log
 from app.lib import perms
 from app.lib import props as _props
@@ -109,6 +110,7 @@ async def get_entities(
         # Build the per-request shared portion of role props once; each
         # gathered task shallow-extends it with its own old/new/name keys.
         base_props = _props.get_roles_base(op, s.request)
+        links_props = _props.get_links_base(op, s.request)
 
         matches = [n for n in await rpo.list(type_name) if search in n]
         sem = asyncio.Semaphore(_LIST_CONCURRENCY)
@@ -125,7 +127,9 @@ async def get_entities(
                     return None
             if "see" not in entity_perms:
                 return None
-            return repo.to_detailed_entity(old, entity_perms, hash, s.type)
+            entity = repo.to_detailed_entity(old, entity_perms, hash, s.type)
+            entity.links = await links.render(s.type, old, links_props)
+            return entity
 
         # Process in waves wide enough to saturate the semaphore so we can
         # stop early once the page is filled (preserves the original
@@ -179,7 +183,11 @@ async def get_entity(
 
     await validator.test_all(op, s, old, new, perms)
 
-    return repo.to_detailed_entity(old, perms, hash, s.type)
+    entity = repo.to_detailed_entity(old, perms, hash, s.type)
+    entity.links = await links.render(
+        s.type, old, _props.get_links_base(op, s.request)
+    )
+    return entity
 
 
 @router.get(

@@ -68,6 +68,12 @@ class Auth(BaseModel):
     cors: AuthCORS = AuthCORS()
 
 
+class TypeLink(out.TypeLink):
+    # j2-string rendered per entity (see `app.lib.links`), so it is skipped
+    # when the `types` section is rendered.
+    url: str
+
+
 class TypeLog(out.TypeLog):
     plugin: str
     details: dict = {}
@@ -117,6 +123,7 @@ class TypeLimit(BaseModel):
 
 class Type(out.Type):
     name_generator: str = "uuid()"
+    links: list[TypeLink] = []  # type: ignore[assignment]
     logs: list[TypeLog] = []  # type: ignore[assignment]
     actions: list[TypeAction] = []  # type: ignore[assignment]
     limits: list[TypeLimit] = []
@@ -124,7 +131,7 @@ class Type(out.Type):
     def to_public(self) -> out.Type:
         """
         Strips spc-internal fields (`plugin`, `details` on logs/actions,
-        `name_generator` and `limits`) so the result is safe to return from
+        `url` on links, `name_generator` and `limits`) so the result is safe to return from
         the API.
         """
         return out.Type.model_validate(
@@ -132,6 +139,7 @@ class Type(out.Type):
                 exclude={
                     "name_generator": True,
                     "limits": True,
+                    "links": {"__all__": {"url"}},
                     "logs": {"__all__": {"plugin", "details"}},
                     "actions": {"__all__": {"plugin", "details"}},
                 }

@@ -295,7 +295,7 @@ async def __parse(op: OperationRequest) -> Specs:
         data["types"] = await j2.render(
             data.get("types", []),
             props.get_types(op, request),
-            skip=r"^#/\d+/(name_generator|(logs|actions)/\d+/details/.*)$",
+            skip=r"^#/\d+/(name_generator|links/\d+/url|(logs|actions)/\d+/details/.*)$",
         )
         data["type"] = next(
             (

@@ -97,6 +97,15 @@ class ListedEntity(Entity):
             )
         ),
     ] = {}
+    links: Annotated[
+        dict[str, str],
+        Field(
+            description=(
+                "The rendered URLs of the type's `links`, keyed by link name (links"
+                " rendering to nothing are left out)"
+            )
+        ),
+    ] = {}
     perms: list[Permission | str] = ["see"]
 
 
@@ -351,6 +360,15 @@ class TypeOption(BaseModel):
     ] = {}
 
 
+class TypeLink(BaseModel):
+    name: Annotated[str, Field(examples=["repo"])]
+    title: Annotated[str, Field(examples=["GitLab Repository"])]
+    icon: Annotated[
+        str,
+        Field(description="An SVG image used as button icon for this link"),
+    ] = consts.SVG_LINK
+
+
 class TypeLog(BaseModel):
     name: Annotated[str, Field(examples=["installation"])]
     title: Annotated[str, Field(examples=["Installation"])]
@@ -540,6 +558,15 @@ class Type(BaseModel):
             description=(
                 "A list of data values always attached when listing entities of this"
                 " type"
+            )
+        ),
+    ] = []
+    links: Annotated[
+        list[TypeLink],
+        Field(
+            description=(
+                "A list of external links (e.g. to a code repository or dashboard)"
+                " rendered per entity when listing entities of this type"
             )
         ),
     ] = []
