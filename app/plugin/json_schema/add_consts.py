@@ -1,9 +1,21 @@
 import logging
 
+from app import consts
 from app.lib import locs
 from app.model.plg import IJsonSchema
 
 logger = logging.getLogger(__name__)
+
+
+def _stored_values(loc: str, data_locs: list[str], old_data: dict) -> dict[str, list]:
+    """Key -> stored values (one per object at loc holding it), in data order."""
+    values: dict[str, list] = {}
+    for data_loc in locs.reduce(loc, data_locs, recursive=False):
+        data = locs.extract(data_loc, old_data)
+        if isinstance(data, dict):
+            for key, value in data.items():
+                values.setdefault(key, []).append(value)
+    return values
 
 
 class AddConsts(IJsonSchema):
@@ -43,6 +55,19 @@ class AddConsts(IJsonSchema):
         the whole stored document, so stored keys without a subschema neither
         fail the read validation on `additionalProperties: false` nor show up
         as unknown properties in a schema-aware YAML viewer.
+
+        A *shared* subschema (see locs.shared, e.g. the items of an array)
+        covers many objects with possibly different values and no identity
+        (items can be added, removed and reordered). There the key gets an
+        optional `enum` of all stored values instead of a const, and
+        lib.schema checks that no value is used more often than before (see
+        `add_consts_shared` in the context): the values can be kept, moved
+        between the objects or removed (with or without their object), but
+        neither invented nor duplicated.
+
+        Like the injected consts elsewhere (which have no `vays_category`),
+        these are not part of the form: marked with consts.INJECTED, the
+        ui_schema plugins leave them out of the array's rows.
         """
         if props["operation"] not in ("edit", "read"):
             return json_schema, context
@@ -55,33 +80,38 @@ class AddConsts(IJsonSchema):
                 props["old"]["data"], lambda d: isinstance(d, dict)
             )
 
-        for data_loc in locs.reduce(loc, context["add_consts"], recursive=False):
-            data = locs.extract(data_loc, props["old"]["data"])
-            if isinstance(data, dict):
-                for key in data.keys():
-                    state = locs.specification(key, json_schema)
-                    if state in (locs.DEFINED, "if"):
-                        logger.debug(
-                            f"Not adding data {data_loc}/{key} to schema"
-                            f" {loc}/properties/{key} due to existing subschema"
-                            f" ({state})"
-                        )
-                        continue
+        shared = locs.shared(loc)
+        values = _stored_values(loc, context["add_consts"], props["old"]["data"])
+        for key, stored in values.items():
+            state = locs.specification(key, json_schema)
+            if state in (locs.DEFINED, "if"):
+                logger.debug(
+                    f"Not adding data at {loc}/properties/{key} to schema due to"
+                    f" existing subschema ({state})"
+                )
+                continue
 
-                    if "properties" not in json_schema:
-                        json_schema["properties"] = {}
-                    if state is None:
-                        json_schema["properties"][key] = {
-                            "const": data[key],
-                            "yac_optional": "cln" in props["user"]["perms"],
-                        }
-                    else:
-                        # removed by perms / editable: immutable, never optional
-                        json_schema["properties"][key] = {"const": data[key]}
-                    # for lib.schema to phrase the validation error of a removal
-                    context.setdefault("add_consts_state", {})[
-                        f"{loc}/properties/{key}"
-                    ] = state or "unknown"
+            json_schema.setdefault("properties", {})
+            if shared:
+                unique = {locs.value_key(v): v for v in stored}
+                sub: dict = {
+                    "enum": list(unique.values()),
+                    "yac_optional": True,
+                    consts.INJECTED: True,
+                }
+                context.setdefault("add_consts_shared", {})[
+                    f"{loc}/properties/{key}"
+                ] = stored
+            elif state is None:
+                sub = {"const": stored[0], "yac_optional": "cln" in props["user"]["perms"]}
+            else:
+                # removed by perms / editable: immutable, never optional
+                sub = {"const": stored[0]}
+            json_schema["properties"][key] = sub
+            # for lib.schema to phrase the validation error of a removal
+            context.setdefault("add_consts_state", {})[
+                f"{loc}/properties/{key}"
+            ] = state or "unknown"
 
         return json_schema, context
 

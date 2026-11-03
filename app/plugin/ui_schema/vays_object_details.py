@@ -25,6 +25,7 @@ parent's pass consumes the whole subtree.
 Raises: []
 """
 
+from app.consts import INJECTED
 from app.model.plg import IUiSchema
 from app.plugin.ui_schema.vays_array_details import (
     _build_row_elements,
@@ -37,7 +38,7 @@ from app.plugin.ui_schema.vays_array_details import (
 def _contains_vays_options(schema) -> bool:
     if not isinstance(schema, dict):
         return False
-    if "vays_options" in schema:
+    if "vays_options" in schema or schema.get(INJECTED):
         return True
     props = schema.get("properties")
     if isinstance(props, dict):
@@ -60,6 +61,8 @@ def _build_detail(obj_schema, label: str) -> dict | None:
 
     elements = []
     for name, sub in props.items():
+        if isinstance(sub, dict) and sub.get(INJECTED):
+            continue
         ctrl: dict = {"type": "Control", "scope": f"#/properties/{name}"}
         if isinstance(sub, dict):
             opts = _extract_control_options(sub.get("vays_options"))

@@ -1,6 +1,7 @@
 """
 Generates `options.details.elements` on an array's Control from `vays_options`
-attached to `items` (primitive items) or to the properties of an object items.
+attached to `items` (primitive items) or to the properties of an object items,
+leaving out stored data add_consts injected into the items (consts.INJECTED).
 
 JsonForms renders array items via per-row dispatch with item-relative scopes.
 A Control whose scope traverses `/items/` cannot work, because JsonForms'
@@ -19,6 +20,7 @@ already exists in the ui_schema to attach to (this plugin runs after
 Raises: []
 """
 
+from app.consts import INJECTED
 from app.model.plg import IUiSchema
 
 
@@ -45,12 +47,17 @@ def _build_row_elements(items_schema) -> list | None:
         items_schema.get("properties"), dict
     ):
         props = items_schema["properties"]
+        # Stored data add_consts injected is no part of the form (like outside
+        # of arrays), so it needs explicit rows without it.
         if not any(
-            isinstance(s, dict) and s.get("vays_options") for s in props.values()
+            isinstance(s, dict) and (s.get("vays_options") or s.get(INJECTED))
+            for s in props.values()
         ):
             return None
         elements = []
         for name, sub in props.items():
+            if isinstance(sub, dict) and sub.get(INJECTED):
+                continue
             ctrl: dict = {"type": "Control", "scope": f"#/properties/{name}"}
             opts = _extract_control_options(
                 sub.get("vays_options") if isinstance(sub, dict) else None

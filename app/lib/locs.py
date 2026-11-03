@@ -10,6 +10,7 @@ Raises: []
 
 import re
 import os
+import json
 import logging
 from typing import Any, Callable
 
@@ -207,6 +208,20 @@ def removed(loc: str, reason: str) -> dict | None:
     return {consts.REMOVED: reason, "not": True}
 
 
+def shared(schema_loc: str) -> bool:
+    """
+    Whether the subschema at schema_loc may apply to more than one data
+    location: it is (below) the subschema of `items`, `contains` or
+    `patternProperties`, e.g. the properties of the items of an array.
+    """
+    keys = schema_loc.split("/")
+    if keys and keys[0] == "#":
+        keys = keys[1:]
+    return any(
+        k in ("items", "contains", "patternProperties") and on_schema_lvl(keys, i)
+        for i, k in enumerate(keys)
+    )
+
 
 def specification(key: str, schema: dict | bool | None) -> str | None:
     """
@@ -261,3 +276,12 @@ def is_specified(key: str, schema: dict | bool | None) -> bool:
     plugin) in a json_schema specifying an object. See `specification`.
     """
     return specification(key, schema) is not None
+
+
+def value_key(value: Any) -> str:
+    """
+    A hashable identity of a data value that tells apart what Python equates
+    but JSON-Schema does not (e.g. `1` and `true`). YAML-only types (dates)
+    count by their string form.
+    """
+    return json.dumps(value, sort_keys=True, default=str)

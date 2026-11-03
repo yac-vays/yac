@@ -23,6 +23,12 @@ LICENSE = {
 # would mark it again, endlessly).
 REMOVED = "yac_removed"
 
+# Schema keyword add_consts.py sets on what it injects into a shared subschema
+# (e.g. array items), so the ui_schema plugins can leave it out of the form like
+# the injected consts outside of arrays (which have no `vays_category`, so no
+# Control). lib.schema strips it once the ui_schema is complete.
+INJECTED = "yac_injected"
+
 # Must not allow / to avoid non-permitted file access!
 NAME_PATTERN = r"^[a-zA-Z0-9_\-\.]{1,200}$"
 TYPE_PATTERN = r"^[a-zA-Z0-9_\-\.]{1,200}$"

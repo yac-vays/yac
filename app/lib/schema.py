@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import logging
 import math
+from collections import Counter
 from collections.abc import Callable
 from decimal import Decimal
 from decimal import InvalidOperation
@@ -13,7 +14,9 @@ from typing import Any
 
 import jsonschema
 
+from app.consts import INJECTED
 from app.lib import j2
+from app.lib import locs
 from app.lib import plugin
 from app.lib import props
 from app.lib.locs import SUBSCHEMAS
@@ -83,6 +86,7 @@ async def get(
     json_schema, ui_schema, context = await handle_schema(
         "#", json_schema, {}, {}, schema_props
     )
+    _strip_injected(json_schema)
 
     # convert trivial cases into real schemas
     if json_schema is None:
@@ -94,6 +98,18 @@ async def get(
 
     try:
         validator.validate(new_data)
+        excess = _shared_consts_excess(context, new_data)
+        if excess is not None:
+            return out.Schema(
+                json_schema=json_schema,
+                ui_schema=ui_schema,
+                data=new_data,
+                valid=False,
+                message=excess[0],
+                validator="enum",
+                json_schema_loc=excess[1],
+                data_loc=excess[2],
+            )
         return out.Schema(
             json_schema=json_schema,
             ui_schema=ui_schema,
@@ -112,6 +128,47 @@ async def get(
             json_schema_loc="/".join(["#"] + [str(i) for i in list(error.schema_path)]),
             data_loc=data_loc,
         )
+
+
+def _strip_injected(json_schema: Any) -> None:
+    """Drops the consts.INJECTED markers once the ui_schema is complete."""
+    if isinstance(json_schema, dict):
+        json_schema.pop(INJECTED, None)
+        for key, value in json_schema.items():
+            # data, not schemas
+            if key not in ("enum", "const", "default", "examples"):
+                _strip_injected(value)
+    elif isinstance(json_schema, list):
+        for value in json_schema:
+            _strip_injected(value)
+
+
+def _shared_consts_excess(context: dict, data: Any) -> tuple[str, str, str] | None:
+    """
+    The `enum` add_consts.py injects for a key without a (live) subschema in
+    a shared subschema (e.g. array items) only limits the values to the
+    stored ones. This adds the rest: no value may be used more often than
+    before (so values can be kept, moved or removed, but not duplicated).
+    Returns (message, json_schema_loc, data_loc) of the first excess use.
+    """
+    for schema_loc, stored in context.get("add_consts_shared", {}).items():
+        parent_loc, key = schema_loc.rsplit("/properties/", 1)
+        left = Counter(locs.value_key(v) for v in stored)
+        objs = locs.reduce(parent_loc, locs.get(data, lambda d: isinstance(d, dict)))
+        for data_loc in objs:
+            obj = locs.extract(data_loc, data)
+            if not isinstance(obj, dict) or key not in obj:
+                continue
+            value = locs.value_key(obj[key])
+            if left[value] <= 0:
+                return (
+                    f"{obj[key]!r} may not be used more often than before at"
+                    f" '{key}' (the stored values can only be kept or removed)",
+                    f"{schema_loc}/enum",
+                    f"{data_loc}/{key}",
+                )
+            left[value] -= 1
+    return None
 
 
 def _is_async(funct: Any) -> bool:
