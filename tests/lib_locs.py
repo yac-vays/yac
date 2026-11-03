@@ -49,24 +49,53 @@ def test_on_schema_lvl():
     assert locs.on_schema_lvl(['properties', 'x'], 2) is True            # value of a prop
 
 
-# ----- to_regex: keyword stripping + data-loc regex -----
+# ----- to_data_path: keyword stripping -----
 
-def test_to_regex_basic_and_recursion():
-    assert locs.to_regex('#', False) == r'^\#$'
-    assert locs.to_regex('#', True) == r'^\#(/.+)*$'
-    assert locs.to_regex('#/properties/foo', False) == r'^\#/foo$'
-    assert locs.to_regex('#/properties/foo/items', False) == r'^\#/foo/\d+$'
+def test_to_data_path_basic():
+    assert locs.to_data_path('#') == []
+    assert locs.to_data_path('#/properties/foo') == [('key', 'foo')]
+    assert locs.to_data_path('#/properties/foo/items') == [('key', 'foo'), ('index', '')]
+    assert locs.to_data_path('#/prefixItems/1') == [('key', '1')]
 
 
-def test_to_regex_keyword_handling():
-    # `if`/`not`/`const`/... collapse to the document root (no data behind them).
-    assert locs.to_regex('#/properties/foo/if', False) == r'^\#$'
+def test_to_data_path_keyword_handling():
+    # `if`/`not`/`const`/... have no data behind them (document root only).
+    assert locs.to_data_path('#/properties/foo/if') is None
     # oneOf/allOf/anyOf consume the keyword and the following index.
-    assert locs.to_regex('#/oneOf/0/properties/foo', False) == r'^\#/foo$'
+    assert locs.to_data_path('#/oneOf/0/properties/foo') == [('key', 'foo')]
+    assert locs.to_data_path('#/oneOf/0/properties/a/anyOf/1/oneOf/2/properties/b') == [
+        ('key', 'a'), ('key', 'b')]
     # then/else are skipped.
-    assert locs.to_regex('#/properties/foo/then/properties/bar', False) == r'^\#/foo/bar$'
-    # patternProperties keeps the (regex) key unescaped.
-    assert locs.to_regex('#/patternProperties/^a/properties/x', False) == r'^\#/^a/x$'
+    assert locs.to_data_path('#/properties/foo/then/properties/bar') == [('key', 'foo'), ('key', 'bar')]
+    # property names that equal keywords are names, not keywords.
+    assert locs.to_data_path('#/properties/if/properties/items') == [('key', 'if'), ('key', 'items')]
+    # patternProperties keeps the (regex) key.
+    assert locs.to_data_path('#/patternProperties/^a/properties/x') == [('pattern', '^a'), ('key', 'x')]
+
+
+def test_reduce_root_and_keywords_without_data():
+    locs_in = ['#', '#/foo', '#/foo/x']
+    assert locs.reduce('#', locs_in) == ['#']
+    assert locs.reduce('#', locs_in, recursive=True) == locs_in
+    assert locs.reduce('#/properties/foo/if', locs_in) == ['#']
+
+
+def test_reduce_items_and_literal_keys():
+    locs_in = ['#/foo', '#/foo/0', '#/foo/12', '#/foo/x', '#/foo/0/a', '#/f.o/0']
+    assert locs.reduce('#/properties/foo/items', locs_in) == ['#/foo/0', '#/foo/12']
+    # keys are no regexes
+    assert locs.reduce('#/properties/f.o/items', locs_in) == ['#/f.o/0']
+
+
+def test_reduce_pattern_properties_search_the_key():
+    locs_in = ['#/h1', '#/h1/x', '#/ah', '#/b', '#/h1/sub']
+    # anchored: like JSON-Schema, the pattern is searched in the key
+    assert locs.reduce('#/patternProperties/^h', locs_in) == ['#/h1']
+    assert locs.reduce('#/patternProperties/h', locs_in) == ['#/h1', '#/ah']
+    assert locs.reduce('#/patternProperties/^h.*$/properties/x', locs_in) == ['#/h1/x']
+    # a pattern never spans more than one key (the regex matched '#/h1/sub')
+    assert locs.reduce('#/patternProperties/h1.sub', locs_in) == []
+    assert locs.reduce('#/patternProperties/(', locs_in) == []  # invalid pattern
 
 
 def test_reduce_filters_by_schema_loc():
@@ -102,6 +131,12 @@ def test_specification_and_removed():
     assert locs.specification('a', mixed) == locs.DEFINED
     nested = {'then': marked, 'else': {'properties': {'a': {REMOVED: 'if', 'not': True}}}}
     assert locs.specification('a', nested) == 'perms'  # first reason found
+
+    patterned = {'type': 'object', 'patternProperties': {'^h': {'type': 'string'}, '^x': {REMOVED: 'perms', 'not': True}}}
+    assert locs.specification('h1', patterned) == locs.DEFINED
+    assert locs.specification('ah', patterned) is None
+    assert locs.specification('x1', patterned) == 'perms'
+    assert locs.specification('a', {'patternProperties': {'(': {}}}) is None  # invalid pattern
 
     assert locs.removed('#', 'perms') is None
     assert locs.removed('#/properties/a', 'if') == {REMOVED: 'if', 'not': True}

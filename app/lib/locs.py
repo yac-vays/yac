@@ -94,72 +94,60 @@ def on_schema_lvl(schema_loc: list, index: int) -> bool:
     return False
 
 
-def to_regex(schema_loc: str, recursive: bool) -> str:
+def to_data_path(schema_loc: str) -> list[tuple[str, str]] | None:
     """
-    Will remove all keywords from the loc that are irrelevant for data handling
-    purposes. Then it converts everything to a regular expression to match
-    only data_locs that are referenced by the schema_loc.
+    Converts a schema_loc into the path of the data it describes: one
+    (kind, arg) per data loc segment below `#`, where kind is "key" (the
+    segment equals arg), "pattern" (the regex arg is found in the segment, as
+    for `patternProperties`) or "index" (any list index). Keywords that are
+    irrelevant for data handling (then, oneOf/<n>, ...) are skipped.
 
-    If recursive is True, it will also match to all locs below that schema_loc.
+    Returns None if there is no data behind the schema_loc (e.g. below `if`
+    or `not`), which only refers to the document root.
     """
     keys = schema_loc.split("/")
     if keys and keys[0] == "#":
         keys = keys[1:]
 
-    recursion = "(/.+)*" if recursive else ""
-    root = f"^\\#{recursion}$"
-
-    if len(keys) == 0:
-        return root
-
-    # keywords we cannot provide data for
-    for key in [
-        "if",
-        "not",
-        "propertyNames",
-        "$defs",
-        "const",
-    ]:
-        for i, k in enumerate(keys):
-            if k == key and on_schema_lvl(keys, i):
-                return root
-
-    # keywords we can skip/ignore for data purposes
-    for key in ["else", "then", "contentSchema"]:
-        for i, k in enumerate(keys):
-            if k == key and on_schema_lvl(keys, i):
-                del keys[i]
-
-    # keywords we can ignore the keyword and the next one for data purposes
-    for key in ["oneOf", "allOf", "anyOf", "dependentSchemas"]:
-        for i, k in enumerate(keys):
-            if k == key and on_schema_lvl(keys, i):
-                del keys[i + 1]
-                del keys[i]
-
-    if len(keys) == 0:
-        return root
-
-    res = []
+    path: list[tuple[str, str]] = []
     i = 0
     while i < len(keys):
-        if keys[i] in ["properties", "prefixItems"]:
-            res.append(re.escape(keys[i + 1]))
-            i = i + 2
-        elif keys[i] == "patternProperties":
-            res.append(keys[i + 1])
-            i = i + 2
-        elif keys[i] in ["items", "contains"]:
-            res.append(r"\d+")
-            i = i + 1
+        key = keys[i]
+        has_arg = i + 1 < len(keys)
+        # keywords we cannot provide data for
+        if key in ("if", "not", "propertyNames", "$defs", "const"):
+            return None
+        # keywords we can skip (they apply to the same data)
+        if key in ("else", "then", "contentSchema"):
+            i += 1
+        elif key in ("oneOf", "allOf", "anyOf", "dependentSchemas"):
+            i += 2
+        elif key in ("properties", "prefixItems") and has_arg:
+            path.append(("key", keys[i + 1]))
+            i += 2
+        elif key == "patternProperties" and has_arg:
+            path.append(("pattern", keys[i + 1]))
+            i += 2
+        elif key in ("items", "contains"):
+            path.append(("index", ""))
+            i += 1
         else:
-            if i + 1 != len(keys):
-                logger.error(
-                    f'Unknown keyword "{keys[i]}" in json_schema: {schema_loc}'
-                )
-            i = i + 1
+            if has_arg:
+                logger.error(f'Unknown keyword "{key}" in json_schema: {schema_loc}')
+            i += 1
+    return path
 
-    return f'^\\#/{"/".join(res)}{recursion}$'
+
+def _segment_matches(kind: str, arg: str, segment: str) -> bool:
+    if kind == "key":
+        return segment == arg
+    if kind == "index":
+        return segment.isascii() and segment.isdigit()
+    try:
+        return re.search(arg, segment) is not None
+    except re.error as error:
+        logger.error(f'Invalid patternProperties pattern "{arg}": {error}')
+        return False
 
 
 def reduce(schema_loc: str, data_locs: list[str], recursive: bool = False) -> list[str]:
@@ -170,10 +158,23 @@ def reduce(schema_loc: str, data_locs: list[str], recursive: bool = False) -> li
     If recursive is True, it will return all data_locs below the schema_loc,
     otherwise it will only return the exact result(s).
     """
-    reg = to_regex(schema_loc, recursive)
-    schema = re.compile(reg)
-    logger.debug(f"Using regex to reduce data to schema loc: {reg}")
-    return [d for d in data_locs if schema.match(d)]
+    path = to_data_path(schema_loc)
+
+    def matches(data_loc: str) -> bool:
+        segments = data_loc.split("/")
+        if segments[0] != "#":
+            return False
+        segments = segments[1:]
+        if path is None:
+            return recursive or not segments
+        if len(segments) < len(path) or (not recursive and len(segments) > len(path)):
+            return False
+        return all(
+            _segment_matches(kind, arg, segment)
+            for (kind, arg), segment in zip(path, segments)
+        )
+
+    return [d for d in data_locs if matches(d)]
 
 
 def get_most_specific(loc: str, loc_list: list[str]) -> str | None:
@@ -234,7 +235,8 @@ def specification(key: str, schema: dict | bool | None) -> str | None:
 
     This is a bit fuzzy and we'll never be able to tell for 100% due to the
     design of json_schema. To keep the complexity low, we only consider some
-    keywords (see below or in docs for description).
+    keywords: `properties`, `patternProperties` (the patterns found in the
+    key) and those combining subschemas (see below or in docs).
     """
     if not isinstance(schema, dict):
         # Not considering trivial schemas as a specification of the key!
@@ -250,8 +252,13 @@ def specification(key: str, schema: dict | bool | None) -> str | None:
             reason = state
         return False
 
+    subs = []
     if key in schema.get("properties", {}):
-        sub = schema["properties"][key]
+        subs.append(schema["properties"][key])
+    for pattern, sub in schema.get("patternProperties", {}).items():
+        if _segment_matches("pattern", pattern, key):
+            subs.append(sub)
+    for sub in subs:
         marker = sub.get(consts.REMOVED) if isinstance(sub, dict) else None
         if consider(DEFINED if marker is None else str(marker)):
             return DEFINED

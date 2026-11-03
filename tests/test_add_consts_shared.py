@@ -1,6 +1,6 @@
 """
-Stored keys without a (live) subschema in a *shared* subschema (e.g. array
-items): add_consts injects an optional `enum` of all stored values
+Stored keys without a (live) subschema in a *shared* subschema (array items,
+patternProperties): add_consts injects an optional `enum` of all stored values
 (instead of a const of the first object's value, which made every other object
 invalid), and lib.schema rejects using a value more often than before.
 """
@@ -211,3 +211,26 @@ async def test_nested_arrays_count_over_all_objects():
     dup = {"groups": [{"users": [{"name": "a", "legacy": "x"}]}, {"users": [{"name": "b", "legacy": "x"}]}]}
     out = await _get(spec, dup, old)
     assert not out.valid and out.data_loc == "#/groups/1/users/0/legacy"
+
+
+async def test_pattern_properties_are_shared():
+    spec = {
+        "type": "object",
+        "properties": {
+            "hosts": {
+                "type": "object",
+                "patternProperties": {"^h": {"type": "object", "properties": {"ip": {"type": "string"}}}},
+            }
+        },
+    }
+    old = {"hosts": {"h1": {"ip": "1", "legacy": "x"}, "h2": {"ip": "2", "legacy": "y"}}}
+    out = await _get(spec, old, old)
+    assert out.valid, out.message
+    host = out.json_schema["properties"]["hosts"]
+    # the hosts are covered by the pattern (no consts), their legacy key is shared
+    assert "properties" not in host
+    assert host["patternProperties"]["^h"]["properties"]["legacy"] == {"enum": ["x", "y"]}
+    changed = {"hosts": {"h1": {"ip": "9", "legacy": "y"}, "h2": {"ip": "2", "legacy": "x"}}}
+    assert (await _get(spec, changed, old)).valid
+    dup = {"hosts": {"h1": {"ip": "1", "legacy": "x"}, "h2": {"ip": "2", "legacy": "x"}}}
+    assert not (await _get(spec, dup, old)).valid
