@@ -10,6 +10,7 @@ from app.model import out
 PathType = Annotated[str, Path(alias="type", pattern=consts.TYPE_PATTERN)]
 PathName = Annotated[str, Path(alias="name", pattern=consts.NAME_PATTERN)]
 PathAction = Annotated[str, Path(alias="action", pattern=consts.ACTION_PATTERN)]
+PathLog = Annotated[str, Path(alias="log", pattern=consts.LOG_PATTERN)]
 
 QuerySearch = Annotated[str, Query(pattern=consts.SEARCH_PATTERN)]
 QueryMsg = Annotated[

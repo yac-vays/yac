@@ -33,6 +33,7 @@ INJECTED = "yac_injected"
 NAME_PATTERN = r"^[a-zA-Z0-9_\-\.]{1,200}$"
 TYPE_PATTERN = r"^[a-zA-Z0-9_\-\.]{1,200}$"
 ACTION_PATTERN = r"^[a-zA-Z0-9_\-\.]{1,200}$"
+LOG_PATTERN = r"^[a-zA-Z0-9_\-\.]{1,200}$"
 SEARCH_PATTERN = r"^[a-zA-Z0-9_\-\. ]{0,200}$"
 MSG_PATTERN = r"^[a-zäöüA-ZÄÖÜ0-9 @\(\)\"\.,_\/\-\r\n]{0,10000}$"
 

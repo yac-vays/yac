@@ -69,7 +69,9 @@ def get_action(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     }
 
 
-def get_log(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
+def get_log(
+    op: inp.OperationRequest, request_spec: spc.Request, data: dict | None = None
+) -> dict:
     return {
         "env": consts.ENV.env,
         "request": {
@@ -79,6 +81,7 @@ def get_log(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
         "user": dict(op.user),
         "old": {
             "name": op.name,
+            "data": data or {},
         },
         "name": op.name,
     }

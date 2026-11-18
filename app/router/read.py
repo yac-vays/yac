@@ -16,6 +16,7 @@ from app.lib.auth import CurrentUser
 from app.model.err import RepoError
 from app.model.err import http_responses
 from app.model.inp import OperationRequest
+from app.model.inp import PathLog
 from app.model.inp import PathName
 from app.model.inp import PathType
 from app.model.inp import QueryLimit
@@ -24,6 +25,7 @@ from app.model.inp import QuerySkip
 from app.model.out import DetailedEntity
 from app.model.out import EntityList
 from app.model.out import Log
+from app.model.out import LogContent
 from app.model.out import Type
 
 logger = logging.getLogger(__name__)
@@ -258,4 +260,45 @@ async def get_entity_logs(
     # logs — log plugins may reach external systems and must not run (or be
     # orphaned) for requests that are not allowed to see the entity.
     await validator.test_all(op, s, old, new, perms)
-    return await log.get(op, s)
+    return await log.get(op, s, old.data)
+
+
+@router.get(
+    "/entity/{type}/{name}/logs/{log}/content",
+    summary="Get the content document of a log of a specific entity",
+    responses=http_responses(),
+)
+async def get_entity_log_content(
+    request: Request,
+    user: CurrentUser,
+    type_name: PathType,
+    entity_name: PathName,
+    log_name: PathLog,
+) -> LogContent:
+    """
+    The content document (e.g. a YAML file or a Markdown text) of a log whose
+    entries have `has_content`. It is only fetched on demand (unlike the
+    entries, which are polled), so it may be big.
+    """
+
+    op = OperationRequest(
+        request_headers=dict(request.headers),
+        request_ip=request.client.host if request.client else "",
+        user=user,
+        operation="read",
+        type=type_name,
+        name=entity_name,
+        actions=[],
+        entity=None,
+    )
+
+    s = await specs.read(op)
+
+    async with repo.handler.reader(op.user, dirty=True) as raw:
+        rpo = raw.session(s.repo.details if s.type else {})
+        hash = await rpo.get_hash()
+        old, new, perms = await repo.get_entities(hash, rpo, op, s)
+
+    # Same as for the entries: `see` and existence first, then the plugin.
+    await validator.test_all(op, s, old, new, perms)
+    return await log.content(op, s, log_name, old.data)

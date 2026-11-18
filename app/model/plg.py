@@ -7,10 +7,12 @@ from typing import AsyncGenerator
 from app.model.inp import OperationRequest
 from app.model.out import Diff
 from app.model.out import Log
+from app.model.out import LogContent
 from app.model.out import User
 from app.model.int import Entity
 from app.model.spc import Specs
 from app.model.err import PluginError
+from app.model.err import LogContentNotFound
 
 
 class IAction:
@@ -25,12 +27,31 @@ class ILog:
     async def get(
         self,
         facility: str,
-        problem: bool,
-        progress: bool,
         *,
         details: dict,
         props: dict,
-    ) -> list[Log]: ...
+    ) -> list[Log]:
+        """
+        The entries of the log. `problem` / `progress` of an entry are set if
+        the details define them (whichever renderer shows the log may use
+        them), else left `None`. `has_content` is set if `content` can return a
+        document for the log.
+        """
+
+    async def content(
+        self,
+        facility: str,
+        *,
+        details: dict,
+        props: dict,
+    ) -> LogContent:
+        """
+        The content document of the log (only for plugins whose entries can
+        have `has_content`). Raises `LogContentNotFound` if there is none (the
+        default for plugins without content support) and `LogError` if it
+        cannot be fetched.
+        """
+        raise LogContentNotFound(f'Log "{facility}" has no content')
 
 
 class ISortable:

@@ -25,12 +25,11 @@ Details:
   message:     Message of the log entry
                type: string (with all j2 props + the regex groups in var "log")
                default: "{{ log[0] }}"
-  problem:     Does the log entry indicate a problem
+  problem:     Does the log entry indicate a problem (left unset if missing)
                type: bool (with all j2 props + the regex groups in var "log")
-               default: false
-  progress:    Progress indicated by the log entry
+  progress:    Progress indicated by the log entry, 0 to 100 (left unset if
+               missing)
                type: int (with all j2 props + the regex groups in var "log")
-               default: 0
 """
 
 import re
@@ -50,8 +49,6 @@ class FileLog(ILog):
     async def get(
         self,
         facility: str,
-        problem: bool,
-        progress: bool,
         *,
         details: dict,
         props: dict,
@@ -111,12 +108,12 @@ class FileLog(ILog):
                 message=message,
             )
 
-            if problem:
+            if "problem" in d:
                 entry.problem = await self.__render(
                     d, "problem", bool, False, log_props
                 )
 
-            if progress:
+            if "progress" in d:
                 prog = await self.__render(d, "progress", (int, float), 0, log_props)
 
                 if 0 <= prog <= 100:

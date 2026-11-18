@@ -53,6 +53,11 @@ class LogError(YACError):
     title = "Logs could not be loaded"
 
 
+class LogContentNotFound(LogError):
+    code = 404
+    title = "Log content not found"
+
+
 class ActionClientError(ActionError):
     code = 400
 

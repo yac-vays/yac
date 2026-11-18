@@ -1,26 +1,39 @@
 """
-Retrieve logs from an HTTP(S) endpoint that returns a JSON array of records.
+Retrieve logs from an HTTP(S) endpoint.
 
 Written for the bootstrap-logs service (`GET /logs/{host}/{service}` returning
-`[{"time": ..., "message": ...}, ...]`), but generic enough for any endpoint
-whose response is (or contains) a JSON list of log records.
+`[{"time": ..., "message": ...}, ...]`, and `GET /states/{host}/{name}`
+returning a document), but generic enough for any endpoint whose response is
+(or contains) a JSON list of log records, or is a plain text document.
 
 Details:
 
   url:        Request URL (j2, all props available, e.g. "{{ name }}")
               type: string
               default: "" -> required!
-  method:     HTTP method
+  method:     HTTP method (e.g. "HEAD" to only get the headers of a document)
               type: string
               default: "GET"
   headers:    Extra request headers (j2, e.g. an auth token from "env")
               type: dict
               default: {}
-  array:      Dotted path to the record list inside the response body;
+  response:   How the response is turned into log records:
+                json: the response body is (or contains, see `array`) a JSON
+                      list, each element is a record
+                text: the response is one record
+                      {"status": 200, "headers": {...}, "body": "..."}
+                      (header names in lowercase)
+              type: string
+              default: "json"
+  array:      Dotted path to the record list inside a JSON response body;
               empty means the body itself is the list
               type: string
               default: "" (response is the list)
               example: "hits.events"
+  empty_on:   HTTP status codes that mean "no log entries" (instead of an
+              error), e.g. [404] for a document that does not exist (yet)
+              type: list of int
+              default: []
   ssl_verify: Verify the HTTPS-Certificate
               type: bool
               default: true
@@ -33,12 +46,25 @@ Details:
   message:    Message of the log entry
               type: string (with all j2 props + the record as var "log")
               default: ""
-  problem:    Does the log entry indicate a problem
+  problem:    Does the log entry indicate a problem (left unset if missing)
               type: bool (with all j2 props + the record as var "log")
-              default: false
-  progress:   Progress indicated by the log entry
+  progress:   Progress indicated by the log entry, 0 to 100 (left unset if
+              missing)
               type: int (with all j2 props + the record as var "log")
-              default: 0
+  content:    If set, the log provides a content document, fetched on demand
+              (only when it is opened in the UI) with its own request. All
+              request details (url, method, headers, response, empty_on,
+              ssl_verify, timeout) default to the ones above, except:
+                method:   default "GET"
+                response: default "text"
+                text:     the document (with all j2 props + the response as var
+                          "log": the record for "text", the parsed body for
+                          "json")
+                          default: "{{ log.body }}"
+                time:     its timestamp (j2 like `text`)
+                          default: ""
+              type: dict
+              default: unset (no content)
 """
 
 import logging
@@ -48,41 +74,118 @@ import httpx
 
 from app.lib import j2
 from app.model import out
+from app.model.err import LogContentNotFound
 from app.model.err import LogError
 from app.model.err import LogSpecsError
 from app.model.plg import ILog
 
 logger = logging.getLogger(__name__)
 
+# Request details that `content` inherits from the main request
+_REQUEST_KEYS = ("url", "headers", "empty_on", "ssl_verify", "timeout")
+
 
 class HttpLog(ILog):
     async def get(
         self,
         facility: str,
-        problem: bool,
-        progress: bool,
         *,
         details: dict,
         props: dict,
     ) -> list[out.Log]:
+        d = await self.__render_details(details, props)
+
+        response = await self.__fetch(d)
+        if response is None:
+            return []
+        records = self.__records(d, response)
+
+        result = []
+        for record in records:
+            log_props = props | {"log": record}
+
+            entry = out.Log(
+                name=facility,
+                time=await self.__render(d, "time", str, "{{ log.time }}", log_props),
+                message=await self.__render(d, "message", str, "", log_props),
+                has_content="content" in d,
+            )
+            if "problem" in d:
+                entry.problem = await self.__render(d, "problem", bool, False, log_props)
+            if "progress" in d:
+                prog = await self.__render(d, "progress", (int, float), 0, log_props)
+                entry.progress = int(min(max(prog, 0), 100))
+            result.append(entry)
+
+        return result
+
+    async def content(
+        self,
+        facility: str,
+        *,
+        details: dict,
+        props: dict,
+    ) -> out.LogContent:
+        d = await self.__render_details(details, props)
+        c = d.get("content")
+        if c is None:
+            raise LogContentNotFound(f'Log "{facility}" has no content')
+        if not isinstance(c, dict):
+            raise LogSpecsError('In details.content for log plugin "http": not a dict')
+
+        request = {k: d[k] for k in _REQUEST_KEYS if k in d}
+        request |= {"method": "GET", "response": "text"} | c
+
+        response = await self.__fetch(request)
+        if response is None:
+            raise LogContentNotFound(f'Log "{facility}" has no content (yet)')
+        if request.get("response") == "text":
+            record = self.__records(request, response)[0]
+        else:
+            try:
+                record = response.json()
+            except ValueError as error:
+                raise LogError(
+                    f"Log content endpoint did not return valid JSON: {error}"
+                ) from error
+
+        log_props = props | {"log": record}
+        text = await self.__render(c, "text", str, "{{ log.body }}", log_props, "content.")
+        time = await self.__render(c, "time", str, "", log_props, "content.")
+        return out.LogContent(name=facility, time=time, content=text)
+
+    async def __render_details(self, details: dict, props: dict) -> dict:
+        # The per-record fields are rendered later, with the record as `log`
         try:
             d = await j2.render(
                 details,
                 props,
-                skip=r"^#/(time|message|problem|progress)$",
+                skip=r"^#/(time|message|problem|progress|content/text|content/time)$",
             )
             assert isinstance(d, dict)
         except (AssertionError, j2.J2Error) as error:
             raise LogSpecsError(f'In details for log plugin "http": {error}') from error
 
-        headers = d.get("headers", {}) or {}
-        if not isinstance(headers, dict):
+        if not isinstance(d.get("headers", {}) or {}, dict):
             raise LogSpecsError('In details.headers for log plugin "http": not a dict')
+        if d.get("response", "json") not in ("json", "text"):
+            raise LogSpecsError(
+                'In details.response for log plugin "http": must be "json" or "text"'
+            )
+        return d
 
-        logs = await self.__fetch(d, headers)
+    def __records(self, d: dict, response: httpx.Response) -> list:
+        if d.get("response", "json") == "text":
+            return [
+                {
+                    "status": response.status_code,
+                    "headers": {k.lower(): v for k, v in response.headers.items()},
+                    "body": response.text,
+                }
+            ]
 
         try:
-            body = logs.json()
+            body = response.json()
         except ValueError as error:
             raise LogError(f"Log endpoint did not return valid JSON: {error}") from error
 
@@ -93,38 +196,15 @@ class HttpLog(ILog):
             records = records.get(part, []) if isinstance(records, dict) else []
         if not isinstance(records, list):
             records = []
+        return records
 
-        result = []
-        for l in records:
-            log_props = props.copy()
-            log_props.update({"log": l})
-
-            time = await self.__render(d, "time", str, "{{ log.time }}", log_props)
-            message = await self.__render(d, "message", str, "", log_props)
-
-            entry = out.Log(
-                name=facility,
-                time=time,
-                message=message,
-            )
-
-            if problem:
-                entry.problem = await self.__render(
-                    d, "problem", bool, False, log_props
-                )
-
-            if progress:
-                prog = await self.__render(d, "progress", (int, float), 0, log_props)
-                if 0 <= prog <= 100:
-                    entry.progress = int(prog)
-                else:
-                    entry.progress = 100 if 100 < prog else 0
-
-            result.append(entry)
-
-        return result
-
-    async def __fetch(self, d: dict, headers: dict) -> httpx.Response:
+    async def __fetch(self, d: dict) -> httpx.Response | None:
+        """
+        The response, or None if its status is one of `empty_on`.
+        """
+        headers = d.get("headers", {}) or {}
+        empty_on = d.get("empty_on", []) or []
+        accept = "application/json" if d.get("response", "json") == "json" else "*/*"
         # A failure while connecting (DNS, TCP, TLS) means the request was never
         # sent, so it is always safe to retry once. This hides transient network
         # hiccups that would otherwise show up as an empty log in the UI.
@@ -132,7 +212,7 @@ class HttpLog(ILog):
             start = monotonic()
             try:
                 async with httpx.AsyncClient(
-                    headers={"Accept": "application/json", **headers},
+                    headers={"Accept": accept, **headers},
                     verify=d.get("ssl_verify", True),
                     timeout=d.get("timeout", 5),
                 ) as client:
@@ -140,6 +220,8 @@ class HttpLog(ILog):
                         method=d.get("method", "GET"),
                         url=d.get("url", ""),
                     )
+                if response.status_code in empty_on:
+                    return None
                 response.raise_for_status()
                 return response
             except httpx.HTTPError as error:
@@ -156,13 +238,15 @@ class HttpLog(ILog):
                 raise LogError(f"Could not fetch logs over http: {reason}") from error
         raise AssertionError("unreachable")
 
-    async def __render(self, data: dict, key: str, typ, default, props: dict):
+    async def __render(
+        self, data: dict, key: str, typ, default, props: dict, prefix: str = ""
+    ):
         try:
             result = await j2.render(data.get(key, default), props)
             assert isinstance(result, typ)
         except (AssertionError, j2.J2Error) as error:
             raise LogSpecsError(
-                f'In details.{key} for log plugin "http": {error}'
+                f'In details.{prefix}{key} for log plugin "http": {error}'
             ) from error
         return result
 

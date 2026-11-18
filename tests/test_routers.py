@@ -45,7 +45,7 @@ from app.lib import yaml as yaml_lib
 from app.lib.auth import get_current_user
 from app.main import yac
 from app.model.err import RepoConflict, SpecsError
-from app.model.out import Diff, Log, User
+from app.model.out import Diff, Log, LogContent, User
 
 from tests.conftest import FakeRepoSession
 
@@ -152,10 +152,27 @@ class FakeRepoHandler:
 class LogRecorder:
     def __init__(self):
         self.calls = []
+        self.content_calls = []
+        self.props = None
 
-    async def get(self, facility, problem, progress, *, details, props):
+    async def get(self, facility, *, details, props):
         self.calls.append(facility)
-        return [Log(name=facility, message="hello", time="2026-01-01T00:00:00Z")]
+        self.props = props
+        return [
+            Log(
+                name=facility,
+                message="hello",
+                time="2026-01-01T00:00:00Z",
+                has_content=True,
+            )
+        ]
+
+    async def content(self, facility, *, details, props):
+        self.content_calls.append(facility)
+        self.props = props
+        return LogContent(
+            name=facility, time="2026-01-01T00:00:00Z", content="owner: alice\n"
+        )
 
 
 class ActionRecorder:
@@ -430,7 +447,64 @@ async def test_logs_allowed_user_gets_logs(client, login, log_recorder):
     resp = await client.get("/entity/host/web01/logs")
     assert resp.status_code == 200, resp.text
     assert log_recorder.calls == ["install"]
-    assert [l["name"] for l in resp.json()] == ["install"]
+    assert resp.json() == [
+        {
+            "name": "install",
+            "message": "hello",
+            "time": "2026-01-01T00:00:00Z",
+            "progress": None,
+            "problem": None,
+            "has_content": True,
+        }
+    ]
+    # The details can use the entity's data
+    assert log_recorder.props["old"]["data"]["owner"] == "alice"
+
+
+async def test_log_content_forbidden_user_does_not_trigger_log_plugin(
+    client, login, log_recorder
+):
+    login("dave")
+    resp = await client.get("/entity/host/web01/logs/install/content")
+    assert resp.status_code == 403
+    assert log_recorder.content_calls == []
+
+
+async def test_log_content_missing_entity_does_not_trigger_log_plugin(
+    client, login, log_recorder
+):
+    login("alice")
+    resp = await client.get("/entity/host/ghost/logs/install/content")
+    assert resp.status_code == 404
+    assert log_recorder.content_calls == []
+
+
+async def test_log_content_unknown_log(client, login, log_recorder):
+    login("alice")
+    resp = await client.get("/entity/host/web01/logs/nope/content")
+    assert resp.status_code == 404, resp.text
+    assert log_recorder.content_calls == []
+
+
+async def test_log_content_allowed_user_gets_content(client, login, log_recorder):
+    login("alice")
+    resp = await client.get("/entity/host/web01/logs/install/content")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "name": "install",
+        "time": "2026-01-01T00:00:00Z",
+        "content": "owner: alice\n",
+    }
+    assert log_recorder.content_calls == ["install"]
+    assert log_recorder.props["old"]["data"]["owner"] == "alice"
+
+
+async def test_log_content_not_supported_by_plugin(client, login, monkeypatch):
+    """The real `file` plugin has no content: 404 with the error's title."""
+    login("alice")
+    resp = await client.get("/entity/host/web01/logs/install/content")
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["title"] == "Log content not found"
 
 
 #

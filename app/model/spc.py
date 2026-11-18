@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Annotated
 from pydantic.config import Extra  # pylint: disable=no-name-in-module
 
@@ -77,6 +77,20 @@ class TypeLink(out.TypeLink):
 class TypeLog(out.TypeLog):
     plugin: str
     details: dict = {}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_flags(cls, data):
+        # `progress: true` / `problem: true` were replaced by the renderers of
+        # the same name; fail loudly instead of silently ignoring them.
+        if isinstance(data, dict):
+            for flag in ("progress", "problem"):
+                if flag in data:
+                    raise ValueError(
+                        f"`{flag}` is no longer a field of logs, use"
+                        f" `renderer: {flag}` instead (and define `details.{flag}`)"
+                    )
+        return data
 
 
 class TypeAction(out.TypeAction):

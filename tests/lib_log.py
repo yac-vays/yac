@@ -23,8 +23,6 @@ from app.model.spc import Specs, Type, Request
 class _SpcLog(TypeLog):
     plugin: str
     details: dict = {}
-    problem: bool = False
-    progress: bool = False
 
 
 def _op(name="e1"):
@@ -47,8 +45,7 @@ def _specs(*logs):
 
 def _logspec(name, plugin_name="fake"):
     return _SpcLog.model_construct(
-        name=name, title=name, plugin=plugin_name, details={}, problem=False,
-        progress=False,
+        name=name, title=name, plugin=plugin_name, details={}
     )
 
 
@@ -62,7 +59,7 @@ class _FakeLog:
         self.raise_exc = raise_exc
         self.calls = 0
 
-    async def get(self, facility, problem, progress, *, details, props):
+    async def get(self, facility, *, details, props):
         self.calls += 1
         if self.raise_exc is not None:
             raise self.raise_exc
@@ -123,7 +120,7 @@ class _BarrierLog:
     def __init__(self, state):
         self.state = state
 
-    async def get(self, facility, problem, progress, *, details, props):
+    async def get(self, facility, *, details, props):
         self.state["inflight"] += 1
         self.state["max_inflight"] = max(
             self.state["max_inflight"], self.state["inflight"]

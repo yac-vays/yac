@@ -68,6 +68,29 @@ class Log(BaseModel):
         bool | None,
         Field(description="Can indicate if a problem exists (true/false)"),
     ] = None
+    has_content: Annotated[
+        bool,
+        Field(
+            description=(
+                "Whether the log provides a content document (e.g. a YAML file or"
+                " a Markdown text), fetched on demand from"
+                " `/entity/{type}/{name}/logs/{log}/content`"
+            ),
+        ),
+    ] = False
+
+
+class LogContent(BaseModel):
+    """
+    The content document of a log (see `Log.has_content`).
+    """
+
+    name: Annotated[str, Field(description="Name of the log")]
+    time: Annotated[
+        str,
+        Field(description="Should contain a parsable date/time string (or be empty)"),
+    ] = ""
+    content: Annotated[str, Field(description="The document, as text")]
 
 
 class Entity(BaseModel):
@@ -381,14 +404,21 @@ class TypeLog(BaseModel):
             )
         ),
     ] = ""
-    progress: Annotated[
-        bool,
-        Field(description="Whether to show a progress indicator in UI"),
-    ] = False
-    problem: Annotated[
-        bool,
-        Field(description="Whether to show a problem indicator in UI"),
-    ] = False
+    renderer: Annotated[
+        str,
+        Field(
+            description=(
+                "The UI renderer of this log, e.g. `messages` (default),"
+                " `problem`, `progress`, `document` or `markdown` (see the VAYS"
+                " docs)"
+            ),
+            pattern=r"^[a-z][a-z0-9_]*$",
+        ),
+    ] = "messages"
+    options: Annotated[
+        dict[str, Any],
+        Field(description="Renderer-specific options (see the docs of the renderer)"),
+    ] = {}
 
 
 class TypeActionHook(str, enum.Enum):
