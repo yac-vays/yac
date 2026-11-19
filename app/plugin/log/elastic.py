@@ -30,6 +30,7 @@ Details:
 
 import httpx
 
+from app import consts
 from app.lib import j2
 from app.model import out
 from app.model.err import LogError
@@ -95,16 +96,12 @@ class ElasticLog(ILog):
             )
 
             if "problem" in d:
-                entry.problem = await self.__render(
-                    d, "problem", bool, False, log_props
-                )
+                entry.problem = await self.__render(d, "problem", bool, False, log_props)
 
             if "progress" in d:
                 prog = await self.__render(d, "progress", (int, float), 0, log_props)
-                if 0 <= prog <= 100:
-                    entry.progress = int(prog)
-                else:
-                    entry.progress = 100 if 100 < prog else 0
+                if prog is not None:
+                    entry.progress = int(min(max(prog, 0), 100))
 
             result.append(entry)
 
@@ -113,6 +110,9 @@ class ElasticLog(ILog):
     async def __render(self, data: dict, key: str, typ, default, props: dict):
         try:
             result = await j2.render(data.get(key, default), props)
+            if result == consts.OMIT:
+                # `omit`: the optional fields stay unset, texts empty
+                return None if key in ("problem", "progress") else ""
             assert isinstance(result, typ)
         except (AssertionError, j2.J2Error) as error:
             raise LogSpecsError(

@@ -69,3 +69,17 @@ async def test_progress_is_clamped(tpl):
 async def test_bad_details_are_specs_errors(tpl, details):
     with pytest.raises(LogSpecsError):
         await tpl.get("howto", details=details, props=PROPS)
+
+
+async def test_omit_leaves_problem_and_progress_unset(tpl):
+    details = {
+        "content": "x",
+        "problem": "{{ old.data.failed | default(omit) }}",
+        "progress": "{{ old.data.percent | default(omit) }}",
+        "message": "{{ old.data.note | default(omit) }}",
+    }
+    logs = await tpl.get("howto", details=details, props=PROPS)
+    assert logs[0].problem is None and logs[0].progress is None and logs[0].message == ""
+    props = PROPS | {"old": {"name": "bucket1", "data": {"failed": True, "percent": 30}}}
+    logs = await tpl.get("howto", details=details, props=props)
+    assert logs[0].problem is True and logs[0].progress == 30

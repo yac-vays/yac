@@ -26,6 +26,7 @@ Details:
 
 import logging
 
+from app import consts
 from app.lib import j2
 from app.model import out
 from app.model.err import LogContentNotFound
@@ -86,6 +87,9 @@ class TemplateLog(ILog):
             "progress": ((int, float), None),
         }
         for key, (typ, default) in types.items():
+            if d.get(key) == consts.OMIT:
+                # `omit`: the optional fields stay unset, texts empty
+                del d[key]
             if key not in d:
                 if default is not None:
                     d[key] = default

@@ -292,3 +292,15 @@ async def test_invalid_response_mode_is_a_specs_error(http_mod):
 
     with pytest.raises(LogSpecsError):
         await http_mod.log.get("install", details={**DETAILS, "response": "xml"}, props=PROPS)
+
+
+async def test_omit_leaves_problem_and_progress_unset(http_mod):
+    details = {
+        **DETAILS,
+        "problem": "{{ log.failed | default(omit) }}",
+        "progress": "{{ log.percent | default(omit) }}",
+        "message": "{{ log.missing | default(omit) }}",
+    }
+    logs = await http_mod.log.get("install", details=details, props=PROPS)
+    assert all(l.problem is None and l.progress is None for l in logs)
+    assert all(l.message == "" for l in logs)

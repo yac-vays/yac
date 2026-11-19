@@ -72,6 +72,7 @@ from time import monotonic
 
 import httpx
 
+from app import consts
 from app.lib import j2
 from app.model import out
 from app.model.err import LogContentNotFound
@@ -114,7 +115,8 @@ class HttpLog(ILog):
                 entry.problem = await self.__render(d, "problem", bool, False, log_props)
             if "progress" in d:
                 prog = await self.__render(d, "progress", (int, float), 0, log_props)
-                entry.progress = int(min(max(prog, 0), 100))
+                if prog is not None:
+                    entry.progress = int(min(max(prog, 0), 100))
             result.append(entry)
 
         return result
@@ -243,6 +245,9 @@ class HttpLog(ILog):
     ):
         try:
             result = await j2.render(data.get(key, default), props)
+            if result == consts.OMIT:
+                # `omit`: the optional fields stay unset, texts empty
+                return None if key in ("problem", "progress") else ""
             assert isinstance(result, typ)
         except (AssertionError, j2.J2Error) as error:
             raise LogSpecsError(
