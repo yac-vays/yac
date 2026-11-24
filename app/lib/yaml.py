@@ -65,6 +65,25 @@ class YAMLTooComplexError(YAMLError):
     """The document expands to more than MAX_NODES nodes (or is recursive)."""
 
 
+# A `%YAML` / `%TAG` directive at the start of a line (after an optional BOM;
+# line breaks as the YAML scanner knows them).
+_DIRECTIVE = re.compile("(?:^|[\n\r\x85\u2028\u2029])\ufeff?%(?:YAML|TAG)[ \t]")
+
+
+def _assert_no_directive(text: str) -> None:
+    """
+    Raises YAMLError for a document with a `%YAML` or `%TAG` directive.
+
+    ruamel honours `%YAML 1.1` (`yes` is a boolean, `1:40` the integer 100,
+    `010` octal), the fast loader that reads all stored data back does not:
+    the data that was validated would not be the data YAC -- its roles and
+    limits -- sees afterwards. `%TAG` only renames tags, which are not
+    supported anyway.
+    """
+    if "%" in text and _DIRECTIVE.search(text):
+        raise YAMLError("YAML directives (%YAML, %TAG) are not supported")
+
+
 def _assert_bounded(text: str, data: Any) -> None:
     """
     Raises YAMLTooComplexError if `data` (loaded from `text`) is bigger than
@@ -119,6 +138,11 @@ def load(yaml: str, *, strict: bool = True) -> YAMLNode | None:
 
 
 def _load(yaml: str, *, strict: bool = True) -> YAMLNode | None:
+    _assert_no_directive(yaml)
+    # ruamel keeps the version of the last document it saw (also of one it
+    # then refused): never let one request decide how the next one is parsed.
+    y.version = None
+    y_non_strict.version = None
     if strict:
         return y.load(yaml)
 
@@ -293,7 +317,21 @@ def load_as_dict_fast(text: str) -> dict:
 
 def dump(data: dict | YAMLNode | None) -> str:
     buf = io.BytesIO()
-    y.dump(data, buf)
+    y.version = None  # see _load: no `%YAML` header inherited from a load
+    try:
+        y.dump(data, buf)
+    except BaseException as error:
+        # ruamel only resets its output state after a dump that went
+        # through: left behind half-way, it makes every later dump of this
+        # (shared) instance return an empty document.
+        y._output = None  # pylint: disable=protected-access
+        y._context_manager = None  # pylint: disable=protected-access
+        for attr in ("_serializer", "_emitter"):
+            if hasattr(y, attr):
+                delattr(y, attr)
+        if isinstance(error, RecursionError):
+            raise YAMLTooComplexError("The data is nested too deeply") from error
+        raise
     return buf.getvalue().decode("utf-8")
 
 
@@ -484,7 +522,10 @@ def update(yaml: str, diff: dict) -> str:
 
     The string "~undefined" will unset the whole object-key / list-item.
     """
-    return dump(__deep_update(load(yaml), diff))
+    try:
+        return dump(__deep_update(load(yaml), diff))
+    except RecursionError as error:
+        raise YAMLTooComplexError("The data is nested too deeply") from error
 
 
 UNSET = "~undefined"
