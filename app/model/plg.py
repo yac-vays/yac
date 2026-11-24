@@ -12,6 +12,7 @@ from app.model.out import User
 from app.model.int import Entity
 from app.model.spc import Specs
 from app.model.err import PluginError
+from app.model.err import RepoError
 from app.model.err import LogContentNotFound
 
 
@@ -262,6 +263,41 @@ class IRepoSession(ABC):
         modified entity would act on stale authorization.
         """
         ...
+
+
+class ReadOnlyRepoSession(IRepoSession):
+    """A session of a backend that cannot write: all write methods raise."""
+
+    async def write(
+        self, type: str, name: str, content_old: str, content_new: str, msg: CommitMsg
+    ) -> Diff:
+        raise RepoError("Write operation outside writer scope")
+
+    async def write_rename(
+        self,
+        type: str,
+        name_old: str,
+        name_new: str,
+        content_old: str,
+        content_new: str,
+        msg: CommitMsg,
+    ) -> Diff:
+        raise RepoError("Write operation outside writer scope")
+
+    async def copy(
+        self, type: str, name_dest: str, name_src: str, msg: CommitMsg
+    ) -> Diff:
+        raise RepoError("Write operation outside writer scope")
+
+    async def link(
+        self, type: str, name_link: str, name_src: str, msg: CommitMsg
+    ) -> Diff:
+        raise RepoError("Write operation outside writer scope")
+
+    async def delete(
+        self, type: str, name: str, content_old: str, msg: CommitMsg
+    ) -> None:
+        raise RepoError("Write operation outside writer scope")
 
 
 class IRepoUntyped(ABC):

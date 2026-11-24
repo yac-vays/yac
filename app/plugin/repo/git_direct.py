@@ -100,6 +100,19 @@ _WRITER_ACTIVE = -1
 _PUSH_REJECTED_RE = re.compile(r"\[rejected\]|non-fast-forward|fetch first")
 
 
+def _patch(old: str | None, new: str, path_old: str, path_new: str) -> str:
+    """The unified diff of a file; `old` is None for a file that did not exist."""
+    return "\n".join(
+        unified_diff(
+            [] if old is None else old.split("\n"),
+            new.split("\n"),
+            fromfile=f"a/{path_old}",
+            tofile=f"b/{path_new}",
+            lineterm="",
+        )
+    )
+
+
 class _PushRejected(RepoConflict):
     """Someone else pushed between this writer's sync and its push."""
 
@@ -804,15 +817,7 @@ class GitRepo(IRepo):
         await self._commit_and_push(
             user, [file_abs], f"{'Edited' if exists else 'Created'} {path_rel}", msg
         )
-        patch = "\n".join(
-            unified_diff(
-                content_old.split("\n"),
-                content_new.split("\n"),
-                fromfile=f"a/{path_rel}",
-                tofile=f"b/{path_rel}",
-                lineterm="",
-            )
-        )
+        patch = _patch(content_old, content_new, path_rel, path_rel)
 
         return Diff(name=name, hash=await self._get_hash(), patch=patch)
 
@@ -865,15 +870,7 @@ class GitRepo(IRepo):
             f"Edited {path_new} (renamed from {name_old})",
             msg,
         )
-        patch = "\n".join(
-            unified_diff(
-                content_old.split("\n"),
-                content_new.split("\n"),
-                fromfile=f"a/{path_old}",
-                tofile=f"b/{path_new}",
-                lineterm="",
-            )
-        )
+        patch = _patch(content_old, content_new, path_old, path_new)
 
         return Diff(name=name_new, hash=await self._get_hash(), patch=patch)
 
@@ -906,15 +903,7 @@ class GitRepo(IRepo):
             f"Created {path_dest} (copy of {name_src})",
             msg,
         )
-        patch = "\n".join(
-            unified_diff(
-                [],
-                content.split("\n"),
-                fromfile=f"a/{path_dest}",
-                tofile=f"b/{path_dest}",
-                lineterm="",
-            )
-        )
+        patch = _patch(None, content, path_dest, path_dest)
 
         return Diff(name=name_dest, hash=await self._get_hash(), patch=patch)
 
@@ -950,15 +939,7 @@ class GitRepo(IRepo):
             f"Created {path_link} (link to {name_src})",
             msg,
         )
-        patch = "\n".join(
-            unified_diff(
-                [],
-                name_src.split("\n"),
-                fromfile=f"a/{path_link}",
-                tofile=f"b/{path_link}",
-                lineterm="",
-            )
-        )
+        patch = _patch(None, name_src, path_link, path_link)
 
         return Diff(name=name_link, hash=await self._get_hash(), patch=patch)
 

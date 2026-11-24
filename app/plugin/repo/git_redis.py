@@ -68,11 +68,9 @@ from app.model.err import RepoError
 from app.model.err import RepoNotFound
 from app.model.err import RepoSpecsError
 from app.model.err import RepoUnavailable
-from app.model.out import Diff
 from app.model.out import User
-from app.model.plg import CommitMsg
 from app.model.plg import IRepo
-from app.model.plg import IRepoSession
+from app.model.plg import ReadOnlyRepoSession
 from app.model.plg import RepoState
 from app.model.plg import IRepoUntyped
 
@@ -149,7 +147,7 @@ async def _render_path(type_name: str, name: str, details: dict) -> str:
     return await _gd_module()._render_path(type_name, name, details)
 
 
-class _GitRedisSession(IRepoSession):
+class _GitRedisSession(ReadOnlyRepoSession):
     """
     Read-only session backed by a pinned Redis snapshot. Writes raise —
     the writer scope hands callers `git_direct`'s session directly, so a
@@ -260,45 +258,6 @@ class _GitRedisSession(IRepoSession):
             return await self._r.hget(self._key, rel)
         except RedisError as error:
             raise RepoError(f"Redis get failed for {type}/{name}") from error
-
-    def _no_write(self) -> None:
-        raise RepoError("Write operation outside writer scope")
-
-    async def write(
-        self, type: str, name: str, content_old: str, content_new: str, msg: CommitMsg
-    ) -> Diff:
-        del type, name, content_old, content_new, msg
-        self._no_write()
-
-    async def write_rename(
-        self,
-        type: str,
-        name_old: str,
-        name_new: str,
-        content_old: str,
-        content_new: str,
-        msg: CommitMsg,
-    ) -> Diff:
-        del type, name_old, name_new, content_old, content_new, msg
-        self._no_write()
-
-    async def copy(
-        self, type: str, name_dest: str, name_src: str, msg: CommitMsg
-    ) -> Diff:
-        del type, name_dest, name_src, msg
-        self._no_write()
-
-    async def link(
-        self, type: str, name_link: str, name_src: str, msg: CommitMsg
-    ) -> Diff:
-        del type, name_link, name_src, msg
-        self._no_write()
-
-    async def delete(
-        self, type: str, name: str, content_old: str, msg: CommitMsg
-    ) -> None:
-        del type, name, content_old, msg
-        self._no_write()
 
 
 class _GitRedisUntyped(IRepoUntyped):
