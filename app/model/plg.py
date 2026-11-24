@@ -128,7 +128,7 @@ class IValidator(ISortable):
         This method is executed if order returns false (so it runs on every operation).
         """
         raise PluginError(
-            f"Method test_always is not implement in {self.__class__.__name__}"
+            f"Method test_always is not implemented in {self.__class__.__name__}"
         )
 
     async def test_nolist(
@@ -144,7 +144,7 @@ class IValidator(ISortable):
         except for listing entities).
         """
         raise PluginError(
-            f"Method test_nolist is not implement in {self.__class__.__name__}"
+            f"Method test_nolist is not implemented in {self.__class__.__name__}"
         )
 
 

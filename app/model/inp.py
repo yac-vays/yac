@@ -51,7 +51,7 @@ class Entity(BaseModel):
 
 class LinkEntity(Entity):
     """
-    A new entity that referes to an other one regarding all its data.
+    A new entity that refers to another one regarding all its data.
     """
 
     link_name: Annotated[
@@ -66,7 +66,7 @@ class LinkEntity(Entity):
 
 class CopyEntity(Entity):
     """
-    A new entity that copies all data form an existing one.
+    A new entity that copies all data from an existing one.
     """
 
     copy_name: Annotated[

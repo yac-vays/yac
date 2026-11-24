@@ -146,7 +146,7 @@ async def get_entities(
     active_roles: list[perms.ActiveRole] | None = None,
 ) -> tuple[Entity, Entity, list[str]]:
     """
-    Try to collect data about the entity refered in this OperationRequest.
+    Try to collect data about the entity referred to in this OperationRequest.
     Should not fail even if the provided data is nonsense.
 
     The caller must pass an `IRepoSession` whose `details` already match

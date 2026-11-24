@@ -178,7 +178,7 @@ class Schema(BaseModel):
     and the data.
 
     **Note**: The schemata are generated upon the data, so they might change
-    when data changes. So make sure you regenerate them for chaning data to
+    when data changes. So make sure you regenerate them for changing data to
     always have the most correct schemata.
 
     All `description` keys within the json_schema are markdown formatted strings.

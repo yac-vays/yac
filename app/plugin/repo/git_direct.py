@@ -858,7 +858,7 @@ class GitRepo(IRepo):
         await self._assert_inside_repo(file_new)
 
         if name_old == name_new:
-            raise RepoClientError("Cannot rename without chaning the name")
+            raise RepoClientError("Cannot rename without changing the name")
         if await self._exists(type_name, name_old, details):
             content = await self._get(type_name, name_old, details)
             if content != content_old:

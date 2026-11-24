@@ -1,5 +1,5 @@
 """
-Retreive logs from an Elastic Search server using an EQL query.
+Retrieve logs from an Elastic Search server using an EQL query.
 
 Details:
 

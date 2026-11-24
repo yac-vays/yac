@@ -1,5 +1,5 @@
 """
-Retreive logs from files.
+Retrieve logs from files.
 
 Will only read the last kB if the file is bigger than 1kB. And only return the
 last 10 lines.
