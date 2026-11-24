@@ -47,13 +47,14 @@ from os import getpid
 from os.path import dirname
 from typing import AsyncGenerator
 import asyncio
+import errno
 import logging
 import os
 import time
 import re
 
 from aioshutil import rmtree
-from anyio import Path, open_file
+from anyio import Path, open_file, to_thread
 
 from app.lib import git
 from app.lib import j2
@@ -579,6 +580,22 @@ class GitRepo(IRepo):
         except OSError as error:
             raise RepoError(f"Could not create directory for {file}") from error
 
+    async def _write_file(self, file: str, content: str) -> None:
+        """Write a regular file, never through a symlink (O_NOFOLLOW)."""
+
+        def write() -> None:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+            with os.fdopen(os.open(file, flags, 0o666), "w", encoding="utf-8") as f:
+                f.write(content)
+
+        logger.debug(f"Writing file {file}")
+        try:
+            await to_thread.run_sync(write)
+        except OSError as error:
+            if error.errno == errno.ELOOP:
+                raise RepoClientError("Modifying links is not allowed") from error
+            raise RepoError(f"Could not write file {file}") from error
+
     async def _read_file(self, file: str, *, what: str, absolute: bool = True) -> str:
         """
         `what` describes the entity (type/name) for the client-facing
@@ -717,6 +734,9 @@ class GitRepo(IRepo):
         file_abs = f"{self.path}/{path_rel}"
         await self._assert_inside_repo(file_abs)
 
+        # Also a dangling link, which does not "exist" but would be followed.
+        if await self._is_link(type_name, name, details):
+            raise RepoClientError("Modifying links is not allowed")
         exists = await self._exists(type_name, name, details)
         if exists:
             content = await self._get(type_name, name, details)
@@ -724,18 +744,11 @@ class GitRepo(IRepo):
                 raise RepoConflict("The data has changed in the meantime")
             if content == content_new:
                 raise RepoClientError("Cannot write without changing anything")
-            if await self._is_link(type_name, name, details):
-                raise RepoClientError("Modifying links is not allowed")
         elif len(content_old) > 0:
             raise RepoConflict("The file has been deleted in the meantime")
 
         await self._make_parents(file_abs)
-        try:
-            async with await open_file(file_abs, "w+", encoding="utf-8") as f:
-                logger.debug(f"Writing file {file_abs}")
-                await f.write(content_new)
-        except OSError as error:
-            raise RepoError(f"Could not write file {file_abs}") from error
+        await self._write_file(file_abs, content_new)
 
         await self._push(
             user, [file_abs], f"{'Edited' if exists else 'Created'} {path_rel}", msg
@@ -788,12 +801,7 @@ class GitRepo(IRepo):
             raise RepoConflict("The file already exists")
 
         await self._make_parents(file_new)
-        try:
-            async with await open_file(file_new, "w+", encoding="utf-8") as f:
-                logger.debug(f"Writing file {file_new}")
-                await f.write(content_new)
-        except OSError as error:
-            raise RepoError(f"Could not write file {file_new}") from error
+        await self._write_file(file_new, content_new)
 
         try:
             await Path(file_old).unlink()
@@ -836,17 +844,10 @@ class GitRepo(IRepo):
         await self._assert_inside_repo(file_src)
         await self._assert_inside_repo(file_dest)
 
-        content = await self._read_file(
-            file_src, what=f"{type_name} {name_src}", absolute=True
-        )
+        content = await self._get(type_name, name_src, details)
 
         await self._make_parents(file_dest)
-        try:
-            async with await open_file(file_dest, "w+", encoding="utf-8") as f:
-                logger.debug(f"Writing file {file_dest}")
-                await f.write(content)
-        except OSError as error:
-            raise RepoError(f"Could not create file {file_dest}") from error
+        await self._write_file(file_dest, content)
 
         await self._push(
             user,
