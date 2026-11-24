@@ -16,6 +16,9 @@ def test():
     assert locs.get_most_specific('a/#',           ['#', '#/a/b/c', '#/c/a', '#/a/b/d']) == None
     assert locs.get_most_specific('#/abc/zzzzzzz', ['#', '#/abc/aa/bb']) == '#'
     assert locs.get_most_specific('#/abc/ab',      ['#', '#/abc/aa/bb', '#/abc', '#/abc/abc']) == '#/abc'
+    # a sibling whose name merely starts the same is no ancestor
+    assert locs.get_most_specific('#/properties/ab', ['#', '#/properties/a']) == '#'
+    assert locs.get_most_specific('#/properties/ab', ['#/properties/a']) is None
 
 
 # ----- get: data-loc enumeration -----

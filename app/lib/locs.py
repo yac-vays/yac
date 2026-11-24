@@ -9,7 +9,6 @@ Raises: []
 """
 
 import re
-import os
 import json
 import logging
 from typing import Any, Callable
@@ -179,19 +178,11 @@ def reduce(schema_loc: str, data_locs: list[str], recursive: bool = False) -> li
 
 def get_most_specific(loc: str, loc_list: list[str]) -> str | None:
     """
-    Returns the (first) loc from the list that has the biggest common prefix
-    with the given loc or None if there is no match at all.
+    Returns the longest loc from the list that is the given loc or one of its
+    ancestors, or None if there is none.
     """
-    prefix = 0
-    result = None
-    for l in loc_list:
-        if not loc.startswith(l):
-            continue
-        pf = len(os.path.commonpath([loc, l]))
-        if prefix < pf:
-            prefix = pf
-            result = l
-    return result
+    candidates = [l for l in loc_list if loc == l or loc.startswith(f"{l}/")]
+    return max(candidates, key=len, default=None)
 
 
 DEFINED = "defined"
