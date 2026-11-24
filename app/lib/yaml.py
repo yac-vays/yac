@@ -447,8 +447,10 @@ def has_structural_changes(yaml_old: str, yaml_new: str) -> bool:
 
     Comments may only vanish together with the key they are attached to; any
     other comment removal, addition or edit is structural. Blank lines are
-    ignored. Known blind spot: a comment change inside a list whose content
-    also changed is not detected (the list is replaced wholesale).
+    ignored. Known blind spots: comments are compared as a multiset, so
+    moving one to another key is not detected; neither is any formatting
+    change inside a list whose content also changed (the list is replaced
+    wholesale).
     """
     old = load(yaml_old)
     new = load(yaml_new)
