@@ -763,7 +763,7 @@ class GitRepo(IRepo):
         else:
             raise RepoConflict("The file has been deleted in the meantime")
         if await self._exists(type_name, name_new, details):
-            raise RepoClientError("The file already exists")
+            raise RepoConflict("The file already exists")
 
         await self._make_parents(file_new)
         try:
@@ -806,7 +806,7 @@ class GitRepo(IRepo):
         msg: CommitMsg,
     ) -> Diff:
         if await self._exists(type_name, name_dest, details):
-            raise RepoClientError("The file already exists")
+            raise RepoConflict("The file already exists")
 
         path_dest = await _render_path(type_name, name_dest, details)
         file_src = await self._file_path(type_name, name_src, details)
@@ -866,7 +866,7 @@ class GitRepo(IRepo):
         try:
             await Path(link).symlink_to(self._make_relative(src, link))
         except FileExistsError as error:
-            raise RepoClientError("The file already exists") from error
+            raise RepoConflict("The file already exists") from error
         except OSError as error:
             raise RepoError(f"Could not create symlink {link}") from error
 

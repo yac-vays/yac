@@ -50,6 +50,9 @@ authlib_oauth.register(
 fastapi_oauth2 = OpenIdConnect(
     openIdConnectUrl=specs.AUTH.oidc.url,
     scheme_name="OpenID Connect",
+    # A missing token is reported by `get_current_user`, in the same error
+    # format as every other rejection.
+    auto_error=False,
 )
 
 
@@ -251,7 +254,11 @@ async def _user_from_access_token(token: str) -> User:
     )
 
 
-async def get_current_user(token: Annotated[str, Depends(fastapi_oauth2)]) -> User:
+async def get_current_user(
+    token: Annotated[str | None, Depends(fastapi_oauth2)],
+) -> User:
+    if not token:
+        raise AuthError("No bearer token in the Authorization header")
     token = token[7:] if token[:7].lower() == "bearer " else token
     if _is_access_token(token):
         return await _user_from_access_token(token)

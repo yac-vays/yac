@@ -32,6 +32,8 @@ class ConflictTester(IValidator):
                     raise RequestError("Links cannot be copied/linked")
 
         else:  # read, edit, delete, arbitrary
+            if old.name is None:
+                raise RequestError("The name of the entity is missing")
             if not old.exists:
                 raise RequestNotFound(f"{old.name} does not exist")
 

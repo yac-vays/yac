@@ -7,6 +7,7 @@ import shutil
 import sys
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import consts
@@ -199,6 +200,7 @@ yac.include_router(arbitrary.router, tags=["Entities"])
 yac.include_router(validate.router, tags=["Entities"])
 
 yac.add_exception_handler(YACError, error.handle_yac)  # type: ignore
+yac.add_exception_handler(RequestValidationError, error.handle_invalid)  # type: ignore
 yac.add_exception_handler(500, error.handle_all)
 
 yac.openapi = hacks.get_openapi_schema_with_oidc_idtoken(yac, DESCRIPTION)

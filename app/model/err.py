@@ -158,7 +158,7 @@ class AuthError(YACError):
 
 def http_responses() -> dict:
     result = {}
-    for c in [400, 401, 403, 404, 409, 500, 503]:
+    for c in [400, 401, 403, 404, 409, 422, 500, 503]:
         result.update(
             {
                 c: {
