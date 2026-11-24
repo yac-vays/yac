@@ -62,7 +62,8 @@ RUN echo 'VERSION = "'${version#v}'"' > /code/app/version.py
 RUN addgroup -g 1000 yac && \
     adduser -D -u 1000 -G yac -h /home/yac yac && \
     mkdir -p /home/yac/.ssh && \
-    chown -R yac:yac /home/yac /code
+    chown -R yac:yac /home/yac && \
+    python -m compileall -q /code/app
 
 USER 1000
 

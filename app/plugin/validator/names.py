@@ -12,7 +12,9 @@ class NameTester(IValidator):
     def __assert_match(self, pattern: str, name: str | None, loc: str) -> None:
         if name is None:
             raise RequestError(f"The {loc} must be set for this operation")
-        if not re.match(pattern, name):
+        # fullmatch: the WHOLE name must match, also for patterns that are
+        # not anchored with ^...$ (as in lib.repo.gen_name).
+        if not re.fullmatch(pattern, name):
             raise RequestError(
                 f'The {loc} {name} does not match the type spec pattern "{pattern}"'
             )

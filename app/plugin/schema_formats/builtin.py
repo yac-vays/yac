@@ -5,6 +5,10 @@ import struct
 
 
 def ssh_key(data) -> bool:
+    # Exactly one key: a value with further lines would add arbitrary lines
+    # to whatever file (authorized_keys, ...) the key ends up in.
+    if not isinstance(data, str) or re.search(r"[\r\n\x00]", data.strip()):
+        return False
     parts = data.strip().split()
     if len(parts) < 2:
         return False
@@ -33,4 +37,5 @@ def unix_password_hash(data) -> bool:
         r"^\$2[aby]\$[0-9]{2}\$[./0-9A-Za-z]{53}$",  # Bcrypt
     ]
 
-    return any(re.match(pattern, data) for pattern in patterns)
+    # fullmatch: with re.match, `$` would also accept a trailing newline
+    return any(re.fullmatch(pattern, data) for pattern in patterns)

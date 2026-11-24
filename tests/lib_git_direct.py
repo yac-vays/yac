@@ -437,3 +437,36 @@ async def test_get_link_illegal_destination_raises(tmp_path, monkeypatch):
     h._loaded = True
     with pytest.raises(RepoError):
         await h._get_link("host", "bad", DETAILS)
+
+
+async def test_get_never_follows_symlinks_out_of_the_repo(repo, tmp_path):
+    # Whatever is pushed to the data repository must not make YAC read files
+    # outside of its checkout: neither through a symlinked entity file ...
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.yml").write_text("password: hunter2\n")
+    work = tmp_path / "work"
+    (work / "hosts" / "leak.yml").symlink_to(outside / "secret.yml")
+    with pytest.raises(RepoError):
+        await repo._get("host", "leak", DETAILS)
+
+    # ... nor through a symlinked directory on the way to it (the file itself
+    # is no symlink then, so the link checks do not see it).
+    (work / "groups").symlink_to(outside, target_is_directory=True)
+    details = {"group": "groups/{{ name }}.yml"}
+    assert await repo._is_link("group", "secret", details) is False
+    with pytest.raises(RepoError):
+        await repo._get("group", "secret", details)
+
+    # Links inside the repository keep working.
+    assert (await repo._get("host", "link", DETAILS)).strip() == "cpu: 4"
+
+
+async def test_get_link_rejects_sibling_directory_with_same_prefix(repo, tmp_path):
+    # "<repo>-other" starts with the path of the repo, but is not inside it.
+    sibling = tmp_path / "work-other" / "hosts"
+    sibling.mkdir(parents=True)
+    (sibling / "x.yml").write_text("cpu: 1\n")
+    (tmp_path / "work" / "hosts" / "sib.yml").symlink_to(sibling / "x.yml")
+    with pytest.raises(RepoError):
+        await repo._get_link("host", "sib", DETAILS)

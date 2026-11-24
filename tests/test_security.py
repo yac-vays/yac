@@ -433,3 +433,48 @@ def test_docs_assets_are_in_the_image():
     if not docs.SWAGGER_UI_DIR.is_dir():
         pytest.skip("no bundled Swagger UI (source checkout)")
     assert docs.is_bundled()
+
+
+#
+# 12) smaller hardening
+#
+
+
+def test_ssh_key_format_is_a_single_line():
+    from app.plugin.schema_formats import builtin
+
+    key = (
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+    )
+    assert builtin.ssh_key(key) is True
+    assert builtin.ssh_key(f"{key} user@host\n") is True
+    assert builtin.ssh_key(f"{key} user@host\n{key} attacker") is False
+    assert builtin.ssh_key(f"{key}\rcommand=x") is False
+    assert builtin.ssh_key(None) is False
+    assert builtin.ssh_key(["ssh-ed25519", "AAAA"]) is False
+
+
+def test_unix_password_hash_has_no_trailing_newline():
+    from app.plugin.schema_formats import builtin
+
+    sha512 = "$6$saltsalt$" + "a" * 86
+    assert builtin.unix_password_hash(sha512) is True
+    assert builtin.unix_password_hash("$6$rounds=5000$salt$" + "a" * 86) is True
+    assert builtin.unix_password_hash(sha512 + "\n") is False
+    assert builtin.unix_password_hash(sha512 + "\nroot::0:0") is False
+
+
+async def test_name_pattern_must_match_the_whole_name(
+    client, login, repo_session, monkeypatch
+):
+    raw = copy.deepcopy(RAW_SPECS)
+    raw["types"][0]["name_pattern"] = "web[0-9]+"  # not anchored
+    monkeypatch.setattr(specs_lib, "_RAW_DATA", raw)
+    login("erin")
+
+    resp = await client.post(
+        "/entity/host", json={"name": "web42-and-more", "yaml": "owner: erin\n"}
+    )
+    assert resp.status_code == 400
+    resp = await client.post("/entity/host", json={"name": "web42", "yaml": "owner: erin\n"})
+    assert resp.status_code == 201

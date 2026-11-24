@@ -646,7 +646,7 @@ class GitRepo(IRepo):
         src = "/".join([base, await _render_path(type_name, name, details)])
         dest = str(await Path(src).resolve())
 
-        if not dest.startswith(base):
+        if not dest.startswith(base + "/"):
             raise RepoError(f"Link {src} has an illegal destination: {dest}")
 
         glob_pat = await _render_glob(type_name, details)
@@ -663,6 +663,14 @@ class GitRepo(IRepo):
 
     async def _get(self, type_name: str, name: str, details: dict) -> str:
         path = await self._file_path(type_name, name, details)
+        # The data repository may contain symlinks (entity links, but also
+        # whatever was pushed to it directly): never follow one -- of the
+        # file or of a directory on the way to it -- out of the checkout.
+        # (Plain realpath calls: this is the hot path of the entity list.)
+        base = os.path.realpath(self.path)
+        if not os.path.realpath(path).startswith(base + "/"):
+            logger.warning(f"Resolved path escapes the repository: {path}")
+            raise RepoError(f"The {type_name} {name} is not readable")
         return await self._read_file(
             path, what=f"{type_name} {name}", absolute=True
         )
