@@ -94,29 +94,8 @@ async def get(
     elif isinstance(json_schema, bool):
         json_schema = {} if json_schema else {"not": {}}
 
-    validator = await _validator(json_schema, new_data)
-
-    try:
-        validator.validate(new_data)
-        excess = _shared_consts_excess(context, new_data)
-        if excess is not None:
-            return out.Schema(
-                json_schema=json_schema,
-                ui_schema=ui_schema,
-                data=new_data,
-                valid=False,
-                message=excess[0],
-                validator="enum",
-                json_schema_loc=excess[1],
-                data_loc=excess[2],
-            )
-        return out.Schema(
-            json_schema=json_schema,
-            ui_schema=ui_schema,
-            data=new_data,
-            valid=True,
-        )
-    except jsonschema.ValidationError as error:
+    error = await _first_error(json_schema, new_data)
+    if error is not None:
         message, data_loc = _describe(error, context)
         return out.Schema(
             json_schema=json_schema,
@@ -128,6 +107,45 @@ async def get(
             json_schema_loc="/".join(["#"] + [str(i) for i in list(error.schema_path)]),
             data_loc=data_loc,
         )
+
+    excess = _shared_consts_excess(context, new_data)
+    if excess is not None:
+        return out.Schema(
+            json_schema=json_schema,
+            ui_schema=ui_schema,
+            data=new_data,
+            valid=False,
+            message=excess[0],
+            validator="enum",
+            json_schema_loc=excess[1],
+            data_loc=excess[2],
+        )
+    return out.Schema(
+        json_schema=json_schema,
+        ui_schema=ui_schema,
+        data=new_data,
+        valid=True,
+    )
+
+
+async def _first_error(json_schema: dict, data: Any) -> jsonschema.ValidationError | None:
+    """
+    jsonschema does not check the schema itself: a broken one (unknown type,
+    invalid pattern, ...) makes the validation of data raise arbitrary
+    exceptions. Only then the (expensive) schema check locates the cause.
+    """
+    try:
+        validator = await _validator(json_schema, data)
+        return next(validator.iter_errors(data), None)
+    except Exception as failure:  # pylint: disable=broad-exception-caught
+        try:
+            Draft7Validator.check_schema(json_schema)
+        except jsonschema.SchemaError as error:
+            loc = "/".join(["#", *(str(i) for i in error.absolute_path)])
+            raise SchemaSpecsError(f"{loc}: {error.message}") from failure
+        raise SchemaSpecsError(
+            f"#: The schema cannot be evaluated: {failure}"
+        ) from failure
 
 
 def _strip_injected(json_schema: Any) -> None:

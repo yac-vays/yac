@@ -174,3 +174,22 @@ async def test_handle_schema_object_subschema_must_be_object():
             "#", {"type": "object", "properties": ["not", "an", "object"]}, {}, {},
             {"operation": "read"},
         )
+
+
+# ----- get: a broken schema is a located specs error -----
+
+@pytest.mark.parametrize(
+    "prop, data, loc",
+    [
+        ({"type": "strng"}, "x", "#/properties/a/type"),
+        ({"type": "string", "pattern": "("}, "x", "#/properties/a/pattern"),
+        ({"type": "number", "multipleOf": 0}, 1.5, "#/properties/a/multipleOf"),
+    ],
+)
+async def test_get_broken_schema_is_a_located_specs_error(prop, data, loc):
+    with pytest.raises(SchemaSpecsError) as error:
+        await _get(
+            {"type": "object", "properties": {"a": {**prop, "vays_category": "X"}}},
+            new_data={"a": data},
+        )
+    assert str(error.value).startswith(f"{loc}: ")
