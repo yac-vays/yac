@@ -18,4 +18,12 @@ class Settings(BaseSettings):
     # and CORS configuration live inside the specs file (`repo.*`, `auth.*`).
     specs: str = "/yac.yml"
 
+    # Upper bound (characters) for a YAML document in a request (`yaml`,
+    # `yaml_old`, `yaml_new`, `yaml_base`). The round-trip parser handles
+    # about 100 kB per second on the event loop -- and a document is parsed
+    # before its data can be validated -- so this bounds how long one request
+    # can keep a worker busy. The request body as a whole is limited to four
+    # times this plus 64 kB (see app.lib.bodylimit).
+    max_yaml_size: int = 65536
+
     env: dict = {}  # custom env vars available in props

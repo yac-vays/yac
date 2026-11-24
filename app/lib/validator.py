@@ -122,7 +122,8 @@ async def test_all(
     usages: list[LimitUsage] = [],
     *,
     raise_on_error=True,
-    schema_on_read=False
+    schema_on_read=False,
+    incoming: tuple[dict, str | None] | None = None
 ) -> ValidationResult:
     """
     Will try to generate the schemas even with faulty data. It either throws a
@@ -132,6 +133,9 @@ async def test_all(
     `usages` are the pre-computed `limits` results (gathered inside the repo
     reader scope via `lib.limits.measure`); they are echoed back in the
     result for the UI and enforced here so the standard error handling applies.
+
+    `incoming` is the result of `incoming_new_data` if the caller has it
+    already (it parses the YAML of the request, which is not cheap).
     """
 
     # The admin override (`force` on the write endpoints) is only available to
@@ -143,15 +147,50 @@ async def test_all(
 
     request = Request(valid=True)
 
+    # First whether the operation is allowed at all: a request that is not
+    # must not make YAC parse its documents and generate schemas (the
+    # expensive part of a validation) before it is refused.
+    require = ("actions", "conflicts", "names", "operations", "perms", "type_spec")
+    refusal: RequestError | None = None
+    try:
+        for p in plugin.get_sorted("validator", "tester", require=require, late=False):
+            await p.test_always(op, specs)
+        for p in plugin.get_sorted("validator", "tester", require=require, late=True):
+            await p.test_nolist(op, specs, old, new, perms)
+        # Enforced last so a forbidden / conflicting operation surfaces its own
+        # (more specific) error before a limit message.
+        limits.assert_within(usages)
+        # A write that changes nothing (no content change, no rename) is
+        # refused instead of being passed on: applying an empty patch still
+        # re-serializes the stored YAML, which must not become a commit.
+        # (/validate reports such a request as valid -- that is how a client
+        # asks for the schema of an entity it is about to edit.)
+        if (
+            raise_on_error
+            and op.operation == "edit"
+            and op.entity is not None
+            and op.entity.name == op.name
+            and not has_content_changes(op, old)
+        ):
+            raise RequestError("The request does not change anything")
+    except RequestError as error:
+        if raise_on_error:
+            raise error
+        refusal = error
+
     # Everything below that is derived from the stored entity (the merged
     # data, the generated schema with its echoed consts, the canonical YAML)
     # ends up in the result of `/validate` -- regardless of whether the
     # operation itself is allowed. So without "see" on the stored entity,
-    # none of it is generated; the validators below still report why the
-    # operation is not allowed.
-    readable = may_read(old, perms)
+    # none of it is generated; the refusal above still says why the
+    # operation is not allowed. The same goes for an entity that does not
+    # exist (except when creating one): answering differently would tell
+    # which names exist to users who may not see them.
+    readable = may_read(old, perms) and (old.exists or op.operation == "create")
 
-    new_data, yaml_error = incoming_new_data(op, old) if readable else ({}, None)
+    if incoming is None or not readable:
+        incoming = incoming_new_data(op, old) if readable else ({}, None)
+    new_data, yaml_error = incoming
     if yaml_error is not None:
         if raise_on_error:
             raise RequestError(yaml_error)
@@ -179,34 +218,14 @@ async def test_all(
     # the UI can mirror the form without re-implementing ruamel serialization.
     schemas.yaml = (incoming_new_yaml(op, old) or "") if readable else ""
 
-    require = ("actions", "conflicts", "names", "operations", "perms", "type_spec")
-    try:
-        for p in plugin.get_sorted("validator", "tester", require=require, late=False):
-            await p.test_always(op, specs)
-        for p in plugin.get_sorted("validator", "tester", require=require, late=True):
-            await p.test_nolist(op, specs, old, new, perms)
-        # Enforced last so a forbidden / conflicting operation surfaces its own
-        # (more specific) error before a limit message.
-        limits.assert_within(usages)
-        # A write that changes nothing (no content change, no rename) is
-        # refused instead of being passed on: applying an empty patch still
-        # re-serializes the stored YAML, which must not become a commit.
-        # (/validate reports such a request as valid -- that is how a client
-        # asks for the schema of an entity it is about to edit.)
-        if (
-            raise_on_error
-            and op.operation == "edit"
-            and op.entity is not None
-            and op.entity.name == op.name
-            and not has_content_changes(op, old)
-        ):
-            raise RequestError("The request does not change anything")
-    except RequestError as error:
-        if raise_on_error:
-            raise error
+    if refusal is not None:
         if request.valid:
             request.valid = False
-            request.message = str(error)
+            request.message = str(refusal)
+        if isinstance(refusal, RequestForbidden):
+            # How much of a limit is used is derived from the stored
+            # entities of others: not for those the operation is refused to.
+            usages = []
 
     # An admin override (`force`, gated on "adm" above) skips exactly this
     # SCHEMA enforcement — everything before it (YAML syntax, name/request

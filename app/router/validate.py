@@ -46,17 +46,26 @@ async def validate_operation(
         # `validator.test_all`), not even its share of a limit.
         usages = []
         limit_error = None
+        incoming = None
         if validator.may_read(old, perms):
-            new_data, _ = validator.incoming_new_data(op, old)
+            incoming = validator.incoming_new_data(op, old)
             try:
-                usages = await limits.measure(rpo, op, s, old, new_data)
+                usages = await limits.measure(rpo, op, s, old, incoming[0])
             except RequestError as error:
                 # E.g. a limit referencing data the form has not filled in
                 # yet: a validation result like any other, not a failure.
                 limit_error = str(error)
 
     result = await validator.test_all(
-        op, s, old, new, perms, usages, raise_on_error=False, schema_on_read=True
+        op,
+        s,
+        old,
+        new,
+        perms,
+        usages,
+        raise_on_error=False,
+        schema_on_read=True,
+        incoming=incoming,
     )
     if limit_error is not None and result.request.valid:
         result.request.valid = False

@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import consts
 from app.version import VERSION
 from app.lib import action
+from app.lib import bodylimit
 from app.lib import repo
 from app.lib import docs
 from app.lib import hacks
@@ -180,6 +181,9 @@ yac = FastAPI(
     },
 )
 
+# Added first = innermost: its 413 gets the CORS headers of the middleware
+# below like every other answer.
+yac.add_middleware(bodylimit.BodyLimitMiddleware)
 yac.add_middleware(
     CORSMiddleware,
     allow_origins=specs.AUTH.cors.origins,

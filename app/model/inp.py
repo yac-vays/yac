@@ -24,6 +24,9 @@ QueryMsg = Annotated[
         ),
     ),
 ]
+# A YAML document in a request body, see `max_yaml_size` in app.config.
+Yaml = Annotated[str, Field(max_length=consts.ENV.max_yaml_size)]
+
 QuerySkip = Annotated[int, Query(ge=0)]
 QueryLimit = Annotated[int, Query(gt=0, le=10000)]
 QueryActions = Annotated[
@@ -84,7 +87,7 @@ class NewEntity(Entity):
     A new entity with raw YAML data.
     """
 
-    yaml: str
+    yaml: Yaml
 
 
 class ReplaceEntity(Entity):
@@ -95,8 +98,8 @@ class ReplaceEntity(Entity):
     old data in raw YAML.
     """
 
-    yaml_old: str
-    yaml_new: str
+    yaml_old: Yaml
+    yaml_new: Yaml
 
 
 class UpdateEntity(Entity):
@@ -123,8 +126,8 @@ class UpdateEntity(Entity):
     """
 
     data: dict
-    yaml_old: str | None = None
-    yaml_base: str | None = None
+    yaml_old: Yaml | None = None
+    yaml_base: Yaml | None = None
 
 
 class Operation(BaseModel):

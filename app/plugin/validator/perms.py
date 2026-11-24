@@ -53,6 +53,12 @@ class PermissionTester(IValidator):
             # plugin/json_schema/add_consts.py for keys the schema does not
             # define.
             has_changes = validator.has_content_changes(op, old)
+            # `perms` are the rights on the stored entity (for a rename
+            # evaluated for the old name alone, see lib.repo.get_entities).
+            # Checked before the documents are compared: no parsing for
+            # those who may not change the entity anyway.
+            if has_changes:
+                self.__assert_perm("edt", perms)
             if isinstance(op.entity, ReplaceEntity):
                 try:
                     if yaml.has_structural_changes(
@@ -70,10 +76,6 @@ class PermissionTester(IValidator):
                 raise RequestError("The entity has the wrong format for this operation")
 
             renamed = op.name != op.entity.name
-            # `perms` are the rights on the stored entity (for a rename
-            # evaluated for the old name alone, see lib.repo.get_entities).
-            if has_changes:
-                self.__assert_perm("edt", perms)
             if renamed:
                 self.__assert_perm("rnm", perms, "rename this entity")
                 # ... while the new name must be one the user may create.
