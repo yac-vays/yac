@@ -11,11 +11,17 @@ builtins like `host_in_ip4ranges` (see the regression guard below).
 """
 
 import functools
+import sys
 
 import pytest
 
 from app.lib import plugin
 from app.model.err import PluginError
+
+
+def _is_fn(obj) -> bool:
+    """Is `obj`, as a public member of this very module, a plugin function?"""
+    return plugin._is_plugin_function("member", obj, sys.modules[__name__])
 
 
 # ----- _is_plugin_function -----
@@ -27,9 +33,18 @@ def test_is_plugin_function_accepts_plain_and_async():
     async def coro():
         ...
 
-    assert plugin._is_plugin_function(plain) is True
-    assert plugin._is_plugin_function(coro) is True
-    assert plugin._is_plugin_function(lambda: None) is True
+    assert _is_fn(plain) is True
+    assert _is_fn(coro) is True
+    assert _is_fn(lambda: None) is True
+
+
+def test_get_functions_only_exposes_the_plugins_own_public_functions():
+    fns = plugin.get_functions("j2_functions")
+    assert "re_next_int" in fns and "uuid" in fns
+    assert "pass_context" not in fns  # imported by misc.py
+    tests = plugin.get_functions("j2_tests")
+    assert "alru_cache" not in tests
+    assert "_get_resolver" not in tests
 
 
 def test_is_plugin_function_accepts_cache_wrapped():
@@ -39,16 +54,16 @@ def test_is_plugin_function_accepts_cache_wrapped():
 
     # lru_cache returns a callable wrapper object, not a function; it must still
     # be recognised via its __wrapped__ attribute.
-    assert plugin._is_plugin_function(cached) is True
+    assert _is_fn(cached) is True
 
 
 def test_is_plugin_function_rejects_non_functions():
     class C:
         ...
 
-    assert plugin._is_plugin_function(C) is False        # a class is callable but not a fn
-    assert plugin._is_plugin_function(42) is False
-    assert plugin._is_plugin_function("x") is False
+    assert _is_fn(C) is False        # a class is callable but not a fn
+    assert _is_fn(42) is False
+    assert _is_fn("x") is False
 
 
 # ----- get_functions (regression: decorated builtins survive) -----
@@ -123,3 +138,12 @@ def test_get_sorted_required_defaults_runs_after_yac_optional():
     assert names.index("YacOptional") < names.index("RequiredDefaults")
     orders = {type(p).__name__: p.order()[1] for p in late}
     assert orders["YacOptional"] < orders["RequiredDefaults"]
+
+
+def test_is_plugin_function_rejects_private_and_imported():
+    def own():
+        ...
+
+    assert plugin._is_plugin_function("_own", own, sys.modules[__name__]) is False
+    assert _is_fn(functools.reduce) is False
+    assert _is_fn(pytest.raises) is False

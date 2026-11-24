@@ -27,57 +27,55 @@ def _kind_dir(kind: str) -> str:
     return f"{_PLUGIN_ROOT}/{kind}"
 
 
-def _is_plugin_function(obj: object) -> bool:
+def _is_plugin_function(name: str, obj: object, module: ModuleType) -> bool:
     """
-    A plugin member is usable as a j2 function/filter/test if it is a plain
-    (possibly async) function, or a function wrapped by a caching/decorator
-    that exposes the original via __wrapped__ (e.g. functools.lru_cache,
-    async_lru.alru_cache). The latter are callable wrapper objects that
-    inspect.isfunction rejects, which would otherwise silently drop decorated
-    builtins like host_in_ip4ranges.
+    Usable as a j2 function/filter/test or schema format: a public (possibly
+    async) function defined in the plugin module itself -- not one it merely
+    imports. Functions wrapped by a caching decorator that exposes the
+    original via __wrapped__ (functools.lru_cache, async_lru.alru_cache)
+    count as well.
     """
-    if isfunction(obj):
-        return True
-    return callable(obj) and isfunction(getattr(obj, "__wrapped__", None))
+    if name.startswith("_"):
+        return False
+    func = obj if isfunction(obj) else getattr(obj, "__wrapped__", None)
+    if not callable(obj) or not isfunction(func):
+        return False
+    return getattr(func, "__module__", None) == module.__name__
+
+
+def _plugin_files(kind: str) -> list[str]:
+    """The plugin files of a kind, in a stable (alphabetical) order."""
+    kind_dir = _kind_dir(kind)
+    try:
+        files = sorted(glob.glob(f"{kind_dir}/*.py"))
+    except OSError as error:
+        raise PluginError(f"Could not read {kind} plugin dir: {error}") from error
+    return [f for f in files if f != f"{kind_dir}/__init__.py"]
 
 
 @lru_cache(maxsize=None)
 def get_functions(kind: str) -> dict[str, FunctionType]:
     functions = {}
-    kind_dir = _kind_dir(kind)
-    try:
-        files = glob.glob(f"{kind_dir}/*.py")
-    except OSError as error:
-        raise PluginError(f"Could not read {kind} plugin dir: {error}") from error
-    for file in files:
-        if file == f"{kind_dir}/__init__.py":
-            continue
+    for file in _plugin_files(kind):
         logger.info(f"Loading plugin {file}")
         try:
             module = pydoc.importfile(file)
         except (pydoc.ErrorDuringImport, ImportError, OSError, SyntaxError) as error:
             raise PluginError(f"Could not import plugin {file}: {error}") from error
-        for function in getmembers(module, _is_plugin_function):
-            logger.debug(f"Loading function {function[0]} from plugin {file}")
-            functions.update({function[0]: getattr(module, function[0])})
+        for name, obj in getmembers(module):
+            if _is_plugin_function(name, obj, module):
+                logger.debug(f"Loading function {name} from plugin {file}")
+                functions[name] = obj
     return functions
 
 
 @lru_cache(maxsize=None)
 def _load_modules(kind: str) -> dict[str, ModuleType]:
     modules = {}
-    kind_dir = _kind_dir(kind)
-    try:
-        files = glob.glob(f"{kind_dir}/*.py")
-    except OSError as error:
-        raise PluginError(f"Could not read {kind} plugin dir: {error}") from error
-    for file in files:
-        if file == f"{kind_dir}/__init__.py":
-            continue
+    for file in _plugin_files(kind):
         logger.info(f"Loading plugin {file}")
         try:
-            module = pydoc.importfile(file)
-            modules.update({Path(file).stem: module})
+            modules[Path(file).stem] = pydoc.importfile(file)
         except (pydoc.ErrorDuringImport, ImportError, OSError, SyntaxError) as error:
             raise PluginError(f"Could not import plugin {file}: {error}") from error
     return modules
