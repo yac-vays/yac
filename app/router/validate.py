@@ -6,6 +6,7 @@ from app.lib import repo
 from app.lib import specs
 from app.lib import validator
 from app.lib.auth import CurrentUser
+from app.model.err import RequestError
 from app.model.err import http_responses
 from app.model.inp import Operation
 from app.model.inp import OperationRequest
@@ -43,14 +44,23 @@ async def validate_operation(
         rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
+        # Nothing derived from an entity the user may not read (see
+        # `validator.test_all`), not even its share of a limit.
+        usages = []
+        limit_error = None
         if validator.may_read(old, perms):
             new_data, _ = validator.incoming_new_data(op, old)
-            usages = await limits.measure(hash, rpo, op, s, old, new_data)
-        else:
-            # Nothing derived from an entity the user may not read (see
-            # `validator.test_all`), not even its share of a limit.
-            usages = []
+            try:
+                usages = await limits.measure(hash, rpo, op, s, old, new_data)
+            except RequestError as error:
+                # E.g. a limit referencing data the form has not filled in
+                # yet: a validation result like any other, not a failure.
+                limit_error = str(error)
 
-    return await validator.test_all(
+    result = await validator.test_all(
         op, s, old, new, perms, usages, raise_on_error=False, schema_on_read=True
     )
+    if limit_error is not None and result.request.valid:
+        result.request.valid = False
+        result.request.message = limit_error
+    return result
