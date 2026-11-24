@@ -174,6 +174,8 @@ def test():
         ('1.0', 1.0), ('1e3', 1000.0), ('1.5e-3', 0.0015), ('.5', 0.5),
         ('5.', 5.0), ('1_000.5', 1000.5), ('1:2.5', '1:2.5'),
         ('-.inf', float('-inf')),
+        # ruamel quirks the fast loader mirrors.
+        ('.5e3', '.5e3'), ('.5e+3', 500.0), ('-_1', -1), ('_1', '_1'),
         # unchanged across versions (sanity).
         ('null', None), ('~', None), ('hello', 'hello'),
     ]
@@ -191,9 +193,8 @@ def test_duplicate_keys_strict_raises_nonstrict_tolerates():
         assert False, 'strict load should reject duplicate keys'
     except yaml.YAMLError:
         pass
-    # Non-strict tolerates the duplicate (logs a warning) and still yields the key.
-    out = yaml.load_as_dict(dup, strict=False)
-    assert out.get('a') in (1, 2)
+    # Non-strict tolerates the duplicate (logs a warning): the first value wins.
+    assert yaml.load_as_dict(dup, strict=False) == {'a': 1}
 
 
 def test_load_as_dict_non_mapping_top_level_is_empty():

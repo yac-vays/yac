@@ -122,13 +122,12 @@ def _load(yaml: str, *, strict: bool = True) -> YAMLObject | None:
     if strict:
         return y.load(yaml)
 
-    # Non-strict: probe with allow_duplicate_keys=False so ruamel surfaces a
-    # DuplicateKeyError, log a warning, then accept the duplicate (last-wins).
+    # Non-strict: duplicate keys only warn; ruamel then keeps the FIRST value.
     try:
         return y.load(yaml)
     except ruamel.yaml.constructor.DuplicateKeyError as error:
         logger.warning(
-            f"Duplicate YAML key in non-strict load (last value wins): {error}"
+            f"Duplicate YAML key in non-strict load (first value wins): {error}"
         )
         return y_non_strict.load(yaml)
 
@@ -221,14 +220,15 @@ _FastLoader.add_implicit_resolver(
 )
 _FastLoader.add_implicit_resolver(
     "tag:yaml.org,2002:int",
-    re.compile(r"^[-+]?(?:0x[0-9a-fA-F_]+|0o[0-7_]+|0b[0-1_]+|[0-9][0-9_]*)$"),
+    re.compile(r"^[-+]?(?:0x[0-9a-fA-F_]+|0o[0-7_]+|0b[0-1_]+|[0-9_]+)$"),
     list("-+0123456789"),
 )
 _FastLoader.add_implicit_resolver(
     "tag:yaml.org,2002:float",
     re.compile(
         r"""^(?:
-            [-+]?(?:\.[0-9_]+|[0-9][0-9_]*\.[0-9_]*|[0-9][0-9_]*)[eE][-+]?[0-9]+  # exponent (dot optional)
+            [-+]?(?:[0-9][0-9_]*\.[0-9_]*|[0-9][0-9_]*)[eE][-+]?[0-9]+  # exponent (dot optional)
+          | [-+]?\.[0-9_]+[eE][-+][0-9]+                               # leading dot: signed exponent
           | [-+]?(?:\.[0-9_]+|[0-9][0-9_]*\.[0-9_]*)                              # dot, no exponent
           | [-+]?\.(?:inf|Inf|INF)
           | \.(?:nan|NaN|NAN)
