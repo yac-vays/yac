@@ -125,3 +125,14 @@ def test_get_limits_base_includes_context_no_entity_fields():
     assert d["context"] == {"c": 1} and d["operation"] == "create"
     # the per-entity `old`/`new`/`name` keys are added by the caller, not here
     assert "old" not in d and "new" not in d and "name" not in d
+
+
+def test_request_header_spec_shapes():
+    import pytest
+    from pydantic import ValidationError
+
+    # `name:` without a body means all defaults
+    spec = Request.model_validate({"headers": {"tenant": None}})
+    assert props.get_action(_op(headers={"yac-tenant": "x"}), spec)["request"]["headers"] == {"tenant": ""}
+    with pytest.raises(ValidationError, match="invalid regular expression"):
+        Request.model_validate({"headers": {"tenant": {"pattern": "("}}})

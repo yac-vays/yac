@@ -1,14 +1,37 @@
-from typing import Literal
+import re
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Annotated
 from pydantic.config import Extra  # pylint: disable=no-name-in-module
 
 from app.model import out
 
 
+class RequestHeader(BaseModel):
+    pattern: str = "^$"
+    default: Any = ""
+
+    @field_validator("pattern")
+    @classmethod
+    def _valid_pattern(cls, value: str) -> str:
+        try:
+            re.compile(value)
+        except re.error as error:
+            raise ValueError(f"invalid regular expression: {error}") from error
+        return value
+
+
 class Request(BaseModel):
-    headers: dict = {}
+    headers: dict[str, RequestHeader] = {}
+
+    @field_validator("headers", mode="before")
+    @classmethod
+    def _empty_specs(cls, value: Any) -> Any:
+        # `my_header:` without a body means all defaults
+        if isinstance(value, dict):
+            return {k: {} if v is None else v for k, v in value.items()}
+        return value
 
 
 class AuthOIDCJWT(BaseModel):

@@ -1230,3 +1230,12 @@ async def test_patch_resending_stored_values_changes_nothing(
     resp = await client.post("/validate", json=_validate_body({"owner": "alice"}))
     assert resp.status_code == 200, resp.text
     assert resp.json()["request"]["valid"] is True
+
+
+async def test_specs_without_types_do_not_crash(monkeypatch, client, login):
+    raw = copy.deepcopy(RAW_SPECS)
+    raw["types"] = None
+    monkeypatch.setattr(specs_lib, "_RAW_DATA", raw)
+    login("alice")
+    resp = await client.get("/entity/host")
+    assert resp.status_code < 500, resp.text
