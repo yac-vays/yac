@@ -1,5 +1,5 @@
 """
-Raises: [app.lib.yaml.YAMLError, app.model.err.RequestConflict]
+Raises: [app.lib.yaml.YAMLError]
 """
 
 import io
@@ -13,8 +13,6 @@ import ruamel.yaml.comments
 import ruamel.yaml.tokens
 from ruamel.yaml.scalarbool import ScalarBoolean
 import yaml as _pyyaml
-
-from app.model.err import RequestConflict
 
 logger = logging.getLogger(__name__)
 
@@ -327,12 +325,22 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def _data_equal(a: Any, b: Any) -> bool:
+def _data_equal(a: Any, b: Any, *, json_numbers: bool = False) -> bool:
+    """
+    With `json_numbers`, `1` equals `1.0` (JSON clients cannot tell them
+    apart); bools never equal numbers.
+    """
     if isinstance(a, dict) and isinstance(b, dict):
-        return a.keys() == b.keys() and all(_data_equal(a[k], b[k]) for k in a)
+        return a.keys() == b.keys() and all(
+            _data_equal(a[k], b[k], json_numbers=json_numbers) for k in a
+        )
     if isinstance(a, list) and isinstance(b, list):
-        return len(a) == len(b) and all(map(_data_equal, a, b))
+        return len(a) == len(b) and all(
+            _data_equal(x, y, json_numbers=json_numbers) for x, y in zip(a, b)
+        )
     pa, pb = _plain(a), _plain(b)
+    if json_numbers and {type(pa), type(pb)} == {int, float}:
+        return pa == pb
     return type(pa) is type(pb) and pa == pb
 
 
@@ -457,40 +465,37 @@ def update(yaml: str, diff: dict) -> str:
 
     Objects will be integrated, so only supplying one key means you only modify
     this one key (and not replace the whole object). Lists and base types on
-    the other hand are completely replaced.
+    the other hand are completely replaced -- unless their data is unchanged,
+    then the stored node is kept (with its comments and style).
 
     The string "~undefined" will unset the whole object-key / list-item.
     """
-    d = load(yaml)
+    return dump(__deep_update(load(yaml), diff))
 
-    try:
-        d = __deep_update(d, diff)
-    except KeyError as error:
-        raise RequestConflict("The key to be set undefined does not exist") from error
 
-    return dump(d)
+UNSET = "~undefined"
+
+
+def __without_unset(value: Any) -> Any:
+    """A copy of the patch value with all unset markers dropped."""
+    if isinstance(value, dict):
+        return {k: __without_unset(v) for k, v in value.items() if v != UNSET}
+    if isinstance(value, list):
+        return [__without_unset(v) for v in value if v != UNSET]
+    return value
 
 
 def __deep_update(data: Any, diff: Any) -> Any:
-    if isinstance(diff, dict):
-        if not isinstance(data, dict):
-            data = {}
-        for key in list(diff.keys()):
-            if diff[key] == "~undefined":
-                # Unset the key. If it is not present in the stored data there
-                # is nothing to unset, so skip it entirely -- otherwise the
-                # literal string "~undefined" would be written as the value
-                # (e.g. for schema-defaulted fields that never got persisted).
-                if key in data:
-                    data.pop(key)
-            else:
-                data[key] = __deep_update(data.get(key, diff[key]), diff[key])
-    elif isinstance(diff, list):
-        data = []
-        for item in diff:
-            if item != "~undefined":
-                data.append(__deep_update(item, item))
-    else:
-        if data != diff:
-            data = diff
+    if not isinstance(diff, dict):
+        new = __without_unset(diff)
+        return data if _data_equal(data, new, json_numbers=True) else new
+    if not isinstance(data, dict):
+        data = {}
+    for key, value in diff.items():
+        if value == UNSET:
+            data.pop(key, None)
+        elif key in data:
+            data[key] = __deep_update(data[key], value)
+        else:
+            data[key] = __without_unset(value)
     return data
