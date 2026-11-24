@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from fastapi import Request
+from fastapi import Response
 from fastapi import status
 
 from app.lib import action
@@ -27,6 +28,7 @@ router = APIRouter()
 )
 async def delete_entity(
     request: Request,
+    response: Response,
     user: CurrentUser,
     type_name: PathType,
     entity_name: PathName,
@@ -67,4 +69,4 @@ async def delete_entity(
         # delete never acts on stale authorization.
         await rpo.delete(type_name, op.name or "", old.yaml or "", CommitMsg(body=msg))
 
-    await action.run(TypeActionHook.DELETE_AFTER, op, s)
+    await action.run_after(TypeActionHook.DELETE_AFTER, op, s, response)

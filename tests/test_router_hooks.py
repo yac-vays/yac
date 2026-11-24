@@ -67,3 +67,66 @@ async def test_copy_hook_gets_source_as_old_name(client, login, hooks):  # noqa:
     after = hooks.props[-1]
     assert after["old"]["name"] == "web01"
     assert after["name"] == "web09"
+
+
+class _Failing:
+    def __init__(self, error):
+        self.error = error
+
+    async def run(self, *, details, props):
+        if props["operation"] in ("create", "edit", "delete"):
+            raise self.error
+
+
+@pytest.mark.parametrize("client_error", [False, True])
+async def test_failing_after_hook_still_reports_the_write(
+    client, login, hooks, repo_session, monkeypatch, client_error  # noqa: F811
+):
+    from app.model.err import ActionClientError, ActionError
+
+    specs_lib._RAW_DATA["types"][0]["actions"][0]["hooks"] = [
+        "create:after",
+        "edit:after",
+        "delete:after",
+    ]
+    error = ActionClientError("bad\ninput") if client_error else ActionError("boom")
+    monkeypatch.setattr(
+        plugin.get_module("action", "exec"), "action", _Failing(error)
+    )
+    login("alice")
+
+    r = await client.post("/entity/host", json={"name": "web09", "yaml": "owner: a\n"})
+    assert r.status_code == 201, r.text
+    assert r.json()["name"] == "web09"
+    warning = r.headers["YAC-Warning"]
+    assert warning.startswith("Action notify failed")
+    # only client errors carry their message
+    assert ("bad input" in warning) is client_error
+    assert "boom" not in warning
+    assert "web09" in repo_session.files
+
+    r = await client.put(
+        "/entity/host/web09",
+        json={"name": "web09", "yaml_old": "owner: a\n", "yaml_new": "owner: b\n"},
+    )
+    assert r.status_code == 200, r.text
+    assert "YAC-Warning" in r.headers
+
+    r = await client.delete("/entity/host/web09")
+    assert r.status_code == 204, r.text
+    assert "YAC-Warning" in r.headers
+    assert "web09" not in repo_session.files
+
+
+def test_warning_header_is_exposed_to_browsers():
+    from app.main import yac
+
+    cors = next(m for m in yac.user_middleware if m.cls.__name__ == "CORSMiddleware")
+    assert "YAC-Warning" in cors.kwargs["expose_headers"]
+
+
+async def test_successful_write_has_no_warning(client, login, hooks):  # noqa: F811
+    login("alice")
+    r = await client.post("/entity/host", json={"name": "web10", "yaml": "owner: a\n"})
+    assert r.status_code == 201
+    assert "YAC-Warning" not in r.headers

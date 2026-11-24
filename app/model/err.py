@@ -46,6 +46,8 @@ class PluginError(YACError):
 class ActionError(YACError):
     code = 500
     title = "Action could not be executed"
+    # Name of the failed action (set by `lib.action.run`).
+    action_name: str | None = None
 
 
 class LogError(YACError):

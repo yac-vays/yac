@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from fastapi import Request
+from fastapi import Response
 
 from app.lib import action
 from app.lib import limits
@@ -32,6 +33,7 @@ router = APIRouter()
 )
 async def update_entity(
     request: Request,
+    response: Response,
     user: CurrentUser,
     type_name: PathType,
     entity_name: PathName,
@@ -99,7 +101,7 @@ async def update_entity(
                 commit,
             )
 
-    await action.run(TypeActionHook.EDIT_AFTER, op, s)
+    await action.run_after(TypeActionHook.EDIT_AFTER, op, s, response)
 
     return diff
 
@@ -111,6 +113,7 @@ async def update_entity(
 )
 async def change_entity(
     request: Request,
+    response: Response,
     user: CurrentUser,
     type_name: PathType,
     entity_name: PathName,
@@ -182,6 +185,6 @@ async def change_entity(
                 CommitMsg(body=msg),
             )
 
-    await action.run(TypeActionHook.EDIT_AFTER, op, s)
+    await action.run_after(TypeActionHook.EDIT_AFTER, op, s, response)
 
     return diff

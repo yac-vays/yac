@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import consts
 from app.version import VERSION
+from app.lib import action
 from app.lib import repo
 from app.lib import docs
 from app.lib import hacks
@@ -179,8 +180,9 @@ yac.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    # Lets browsers read the stale-data headers (see app.lib.staleness).
-    expose_headers=staleness.EXPOSED_HEADERS,
+    # Lets browsers read the stale-data headers (see app.lib.staleness) and
+    # the warning of a failed after-action.
+    expose_headers=[*staleness.EXPOSED_HEADERS, action.WARNING_HEADER],
 )
 # Flags responses served from the last known state while the remote data
 # repository is unavailable.

@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from fastapi import Request
+from fastapi import Response
 from fastapi import status
 
 from app.lib import action
@@ -33,6 +34,7 @@ router = APIRouter()
 )
 async def add_entity(
     request: Request,
+    response: Response,
     user: CurrentUser,
     type_name: PathType,
     entity: NewEntity | CopyEntity | LinkEntity,
@@ -110,6 +112,6 @@ async def add_entity(
     op = op.model_copy(
         update={"entity": op.entity.model_copy(update={"name": name})}
     )
-    await action.run(TypeActionHook.CREATE_AFTER, op, s)
+    await action.run_after(TypeActionHook.CREATE_AFTER, op, s, response)
 
     return diff
