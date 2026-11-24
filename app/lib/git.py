@@ -242,13 +242,8 @@ class Repo:
         await self.__run_remote("push", timeout=timeout)
 
     async def is_dirty(self) -> bool:
-        try:
-            status = await self.__run("status", "--short", timeout=3)
-            if len(status) == 0:
-                return False
-        except GitError:
-            return True
-        return True
+        """Whether the working tree has uncommitted or untracked changes."""
+        return bool(await self.__run("status", "--short", timeout=3))
 
     async def reset(self, branch: str, *, hard: bool = True) -> None:
         args = ["reset", branch]

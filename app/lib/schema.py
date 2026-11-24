@@ -307,86 +307,61 @@ async def handle_schema(
         raise SchemaSpecsError(f"{loc} is not a schema (object or bool)")
 
     cx = context
-    json = json_schema.copy()
+    json: Any = json_schema.copy()
     ui = ui_schema.copy()
     p = prop.copy()
 
-    # pre_order plugins
+    async def run_plugins(late: bool) -> bool:
+        """Whether a plugin replaced the schema by a bool or removed it."""
+        nonlocal json, ui, cx
+        when = "Late" if late else "Early"
+        for kind in ("json_schema", "ui_schema"):
+            for plug in plugin.get_sorted(kind, "processor", late=late):
+                logger.debug(
+                    f"{when} {kind} plugin {plug.__class__.__name__} processing"
+                    f" schema at {loc}"
+                )
+                if kind == "json_schema":
+                    json, cx = await plug.process(loc, json, cx, p)
+                else:
+                    json, ui = await plug.process(loc, json, ui, p)
+                if isinstance(json, bool) or json is None:
+                    return True
+        return False
 
-    for plug in plugin.get_sorted("json_schema", "processor", late=False):
-        logger.debug(
-            f"Early json_schema plugin {plug.__class__.__name__} processing schema at"
-            f" {loc}"
-        )
-        json, cx = await plug.process(loc, json, cx, p)
-        if isinstance(json, bool) or json is None:
-            return json, ui, cx
+    async def visit(sub_loc: str, sub: Any) -> dict | bool | None:
+        nonlocal ui, cx
+        sub, ui, cx = await handle_schema(sub_loc, sub, ui, cx, p)
+        return sub
 
-    for plug in plugin.get_sorted("ui_schema", "processor", late=False):
-        logger.debug(
-            f"Early ui_schema plugin {plug.__class__.__name__} processing schema at"
-            f" {loc}"
-        )
-        json, ui = await plug.process(loc, json, ui, p)
-        if isinstance(json, bool) or json is None:
-            return json, ui, cx
-
-    # subschemas
+    if await run_plugins(late=False):
+        return json, ui, cx
 
     for k in SUBSCHEMAS:
         if k in json:
-            s, ui, cx = await handle_schema(f"{loc}/{k}", json[k], ui, cx, p)
-            if s is None:
+            sub = await visit(f"{loc}/{k}", json[k])
+            if sub is None:
                 json.pop(k)
             else:
-                json[k] = s
-
-    # objects of subschemas
+                json[k] = sub
 
     for k in SUBSCHEMA_OBJECTS:
         if k in json:
             if not isinstance(json[k], dict):
                 raise SchemaSpecsError(f"{loc}/{k} is not an object (of schemas)")
             for key in list(json[k].keys()):
-                s, ui, cx = await handle_schema(
-                    f"{loc}/{k}/{key}", json[k][key], ui, cx, p
-                )
-                if s is None:
+                sub = await visit(f"{loc}/{k}/{key}", json[k][key])
+                if sub is None:
                     json[k].pop(key)
                 else:
-                    json[k][key] = s
-
-    # arrays of subschemas
+                    json[k][key] = sub
 
     for k in SUBSCHEMA_ARRAYS:
         if k in json:
             if not isinstance(json[k], list):
                 raise SchemaSpecsError(f"{loc}/{k} is not an array (of schemas)")
-            new_array = []
-            for i, val in enumerate(json[k]):
-                s, ui, cx = await handle_schema(f"{loc}/{k}/{str(i)}", val, ui, cx, p)
-                if s is not None:
-                    new_array.append(s)
-            json[k] = new_array
+            subs = [await visit(f"{loc}/{k}/{i}", val) for i, val in enumerate(json[k])]
+            json[k] = [sub for sub in subs if sub is not None]
 
-    # post_order plugins
-
-    for plug in plugin.get_sorted("json_schema", "processor", late=True):
-        logger.debug(
-            f"Late json_schema plugin {plug.__class__.__name__} processing schema at"
-            f" {loc}"
-        )
-        json, cx = await plug.process(loc, json, cx, p)
-        if isinstance(json, bool) or json is None:
-            return json, ui, cx
-
-    for plug in plugin.get_sorted("ui_schema", "processor", late=True):
-        logger.debug(
-            f"Late ui_schema plugin {plug.__class__.__name__} processing schema at"
-            f" {loc}"
-        )
-        json, ui = await plug.process(loc, json, ui, p)
-        if isinstance(json, bool) or json is None:
-            return json, ui, cx
-
+    await run_plugins(late=True)
     return json, ui, cx

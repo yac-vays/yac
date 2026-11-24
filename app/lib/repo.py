@@ -2,7 +2,9 @@
 Raises: [app.model.err.RepoError, app.model.err.RepoSpecsError]
 """
 
+import copy
 import re
+from functools import lru_cache
 
 from app import consts
 from app.lib import j2
@@ -31,19 +33,14 @@ repo_plugin = plugin.get_module("repo", _specs.get_repo_plugin())
 handler: IRepo = repo_plugin.handler
 
 
-@keyed_alru_cache(
-    key_fn=lambda yaml_text: yaml_text,
-    maxsize=10000,
-    # Parsed dicts are mutable and handed to many callers (entities embed
-    # them, `load_data*` returns them directly); hand each caller its own
-    # deep copy so concurrent requests cannot corrupt the cache.
-    copy_result=True,
-)
-async def _parse_yaml_dict_cached(yaml_text: str) -> dict:
+@lru_cache(maxsize=10000)
+def _parse_yaml_dict(yaml_text: str) -> dict:
     """
     Content-keyed YAML->dict cache. Lives outside `__lookup_entities`
     (which is keyed on the repo hash) so commits do not force a re-parse
     of entities whose YAML content has not changed.
+
+    The result is shared: callers must copy it before handing it out.
     """
     return yaml.load_as_dict_fast(yaml_text)
 
@@ -90,7 +87,8 @@ async def __lookup_entities(
 
     if old.yaml is not None:
         try:
-            old.data = await _parse_yaml_dict_cached(old.yaml)
+            # Copied with the entity (`copy_result` above).
+            old.data = _parse_yaml_dict(old.yaml)
         except yaml.YAMLError as error:
             raise RepoError(
                 f"Failed to parse YAML of {type_name} {old.name}: {error}"
@@ -113,7 +111,7 @@ async def load_data(rpo: IRepoSession, type_name: str, name: str) -> dict:
     if not yaml_text:
         return {}
     try:
-        return await _parse_yaml_dict_cached(yaml_text)
+        return copy.deepcopy(_parse_yaml_dict(yaml_text))
     except yaml.YAMLError:
         return {}
 
@@ -134,7 +132,7 @@ async def load_data_resolved(
     if not yaml_text:
         return {}, link_target
     try:
-        return await _parse_yaml_dict_cached(yaml_text), link_target
+        return copy.deepcopy(_parse_yaml_dict(yaml_text)), link_target
     except yaml.YAMLError:
         return {}, link_target
 
