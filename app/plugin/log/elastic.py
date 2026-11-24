@@ -73,7 +73,8 @@ class ElasticLog(ILog):
                     json={"query": d.get("query", "")},
                 )
             logs.raise_for_status()
-        except (httpx.HTTPError, httpx.InvalidURL, TypeError) as error:
+        # OSError: e.g. `ssl_verify` names a CA file that cannot be loaded
+        except (httpx.HTTPError, httpx.InvalidURL, TypeError, OSError) as error:
             raise LogError(
                 "Could not run elastic log eql query: "
                 f"{type(error).__name__}: {error}"

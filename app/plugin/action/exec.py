@@ -35,16 +35,20 @@ Details:
            be printed to the user. (All other return codes will lead to a server-side error.)
            type: list[int]
            default: []
-  timeout: Seconds after which the process is killed (leading to a
-           server-side error).
+  timeout: Seconds after which the process (with its process group) is
+           killed (leading to a server-side error); 0 for no timeout.
            type: int
-           default: 0 -> no timeout
+           default: 60
+
+Of the output (stdout and stderr), at most 1 MiB is kept.
 """
 
+from asyncio.subprocess import Process
 import asyncio
 import json
 import os
 import re
+import signal
 
 from app.lib import j2
 from app.model.err import ActionClientError
@@ -53,6 +57,45 @@ from app.model.err import ActionSpecsError
 from app.model.plg import IAction
 
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+DEFAULT_TIMEOUT = 60
+# The output is only used for error messages.
+MAX_OUTPUT_BYTES = 1024 * 1024
+
+
+async def _communicate(proc: Process, stdin: bytes | None) -> bytes:
+    """
+    Like `proc.communicate`, but only the first MAX_OUTPUT_BYTES of the
+    output are kept (the rest is still read, so the process is not blocked).
+    """
+
+    async def feed() -> None:
+        if stdin is None:
+            return
+        try:
+            proc.stdin.write(stdin)
+            await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the process does not read (all of) it
+        proc.stdin.close()
+
+    async def read() -> bytes:
+        output = bytearray()
+        while chunk := await proc.stdout.read(65536):
+            output += chunk[: MAX_OUTPUT_BYTES - len(output)]
+        return bytes(output)
+
+    output, _ = await asyncio.gather(read(), feed())
+    await proc.wait()
+    return output
+
+
+async def _kill(proc: Process) -> None:
+    """Kill the process and whatever it started, and reap it."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    await asyncio.shield(proc.wait())
 
 
 def _as_str(value, loc: str) -> str:
@@ -97,21 +140,27 @@ class ExecAction(IAction):
                 ),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                # Own process group: its children can then be killed with it.
+                start_new_session=True,
             )
         except (OSError, ValueError) as error:
             raise ActionError(f"Could not execute {argv[0]}: {error}") from error
 
-        timeout = d.get("timeout", 0)
+        timeout = d.get("timeout", DEFAULT_TIMEOUT)
         try:
             async with asyncio.timeout(timeout if timeout else None):
-                stdout, _ = await proc.communicate(input=stdin)
+                stdout = await _communicate(proc, stdin)
         except TimeoutError as error:
-            proc.kill()
-            await proc.wait()
+            await _kill(proc)
             raise ActionError(
                 f"{argv[0]} was killed after the timeout of {timeout}s"
             ) from error
+        except asyncio.CancelledError:
+            # The request is gone: nothing is to keep running for it.
+            await _kill(proc)
+            raise
         except Exception as error:
+            await _kill(proc)
             raise ActionError(f"Command failed with: {error}") from error
 
         if proc.returncode in d.get("success", [0]):

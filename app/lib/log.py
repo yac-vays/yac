@@ -92,7 +92,9 @@ async def get(
 ) -> List[out.Log]:
     """
     The entries of all logs of the entity (`data` is its data, available to the
-    details as `old.data`). A failing log is left out.
+    details as `old.data`). A failing log is left out, also for a specs error:
+    whether a template renders can depend on the record the log source sent,
+    which must not take the other logs down with it.
     """
     log_props = props.get_log(op, specs.request, data)
 
@@ -106,8 +108,8 @@ async def get(
                 details=log_spec.details,
                 props=log_props,
             )
-        except LogError as error:
-            logger.error(str(error))
+        except (LogError, LogSpecsError) as error:
+            logger.error(f'Log "{log_spec.name}" left out: {error}')
             return []
 
     results = await asyncio.gather(*(_fetch(s) for s in log_specs))

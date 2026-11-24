@@ -65,10 +65,14 @@ Details:
                           default: ""
               type: dict
               default: unset (no content)
+
+A response larger than 1 MiB (16 MiB for a content document) is an error.
 """
 
-import logging
+from dataclasses import dataclass
 from time import monotonic
+import json
+import logging
 
 import httpx
 
@@ -84,6 +88,27 @@ logger = logging.getLogger(__name__)
 
 # Request details that `content` inherits from the main request
 _REQUEST_KEYS = ("url", "headers", "empty_on", "ssl_verify", "timeout")
+# Limits for the (decoded) response body: the log source is not to exhaust
+# the memory, and the entries are polled.
+MAX_BODY_BYTES = 1024 * 1024
+MAX_CONTENT_BYTES = 16 * 1024 * 1024
+
+
+@dataclass
+class _Response:
+    """What is used of a response, its body read up to the limit."""
+
+    status_code: int
+    headers: dict
+    content: bytes
+    encoding: str
+
+    @property
+    def text(self) -> str:
+        return self.content.decode(self.encoding, errors="replace")
+
+    def json(self):
+        return json.loads(self.content)
 
 
 class HttpLog(ILog):
@@ -96,7 +121,7 @@ class HttpLog(ILog):
     ) -> list[out.Log]:
         d = await self.__render_details(details, props)
 
-        response = await self.__fetch(d)
+        response = await self.__fetch(d, MAX_BODY_BYTES)
         if response is None:
             return []
         records = self.__records(d, response)
@@ -133,7 +158,7 @@ class HttpLog(ILog):
         request = {k: d[k] for k in _REQUEST_KEYS if k in d}
         request |= {"method": "GET", "response": "text"} | c
 
-        response = await self.__fetch(request)
+        response = await self.__fetch(request, MAX_CONTENT_BYTES)
         if response is None:
             raise LogContentNotFound(f'Log "{facility}" has no content (yet)')
         if request.get("response") == "text":
@@ -173,12 +198,12 @@ class HttpLog(ILog):
             )
         return d
 
-    def __records(self, d: dict, response: httpx.Response) -> list:
+    def __records(self, d: dict, response: _Response) -> list:
         if d.get("response", "json") == "text":
             return [
                 {
                     "status": response.status_code,
-                    "headers": {k.lower(): v for k, v in response.headers.items()},
+                    "headers": response.headers,
                     "body": response.text,
                 }
             ]
@@ -197,9 +222,10 @@ class HttpLog(ILog):
             records = []
         return records
 
-    async def __fetch(self, d: dict) -> httpx.Response | None:
+    async def __fetch(self, d: dict, max_bytes: int) -> _Response | None:
         """
-        The response, or None if its status is one of `empty_on`.
+        The response (LogError if its body is larger than `max_bytes`), or
+        None if its status is one of `empty_on`.
         """
         headers = d.get("headers", {}) or {}
         empty_on = d.get("empty_on", []) or []
@@ -214,16 +240,29 @@ class HttpLog(ILog):
                     headers={"Accept": accept, **headers},
                     verify=d.get("ssl_verify", True),
                     timeout=d.get("timeout", 5),
-                ) as client:
-                    response = await client.request(
-                        method=d.get("method", "GET"),
-                        url=d.get("url", ""),
+                ) as client, client.stream(
+                    method=d.get("method", "GET"),
+                    url=d.get("url", ""),
+                ) as response:
+                    if response.status_code in empty_on:
+                        return None
+                    response.raise_for_status()
+                    content = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        content += chunk
+                        if len(content) > max_bytes:
+                            raise LogError(
+                                "Could not fetch logs over http: response is"
+                                f" larger than {max_bytes} bytes"
+                            )
+                    return _Response(
+                        status_code=response.status_code,
+                        headers={k.lower(): v for k, v in response.headers.items()},
+                        content=bytes(content),
+                        encoding=response.encoding or "utf-8",
                     )
-                if response.status_code in empty_on:
-                    return None
-                response.raise_for_status()
-                return response
-            except (httpx.InvalidURL, TypeError) as error:
+            # OSError: e.g. `ssl_verify` names a CA file that cannot be loaded
+            except (httpx.InvalidURL, TypeError, OSError) as error:
                 raise LogError(f"Could not fetch logs over http: {error}") from error
             except httpx.HTTPError as error:
                 # Timeouts stringify to "", so always name the exception type.

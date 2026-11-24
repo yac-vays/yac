@@ -28,6 +28,8 @@ Details:
               be shown to the user. (All other status codes will lead to a server-side error.)
               type: list[int]
               default: []
+
+Of the response body, at most 1 MiB is read.
 """
 
 import json
@@ -39,6 +41,10 @@ from app.model.err import ActionClientError
 from app.model.err import ActionError
 from app.model.err import ActionSpecsError
 from app.model.plg import IAction
+
+
+# The response body is only used for error messages.
+MAX_BODY_BYTES = 1024 * 1024
 
 
 def _as_str(value: object, loc: str) -> str:
@@ -85,26 +91,33 @@ class HttpAction(IAction):
                 headers=headers,
                 verify=d.get("ssl_verify", True),
                 timeout=d.get("timeout", 5),
-            ) as client:
-                response = await client.request(
-                    method=d.get("method", "GET"),
-                    url=d.get("url", ""),
-                    content=body,
-                )
-        except (httpx.HTTPError, httpx.InvalidURL, TypeError) as error:
+            ) as client, client.stream(
+                method=d.get("method", "GET"),
+                url=d.get("url", ""),
+                content=body,
+            ) as response:
+                status = response.status_code
+                answer = bytearray()
+                async for chunk in response.aiter_bytes():
+                    answer += chunk
+                    if len(answer) >= MAX_BODY_BYTES:
+                        break
+        # OSError: e.g. `ssl_verify` names a CA file that cannot be loaded
+        except (httpx.HTTPError, httpx.InvalidURL, TypeError, OSError) as error:
             raise ActionError(
                 f"Could not run HTTP request: {type(error).__name__}: {error}"
             ) from error
 
-        if response.status_code in d.get(
+        if status in d.get(
             "success", [200, 201, 202, 203, 204, 205, 206, 207, 208, 226]
         ):
             return
 
-        if response.status_code in d.get("error", []):
-            raise ActionClientError(response.content.decode("utf-8", errors="replace"))
+        message = answer[:MAX_BODY_BYTES].decode("utf-8", errors="replace")
+        if status in d.get("error", []):
+            raise ActionClientError(message)
 
-        raise ActionError(response.content.decode("utf-8", errors="replace"))
+        raise ActionError(message)
 
 
 action = HttpAction()

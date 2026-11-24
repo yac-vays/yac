@@ -19,7 +19,8 @@ They may raise the following exceptions:
     app.model.err.LogError            # skip log type for this entity (get) /
                                       # content could not be fetched (content)
     app.model.err.LogContentNotFound  # there is no content (content)
-    app.model.err.LogSpecsError       # config error in the specs
+    app.model.err.LogSpecsError       # config error in the specs (get: the
+                                      # log is skipped as well)
 
 Which UI renderer shows a log (`renderer` in the specs) is independent of the
 plugin; see the VAYS docs for the renderers.

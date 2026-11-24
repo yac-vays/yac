@@ -5,6 +5,8 @@ URL/headers are j2-rendered from props, the response list is parsed, and
 time/message/problem/progress are rendered per-record with the record as `log`.
 """
 
+from contextlib import asynccontextmanager
+import json
 import types
 
 import httpx
@@ -31,11 +33,17 @@ PROPS = {"name": "node1.example.com", "env": {"token": "SEKRET"}}
 
 
 class _FakeResp:
+    encoding = "utf-8"
+
     def __init__(self, data=None, status=200, text="", headers=None):
         self._data = data
         self.status_code = status
         self.text = text
         self.headers = headers or {}
+
+    async def aiter_bytes(self):
+        body = self.text if self._data is None else json.dumps(self._data)
+        yield body.encode()
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -68,6 +76,11 @@ class _FakeClient:
         )
         _FakeClient.calls.append(_FakeClient.last)
         return _FakeResp(DATA)
+
+    @asynccontextmanager
+    async def stream(self, method, url):
+        # The plugin streams the body (size limit); the tests patch `request`.
+        yield await self.request(method, url)
 
 
 @pytest.fixture
