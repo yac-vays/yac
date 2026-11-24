@@ -95,9 +95,6 @@ class IUiSchema(ISortable):
         (when walking back up the schema tree = true) or pre order (when
         walking down the schema tree = false). The integer indicates the order
         number (lower number run earlier).
-
-        If the returned `schema` is `None`, the whole subschema will be removed
-        from the parent schema.
         """
 
     @abstractmethod
@@ -108,6 +105,9 @@ class IUiSchema(ISortable):
         The first tuple element of the return value is the (modified)
         json_schema (only the current subschema we're working on) and the
         second one is the (full, updated) ui_schema.
+
+        If the returned `schema` is `None`, the whole subschema will be removed
+        from the parent schema.
         """
 
 

@@ -278,7 +278,7 @@ def load_as_dict_fast(text: str) -> dict:
     round-trip ruamel loader at the cost of dropping comments, quoting,
     and anchors -- fine for callers that only need the parsed data.
 
-    Falls back to the strict-tolerant ruamel loader on parse errors so
+    Falls back to the non-strict ruamel loader on parse errors so
     any YAML accepted by `load_as_dict(strict=False)` still parses.
     """
     try:

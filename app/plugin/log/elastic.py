@@ -3,7 +3,7 @@ Retreive logs from an Elastic Search server using an EQL query.
 
 Details:
 
-  url:        EQL search base URL
+  url:        URL of the index to search (`/_eql/search` is appended)
               type: string
               default: "" -> required!
   query:      EQL search query

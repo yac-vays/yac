@@ -290,7 +290,7 @@ async def render_str(
     except RequestError as error:
         # Allow plugins to generate user errors
         raise error
-    except (jinja2.exceptions.UndefinedError, Exception) as error:
+    except Exception as error:
         # Must expect any Exception from plugins!
         raise J2Error(f'Templating str "{s}" failed with: {error}', loc=loc) from error
     if nonstr:
@@ -376,7 +376,7 @@ def render_sync_str(s, props, *, allow_nonstr: bool = True, loc: str = "#"):
     template = _compile_sync(nonstr, s, loc)
     try:
         result = template.render({"loc": loc} | props)
-    except (jinja2.exceptions.UndefinedError, Exception) as error:
+    except Exception as error:
         raise J2Error(f'Templating str "{s}" failed with: {error}', loc=loc) from error
     if nonstr:
         try:

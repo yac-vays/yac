@@ -323,7 +323,7 @@ async def __parse(op: OperationRequest) -> Specs:
 
     if s.version is None or not re.match(rf"^{s.version}\.[0-9]+(rc[0-9]+)?$", VERSION):
         raise SpecsError(
-            f"In version: {s.version} is not compatibale with YAC {VERSION}"
+            f"In version: {s.version} is not compatible with YAC {VERSION}"
         )
 
     return s

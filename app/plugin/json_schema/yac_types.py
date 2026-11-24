@@ -10,8 +10,8 @@ class YacTypes(IJsonSchema):
         self, loc: str, json_schema: dict, context: dict, props: dict
     ) -> tuple[dict | bool | None, dict]:
         """
-        Removes subschemas yac_types is defined the current type is not in the
-        list.
+        Removes subschemas whose yac_types list does not contain the current
+        type.
         """
         if "yac_types" not in json_schema:
             return json_schema, context

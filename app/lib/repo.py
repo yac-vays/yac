@@ -297,8 +297,8 @@ async def gen_name(
         s.type.name_pattern, name
     ):
         raise RepoSpecsError(
-            f"Generated name '{name}' does not match the type's name_pattern"
-            f" '{s.type.name_pattern}'"
+            f"Generated name '{name}' does not match the general name pattern"
+            f" or the type's name_pattern '{s.type.name_pattern}'"
         )
     if name in old_list:
         raise RepoSpecsError(

@@ -143,7 +143,7 @@ require authentication.
 Only the following `client_id`s are accepted:
 `{'` `'.join(specs.AUTH.oidc.client_ids)}`
 
-For interactive user logins, `authentication_code with PKCE` flow (with a
+For interactive user logins, `authorization_code` flow with PKCE (with a
 dummy `nonce` parameter that won't be validated) is recommended. For
 automated login in scripts/software, use the `client_credentials` flow instead
 (therefore you will need the `client_secret`).

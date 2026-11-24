@@ -164,7 +164,7 @@ async def get_entity(
     entity_name: PathName,
 ) -> DetailedEntity:
     """
-    Lists all data of a specific entity including the raw YAML data and logs.
+    All data of a specific entity, including its raw YAML.
     """
     op = OperationRequest(
         request_headers=dict(request.headers),

@@ -66,7 +66,7 @@ class ActionClientError(ActionError):
 
 class RequestError(YACError):
     code = 400
-    title = "Not Allowed"
+    title = "Invalid Request"
 
 
 class RequestConflict(RequestError):
@@ -123,7 +123,7 @@ class RepoMaintenance(RepoUnavailable):
 
 class RepoClientError(RepoError):
     code = 400
-    title = "Not Allowed"
+    title = "Invalid Request"
 
 
 class RepoConflict(RepoClientError):

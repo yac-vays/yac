@@ -99,7 +99,7 @@ class Entity(BaseModel):
 
 class ListedEntity(Entity):
     """
-    An entity as it will be listed, inluding some preview data and logs.
+    An entity as it will be listed, including some preview options.
     """
 
     link: Annotated[
@@ -146,8 +146,8 @@ class DetailedEntity(ListedEntity):
         dict,
         Field(
             description=(
-                "All data that this entity has defined (including the defaults for"
-                " undefined options)"
+                "All data that this entity has defined (as stored, without"
+                " schema defaults)"
             )
         ),
     ] = {}
@@ -252,7 +252,7 @@ For the different types of operations, this has different sources.
                 "Location in the data where the validation failed (if `valid` is"
                 " `false`)"
             ),
-            examples=["#/properties/abc"],
+            examples=["#/abc"],
         ),
     ] = ""
     yaml: Annotated[

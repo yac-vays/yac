@@ -16,6 +16,7 @@ async def date_range_pattern(
     Given a start date and a range in days/weeks/years,
     this function returns a regex (as a string) that matches only dates
     in the format YYYY-MM-DD which fall within the specified range.
+    A year counts as 52 weeks (364 days).
     """
 
     def _interval_pattern(low: int, high: int) -> str:

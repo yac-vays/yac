@@ -81,7 +81,7 @@ def _load_modules(kind: str) -> dict[str, ModuleType]:
     return modules
 
 
-def get_modules(kind: str, require: tuple[str] | None = None) -> dict[str, ModuleType]:
+def get_modules(kind: str, require: tuple[str, ...] | None = None) -> dict[str, ModuleType]:
     modules = _load_modules(kind)
     if not set(modules.keys()).issuperset(set(require or [])):
         missing = list(set(require or []).difference(modules.keys()))
@@ -107,13 +107,16 @@ def __sort(plugin1, plugin2) -> int:
 
 @lru_cache(maxsize=None)
 def get_sorted(
-    kind: str, varname: str, *, require: tuple[str] | None = None, late: bool = False
-) -> list[ModuleType]:
+    kind: str,
+    varname: str,
+    *,
+    require: tuple[str, ...] | None = None,
+    late: bool = False,
+) -> list:
     """
-    Modules of this kind need to implement a order() function that returns
-    a tuple of a bool and an int. The bool determins if the module is meant
-    for late (True) or early (False) execution and the int is a order number
-    within the execution time (late/early), so a higher number runs later.
+    The `varname` objects of all modules of this kind whose order() returns
+    `late` as its bool, sorted by its int (a higher number runs later). What
+    the bool means depends on the kind (see the interfaces in model/plg.py).
     """
     vars = []
     for var in sorted(
