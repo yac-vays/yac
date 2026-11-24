@@ -72,6 +72,12 @@ def test_uses_old_data():
     assert j2.uses_old_data("old['data']['cpus']") is True
     assert j2.uses_old_data("old.name") is False
     assert j2.uses_old_data("user.name") is False
+    assert j2.uses_old_data("old['name'] == user.name") is False
+    # Anything else done with `old` may reach its data.
+    for expr in ("old.get('data')", "old | attr('data')", "old | tojson", "old[key]"):
+        assert j2.uses_old_data(expr) is True, expr
+    # ... as may a plugin function that gets the render context.
+    assert j2.uses_old_data("re_next_int('^x(\\d+)$') > 3") is True
     # Unparseable expressions conservatively report True (load data to be safe).
     assert j2.uses_old_data("{{{ broken") is True
 
@@ -135,3 +141,12 @@ async def test_block_templates_can_still_yield_any_type():
     assert await j2.render_str(template, {"on": True}) == [1, 2]
     assert await j2.render_str(template, {"on": False}) == "text"
     assert await j2.render_str("{% set x = 3 %}{{ x }}", {}) == 3
+
+
+def test_is_user_only():
+    assert j2.is_user_only("user.name == 'alice'") is True
+    assert j2.is_user_only("name == user.name") is False
+    assert j2.is_user_only("old.data.owner == user.name") is False
+    # a plugin function that gets the render context may read entity data
+    assert j2.is_user_only("re_next_int('^x(\\d+)$') > 3") is False
+    assert j2.is_user_only("{{{ broken") is False

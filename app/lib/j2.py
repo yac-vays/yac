@@ -87,6 +87,24 @@ def _compile(strict: bool, nonstr: bool, source: str, loc: str):
 _ENTITY_VARS = frozenset({"old", "new", "name"})
 
 
+def _reads_context(ast: jinja2.nodes.Template) -> bool:
+    """
+    Whether the template uses a plugin function, filter or test that gets
+    the whole render context (`@pass_context`): it may read any variable.
+    """
+    used = (
+        ("j2_functions", {n.name for n in ast.find_all(jinja2.nodes.Name)}),
+        ("j2_filters", {n.name for n in ast.find_all(jinja2.nodes.Filter)}),
+        ("j2_tests", {n.name for n in ast.find_all(jinja2.nodes.Test)}),
+    )
+    return any(
+        hasattr(funct, "jinja_pass_arg")
+        for kind, names in used
+        for name, funct in plugin.get_functions(kind).items()
+        if name in names
+    )
+
+
 @lru_cache(maxsize=4096)
 def is_user_only(source: str) -> bool:
     """
@@ -101,6 +119,8 @@ def is_user_only(source: str) -> bool:
         # doesn't depend on `enable_async`, plugin globals, or undefined mode.
         ast = _get_sync_env(False).parse(f"{{{{ {source} }}}}")
     except jinja2.TemplateSyntaxError:
+        return False
+    if _reads_context(ast):
         return False
     return not any(n.name in _ENTITY_VARS for n in ast.find_all(jinja2.nodes.Name))
 
@@ -194,38 +214,47 @@ async def render_number(
         ) from error
 
 
+def _is_old_name(node: jinja2.nodes.Node) -> bool:
+    """`old.name` / `old['name']`"""
+    if isinstance(node, jinja2.nodes.Getattr):
+        attr = node.attr
+    elif isinstance(node, jinja2.nodes.Getitem) and isinstance(
+        node.arg, jinja2.nodes.Const
+    ):
+        attr = node.arg.value
+    else:
+        return False
+    return (
+        attr == "name"
+        and isinstance(node.node, jinja2.nodes.Name)
+        and node.node.name == "old"
+    )
+
+
 @lru_cache(maxsize=4096)
 def uses_old_data(source: str) -> bool:
     """
-    Return True iff the expression references the scanned entity's *data*
-    (`old.data` / `old['data']`). Callers use this to decide whether a
-    per-entity YAML load is needed when aggregating over many entities; an
-    expression that only touches `old.name`, `user`, `context`, ... can be
-    evaluated without loading any entity data.
+    Return False iff the expression provably does not need the scanned
+    entity's *data*: `old` only occurs as `old.name` / `old['name']`.
+    Callers use this to skip the per-entity YAML load when aggregating over
+    many entities.
 
-    Conservatively returns True for any expression we cannot parse so the
-    caller falls back to loading the data (correctness over speed).
+    Everything else (`old.data`, `old.get('data')`, `old | tojson`, a
+    `@pass_context` plugin function, an unparseable expression) reports
+    True: correctness over speed.
     """
     try:
         ast = _get_sync_env(False).parse(f"{{{{ {source} }}}}")
     except jinja2.TemplateSyntaxError:
         return True
-    for node in ast.find_all(jinja2.nodes.Getattr):
-        if (
-            node.attr == "data"
-            and isinstance(node.node, jinja2.nodes.Name)
-            and node.node.name == "old"
-        ):
-            return True
-    for node in ast.find_all(jinja2.nodes.Getitem):
-        if (
-            isinstance(node.arg, jinja2.nodes.Const)
-            and node.arg.value == "data"
-            and isinstance(node.node, jinja2.nodes.Name)
-            and node.node.name == "old"
-        ):
-            return True
-    return False
+    if _reads_context(ast):
+        return True
+    uses = sum(n.name == "old" for n in ast.find_all(jinja2.nodes.Name))
+    name_only = sum(
+        _is_old_name(n)
+        for n in ast.find_all((jinja2.nodes.Getattr, jinja2.nodes.Getitem))
+    )
+    return uses > name_only
 
 
 @lru_cache(maxsize=10000)
