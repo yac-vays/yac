@@ -60,16 +60,15 @@ def _stable_token(token: dict | None) -> dict:
 
 
 def _op_signature(op: OperationRequest) -> tuple:
-    # Fields that influence specs rendering (request templating uses
-    # request_headers; types/repo blocks use user + request).
+    # Exactly what specs rendering consumes (see `props.get_types`); of the
+    # request headers only `yac-*` ones are ever exposed to templates.
     user = dict(op.user)
     user["token"] = _stable_token(user.get("token"))
+    headers = {k: v for k, v in op.request_headers.items() if k.startswith("yac-")}
     return (
         op.type_name,
-        op.operation,
-        tuple(op.actions),
         op.request_ip,
-        stable_key(op.request_headers),
+        stable_key(headers),
         stable_key(user),
     )
 

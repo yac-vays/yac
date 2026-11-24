@@ -54,7 +54,15 @@ def test_op_signature_changes_with_stable_claim():
 def test_op_signature_reflects_request_fields():
     base = specs._op_signature(_op(ip="1.1.1.1"))
     assert base != specs._op_signature(_op(ip="2.2.2.2"))
-    assert base != specs._op_signature(_op(actions=["x"]))
+    assert base != specs._op_signature(_op(ip="1.1.1.1", headers={"yac-tenant": "a"}))
+
+
+def test_op_signature_ignores_what_rendering_does_not_consume():
+    base = specs._op_signature(_op())
+    assert base == specs._op_signature(_op(actions=["x"]))
+    assert base == specs._op_signature(
+        _op(headers={"authorization": "Bearer abc", "content-length": "42"})
+    )
 
 
 # ----- _process_includes_sync -----
