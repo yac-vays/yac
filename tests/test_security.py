@@ -380,3 +380,56 @@ async def test_yaml_bomb_via_api(client, login, repo_session):
     assert time.monotonic() - start < 5
     assert "n1" not in repo_session.files
     assert repo_session.files["web02"] == "owner: bob\n"
+
+
+#
+# 10) the API docs page is self-contained
+#
+
+
+async def test_docs_page_and_oauth_redirect_are_served(client):
+    resp = await client.get("/")
+    assert resp.status_code == 200
+    assert "swagger-ui" in resp.text
+    assert (await client.get("/docs/oauth2-redirect")).status_code == 200
+    assert (await client.get("/openapi.json")).status_code == 200
+
+
+async def test_docs_page_uses_bundled_assets_only(tmp_path):
+    import httpx
+    from fastapi import FastAPI
+
+    from app.lib import docs
+
+    for name in docs.SWAGGER_UI_FILES:
+        (tmp_path / name).write_text(f"/* {name} */")
+    app = FastAPI(docs_url=None, redoc_url=None, root_path="/api")
+    docs.setup(app, tmp_path)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        page = (await c.get("/")).text
+        assert "/api/static/swagger-ui/swagger-ui-bundle.js" in page
+        assert "/api/static/swagger-ui/swagger-ui.css" in page
+        assert "/api/static/swagger-ui/favicon-32x32.png" in page
+        assert "/api/openapi.json" in page
+        # nothing is loaded from anywhere else
+        assert "https://" not in page and "http://" not in page
+        resp = await c.get("/static/swagger-ui/swagger-ui-bundle.js")
+        assert resp.status_code == 200 and "swagger-ui-bundle.js" in resp.text
+        # an allow-list, not a directory
+        (tmp_path / "other.txt").write_text("x")
+        assert (await c.get("/static/swagger-ui/other.txt")).status_code == 404
+        assert (await c.get("/static/swagger-ui/..%2Fx")).status_code == 404
+
+
+def test_docs_assets_are_in_the_image():
+    """
+    Runs in the Docker build (which fetches the pinned swagger-ui-dist): the
+    image must never fall back to the CDN. Skipped in a source checkout.
+    """
+    from app.lib import docs
+
+    if not docs.SWAGGER_UI_DIR.is_dir():
+        pytest.skip("no bundled Swagger UI (source checkout)")
+    assert docs.is_bundled()

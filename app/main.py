@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import consts
 from app.version import VERSION
 from app.lib import repo
+from app.lib import docs
 from app.lib import hacks
 from app.lib import plugin
 from app.lib import specs
@@ -156,7 +157,9 @@ yac = FastAPI(
     root_path="" if consts.ENV.root_path == "/" else consts.ENV.root_path,
     contact=consts.CONTACT,
     license_info=consts.LICENSE,
-    docs_url="/",
+    # The docs page at `/` is added by `docs.setup` below (self-hosted assets
+    # instead of FastAPI's CDN links).
+    docs_url=None,
     redoc_url=None,
     swagger_ui_parameters={
         "displayRequestDuration": True,
@@ -182,6 +185,8 @@ yac.add_middleware(
 # Flags responses served from the last known state while the remote data
 # repository is unavailable.
 yac.add_middleware(staleness.StaleResponseMiddleware)
+
+docs.setup(yac)
 
 yac.include_router(status.router, tags=["Status"])
 yac.include_router(read.router, tags=["Entities"])
