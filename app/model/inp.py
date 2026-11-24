@@ -1,7 +1,7 @@
 from typing import Literal
 
 from fastapi import Query, Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Annotated
 
 from app import consts
@@ -42,6 +42,10 @@ QueryForce = Annotated[
 
 
 class Entity(BaseModel):
+    # The entity kinds are told apart by their fields: an unknown or mixed
+    # set (e.g. `copy` together with `link`) must not match any of them.
+    model_config = ConfigDict(extra="forbid")
+
     name: Annotated[str | None, Field(pattern=consts.NAME_PATTERN)]
 
 
