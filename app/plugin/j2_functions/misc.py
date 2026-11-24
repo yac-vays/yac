@@ -1,3 +1,4 @@
+import asyncio
 import re
 import socket
 import uuid as module_uuid
@@ -8,8 +9,23 @@ import ipaddress
 from app.model.err import RequestError
 
 
+def _fqhn(ip: str) -> str | None:
+    try:
+        return socket.gethostbyaddr(ip)[0]
+    except OSError:
+        return None  # no PTR record
+
+
 async def ip4net_to_fqhn(subnet: str) -> list[str]:
-    return [socket.gethostbyaddr(str(ip))[0] for ip in ipaddress.IPv4Network(subnet)]
+    """The names of all hosts of the subnet that have a PTR record."""
+    # In threads: the lookups block.
+    names = await asyncio.gather(
+        *(
+            asyncio.to_thread(_fqhn, str(ip))
+            for ip in ipaddress.IPv4Network(subnet).hosts()
+        )
+    )
+    return [name for name in names if name is not None]
 
 
 async def regex_replace(
@@ -32,8 +48,8 @@ async def re_next_int(
     """
     Takes the list of existing names, filters them by the given regex
     and increments the highest number by one.
-    If it fails or exceeds the limit (if defined !=0), it will raise a
-    RequestError error.
+    If `limit` (if defined != 0) or more names match already, it will raise
+    a RequestError error.
     """
 
     p = re.compile(pattern)
@@ -46,7 +62,7 @@ async def re_next_int(
             except:  # pylint: disable=bare-except
                 pass  # accept matches that have no group 1 or cannot be casted to int
 
-    if limit != 0 and len(n) == limit:
+    if limit != 0 and len(n) >= limit:
         raise RequestError(f"Maximum number of {limit} reached!")
 
     return max(n) + 1 if n else 1

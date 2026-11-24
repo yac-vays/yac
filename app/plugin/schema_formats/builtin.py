@@ -32,8 +32,8 @@ def unix_password_hash(data) -> bool:
         return False
 
     patterns = [
-        r"^\$5\$.{0,16}\$[./0-9A-Za-z]{43}$",  # SHA-256
-        r"^\$6\$.{0,16}\$[./0-9A-Za-z]{86}$",  # SHA-512
+        r"^\$5\$(rounds=[0-9]+\$)?[^$:\s]{0,16}\$[./0-9A-Za-z]{43}$",  # SHA-256
+        r"^\$6\$(rounds=[0-9]+\$)?[^$:\s]{0,16}\$[./0-9A-Za-z]{86}$",  # SHA-512
         r"^\$2[aby]\$[0-9]{2}\$[./0-9A-Za-z]{53}$",  # Bcrypt
     ]
 

@@ -127,3 +127,94 @@ async def test_date_range_zero_delta_raises():
 async def test_timedelta_function():
     td = await datef.timedelta(days=2, hours=3)
     assert td.days == 2 and td.seconds == 3 * 3600
+
+
+# ----- regressions -----
+
+async def test_re_next_int_limit_also_applies_when_already_exceeded():
+    ctx = {"old": {"list": ["1", "2", "3"]}}
+    with pytest.raises(RequestError):
+        await misc.re_next_int(ctx, r"^(.*)$", limit=2)
+
+
+class _Record:
+    def __init__(self, host):
+        self.host = host
+
+
+class _Resolver:
+    def __init__(self, answer):
+        self.answer = answer
+        self.queries = 0
+
+    async def query(self, hostname, qtype):
+        self.queries += 1
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+async def test_host_in_ip4ranges_checks_all_records(monkeypatch):
+    resolver = _Resolver([_Record("192.0.2.1"), _Record("10.1.2.3")])
+    monkeypatch.setattr(tst, "_get_resolver", lambda: resolver)
+    assert await tst.host_in_ip4ranges("multi.example", ("10.0.0.0/8",)) is True
+    assert await tst.host_in_ip4ranges("multi.example", ("172.16.0.0/12",)) is False
+
+
+async def test_host_in_ip4ranges_does_not_cache_resolver_failures(monkeypatch):
+    import aiodns
+
+    resolver = _Resolver(aiodns.error.DNSError(aiodns.error.ARES_ETIMEOUT, "timeout"))
+    monkeypatch.setattr(tst, "_get_resolver", lambda: resolver)
+    for _ in range(2):
+        with pytest.raises(aiodns.error.DNSError):
+            await tst.host_in_ip4ranges("flaky.example", ("10.0.0.0/8",))
+    assert resolver.queries == 2
+
+    resolver.answer = aiodns.error.DNSError(aiodns.error.ARES_ENOTFOUND, "nxdomain")
+    assert await tst.host_in_ip4ranges("gone.example", ("10.0.0.0/8",)) is False
+
+
+async def test_fqhn_lookups_run_off_the_event_loop(monkeypatch):
+    import socket
+    import threading
+
+    main = threading.get_ident()
+    threads = set()
+
+    def lookup(ip):
+        threads.add(threading.get_ident())
+        if ip.endswith(".2"):
+            raise socket.herror("no PTR")
+        return (f"host-{ip.rsplit('.', 1)[1]}.example", [], [ip])
+
+    monkeypatch.setattr(socket, "gethostbyaddr", lookup)
+    assert await filt.to_fqhn("192.0.2.1") == "host-1.example"
+    # network / broadcast address are no hosts, missing PTRs are skipped
+    assert await misc.ip4net_to_fqhn("192.0.2.0/30") == ["host-1.example"]
+    assert main not in threads
+
+
+def test_unix_password_hash_with_rounds():
+    from app.lib import plugin
+
+    check = plugin.get_functions("schema_formats")["unix_password_hash"]
+    assert check("$6$rounds=656000$abcdefghijklmnop$" + "a" * 86) is True
+    assert check("$5$rounds=535000$abcdefghijklmnop$" + "a" * 43) is True
+    assert check("$6$saltsalt$" + "a" * 86) is True
+    assert check("$6$rounds=x$salt$" + "a" * 86) is False
+    assert check("$6$salt$with$dollar$" + "a" * 86) is False
+
+
+def test_plain_log_format_separates_the_traceback():
+    import logging
+    import sys
+
+    from app.lib import plugin
+
+    formatter = plugin.get_module("format", "plain").formatter
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        record = logging.LogRecord("x", logging.ERROR, __file__, 1, "msg", None, sys.exc_info())
+    assert " msg\nTraceback (most recent call last):" in formatter.format(record)

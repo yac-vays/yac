@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import re
 import shlex
@@ -22,7 +23,8 @@ async def to_datestr(date: datetime.datetime, fmt="%Y-%m-%d %H:%M:%S"):
 
 
 async def to_fqhn(ip: str) -> str:
-    return socket.gethostbyaddr(str(ip))[0]
+    # In a thread: the lookup blocks.
+    return (await asyncio.to_thread(socket.gethostbyaddr, str(ip)))[0]
 
 
 async def regex_replace(
