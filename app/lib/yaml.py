@@ -25,10 +25,17 @@ y.representer.add_representer(
     type(None),
     lambda self, data: self.represent_scalar("tag:yaml.org,2002:null", "null"),
 )
+# Not representable in a literal block (`|`): a CR or unicode line break
+# would be read back as `\n`, other control characters not at all.
+_NOT_LITERAL = re.compile(
+    "[^\t\n\x20-\x7e\xa0-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]|[\u2028\u2029]"
+)
 y.representer.add_representer(
     str,
     lambda self, data: self.represent_scalar(
-        "tag:yaml.org,2002:str", data, style="|" if "\n" in data else None
+        "tag:yaml.org,2002:str",
+        data,
+        style="|" if "\n" in data and not _NOT_LITERAL.search(data) else None,
     ),
 )
 y.constructor.add_constructor(

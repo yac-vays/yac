@@ -44,3 +44,27 @@ def test_patch_is_not_mutated():
     out = yaml.load_as_dict(yaml.update("a: 1\n", patch))
     assert patch == before
     assert out == {"a": {"l": [{"v": 1}]}}
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "a b\nc",
+        "a\x85b\nc",
+        "a\r\nb",
+        "a\x07b\nc",
+        "plain\ntext\n",
+        "  lead\n trail  \n",
+        "ümläut\n日本\n\U0001f600",
+    ],
+)
+def test_multiline_strings_round_trip(value):
+    out = yaml.update("k: 1\n", {"k": value})
+    assert yaml.load_as_dict(out)["k"] == value
+
+
+def test_ordinary_multiline_strings_are_literal_blocks():
+    assert yaml.update("k: 1\n", {"k": "a\nb\n"}) == "---\nk: |\n  a\n  b\n"
