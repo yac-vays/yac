@@ -1,4 +1,4 @@
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import AsyncGenerator
@@ -15,13 +15,13 @@ from app.model.err import PluginError
 from app.model.err import LogContentNotFound
 
 
-class IAction:
+class IAction(ABC):
 
     @abstractmethod
     async def run(self, *, details: dict, props: dict) -> None: ...
 
 
-class ILog:
+class ILog(ABC):
 
     @abstractmethod
     async def get(
@@ -54,7 +54,7 @@ class ILog:
         raise LogContentNotFound(f'Log "{facility}" has no content')
 
 
-class ISortable:
+class ISortable(ABC):
 
     @abstractmethod
     def order(self) -> tuple[bool, int]: ...
@@ -163,7 +163,7 @@ class CommitMsg:
     body: str = ""
 
 
-class IRepoSession:
+class IRepoSession(ABC):
     """
     Typed view of the repository for one request scope, given an entity-type
     → path-template mapping (`details`). Created from an `IRepoUntyped` via
@@ -264,7 +264,7 @@ class IRepoSession:
         ...
 
 
-class IRepoUntyped:
+class IRepoUntyped(ABC):
     """
     Per-scope view of the repository before any entity-type details are
     known. Use this view to query the current commit hash (`get_hash`).
@@ -303,7 +303,7 @@ class RepoState:
     maintenance: bool = False
 
 
-class IRepo:
+class IRepo(ABC):
     """
     Process-level handle for the repository. Owns the on-disk path and the
     cross-scope locks. Per-request state lives on the untyped view yielded by

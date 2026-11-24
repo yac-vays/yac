@@ -31,7 +31,7 @@ SUBSCHEMA_OBJECTS = ["$defs", "properties", "patternProperties", "dependentSchem
 SUBSCHEMA_ARRAYS = ["oneOf", "allOf", "anyOf", "prefixItems"]
 
 
-def get(
+def collect(
     data: Any, add: Callable[[Any], bool], loc: str = "#", res: list[str] | None = None
 ) -> list[str]:
     """
@@ -46,10 +46,10 @@ def get(
 
     if isinstance(data, dict):
         for key, value in data.items():
-            get(value, add, f"{loc}/{key}", res)
+            collect(value, add, f"{loc}/{key}", res)
     elif isinstance(data, list):
         for index, item in enumerate(data):
-            get(item, add, f"{loc}/{index}", res)
+            collect(item, add, f"{loc}/{index}", res)
 
     return res
 
@@ -147,7 +147,9 @@ def _segment_matches(kind: str, arg: str, segment: str) -> bool:
         return False
 
 
-def reduce(schema_loc: str, data_locs: list[str], recursive: bool = False) -> list[str]:
+def filter_by_schema_loc(
+    schema_loc: str, data_locs: list[str], recursive: bool = False
+) -> list[str]:
     """
     Will only return the data_locs that refer to data that is defined by the
     schema_loc.

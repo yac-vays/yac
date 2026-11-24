@@ -31,7 +31,7 @@ router = APIRouter()
     summary="Overwrite an existing entity",
     responses=http_responses(),
 )
-async def update_entity(
+async def replace_entity(
     request: Request,
     response: Response,
     user: CurrentUser,
@@ -111,7 +111,7 @@ async def update_entity(
     summary="Edit some data of an existing entity",
     responses=http_responses(),
 )
-async def change_entity(
+async def patch_entity(
     request: Request,
     response: Response,
     user: CurrentUser,
@@ -167,7 +167,7 @@ async def change_entity(
 
     async with repo.handler.writer(op.user) as raw:
         rpo = raw.session(s.repo.details if s.type else {})
-        # Same TOCTOU guard as in `update_entity`: re-enforce the limits
+        # Same TOCTOU guard as in `replace_entity`: re-enforce the limits
         # with the writer session right before writing.
         await limits.enforce(rpo, op, s, old, new_data)
         if entity_name == entity.name:

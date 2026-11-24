@@ -45,11 +45,11 @@ y.constructor.add_constructor(
 y_non_strict = ruamel.yaml.YAML(typ="rt")
 y_non_strict.allow_duplicate_keys = True
 # Used by the test suite to assert that loaded objects are round-trip safe.
-YAMLSafeBase = ruamel.yaml.comments.CommentedBase  # type: ignore
+RoundTripBase = ruamel.yaml.comments.CommentedBase  # type: ignore
 YAMLError = ruamel.yaml.YAMLError
 
-# Only used for typing.
-YAMLObject = ruamel.yaml.YAMLObject
+# What `load` returns: a round-trip mapping/sequence or a scalar.
+YAMLNode = Any
 
 # Upper bound for the number of nodes (mappings, sequences, scalars and
 # mapping keys) of a document once all its aliases are expanded. Far beyond
@@ -106,7 +106,7 @@ def _assert_bounded(text: str, data: Any) -> None:
     size(data)
 
 
-def load(yaml: str, *, strict: bool = True) -> YAMLObject | None:
+def load(yaml: str, *, strict: bool = True) -> YAMLNode | None:
     try:
         data = _load(yaml, strict=strict)
         _assert_bounded(yaml, data)
@@ -118,7 +118,7 @@ def load(yaml: str, *, strict: bool = True) -> YAMLObject | None:
     return data
 
 
-def _load(yaml: str, *, strict: bool = True) -> YAMLObject | None:
+def _load(yaml: str, *, strict: bool = True) -> YAMLNode | None:
     if strict:
         return y.load(yaml)
 
@@ -291,7 +291,7 @@ def load_as_dict_fast(text: str) -> dict:
     return {}
 
 
-def dump(data: dict | YAMLObject | None) -> str:
+def dump(data: dict | YAMLNode | None) -> str:
     buf = io.BytesIO()
     y.dump(data, buf)
     return buf.getvalue().decode("utf-8")

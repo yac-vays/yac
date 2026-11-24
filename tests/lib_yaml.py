@@ -140,7 +140,7 @@ def test():
 
     assert type(yaml.load(UNSAFE_YAML1)['illegal_tuple']) is not tuple
     assert isinstance(yaml.load(UNSAFE_YAML1)['illegal_tuple'], list)
-    assert isinstance(yaml.load(UNSAFE_YAML2), yaml.YAMLSafeBase)
+    assert isinstance(yaml.load(UNSAFE_YAML2), yaml.RoundTripBase)
     assert yaml.load_as_dict('') == {}
     assert yaml.load_as_dict('blub') == {}
     assert yaml.load_as_dict('null') == {}

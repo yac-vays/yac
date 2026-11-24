@@ -24,11 +24,11 @@ def test():
 # ----- get: data-loc enumeration -----
 
 def test_get_enumerates_dicts_and_list_items():
-    assert locs.get({'a': {'b': 1}}, lambda d: isinstance(d, dict)) == ['#', '#/a']
-    assert locs.get({'a': [{'x': 1}]}, lambda d: isinstance(d, dict)) == ['#', '#/a/0']
+    assert locs.collect({'a': {'b': 1}}, lambda d: isinstance(d, dict)) == ['#', '#/a']
+    assert locs.collect({'a': [{'x': 1}]}, lambda d: isinstance(d, dict)) == ['#', '#/a/0']
     # predicate selects leaves only
-    assert locs.get({'a': 1, 'b': 2}, lambda d: d == 2) == ['#/b']
-    assert locs.get({}, lambda d: isinstance(d, dict)) == ['#']  # root matches
+    assert locs.collect({'a': 1, 'b': 2}, lambda d: d == 2) == ['#/b']
+    assert locs.collect({}, lambda d: isinstance(d, dict)) == ['#']  # root matches
 
 
 # ----- extract: data-loc navigation -----
@@ -78,33 +78,33 @@ def test_to_data_path_keyword_handling():
 
 def test_reduce_root_and_keywords_without_data():
     locs_in = ['#', '#/foo', '#/foo/x']
-    assert locs.reduce('#', locs_in) == ['#']
-    assert locs.reduce('#', locs_in, recursive=True) == locs_in
-    assert locs.reduce('#/properties/foo/if', locs_in) == ['#']
+    assert locs.filter_by_schema_loc('#', locs_in) == ['#']
+    assert locs.filter_by_schema_loc('#', locs_in, recursive=True) == locs_in
+    assert locs.filter_by_schema_loc('#/properties/foo/if', locs_in) == ['#']
 
 
 def test_reduce_items_and_literal_keys():
     locs_in = ['#/foo', '#/foo/0', '#/foo/12', '#/foo/x', '#/foo/0/a', '#/f.o/0']
-    assert locs.reduce('#/properties/foo/items', locs_in) == ['#/foo/0', '#/foo/12']
+    assert locs.filter_by_schema_loc('#/properties/foo/items', locs_in) == ['#/foo/0', '#/foo/12']
     # keys are no regexes
-    assert locs.reduce('#/properties/f.o/items', locs_in) == ['#/f.o/0']
+    assert locs.filter_by_schema_loc('#/properties/f.o/items', locs_in) == ['#/f.o/0']
 
 
 def test_reduce_pattern_properties_search_the_key():
     locs_in = ['#/h1', '#/h1/x', '#/ah', '#/b', '#/h1/sub']
     # anchored: like JSON-Schema, the pattern is searched in the key
-    assert locs.reduce('#/patternProperties/^h', locs_in) == ['#/h1']
-    assert locs.reduce('#/patternProperties/h', locs_in) == ['#/h1', '#/ah']
-    assert locs.reduce('#/patternProperties/^h.*$/properties/x', locs_in) == ['#/h1/x']
+    assert locs.filter_by_schema_loc('#/patternProperties/^h', locs_in) == ['#/h1']
+    assert locs.filter_by_schema_loc('#/patternProperties/h', locs_in) == ['#/h1', '#/ah']
+    assert locs.filter_by_schema_loc('#/patternProperties/^h.*$/properties/x', locs_in) == ['#/h1/x']
     # a pattern never spans more than one key (the regex matched '#/h1/sub')
-    assert locs.reduce('#/patternProperties/h1.sub', locs_in) == []
-    assert locs.reduce('#/patternProperties/(', locs_in) == []  # invalid pattern
+    assert locs.filter_by_schema_loc('#/patternProperties/h1.sub', locs_in) == []
+    assert locs.filter_by_schema_loc('#/patternProperties/(', locs_in) == []  # invalid pattern
 
 
 def test_reduce_filters_by_schema_loc():
     locs_in = ['#/foo', '#/bar', '#/foo/x']
-    assert locs.reduce('#/properties/foo', locs_in, recursive=False) == ['#/foo']
-    assert locs.reduce('#/properties/foo', locs_in, recursive=True) == ['#/foo', '#/foo/x']
+    assert locs.filter_by_schema_loc('#/properties/foo', locs_in, recursive=False) == ['#/foo']
+    assert locs.filter_by_schema_loc('#/properties/foo', locs_in, recursive=True) == ['#/foo', '#/foo/x']
 
 
 # ----- is_specified: deeper combinator nesting -----
@@ -156,7 +156,7 @@ def test_extract_list_index_must_be_a_valid_index():
 
 def test_extract_finds_non_string_keys():
     data = {'ports': {80: 'http'}}
-    assert locs.get(data, lambda d: d == 'http') == ['#/ports/80']
+    assert locs.collect(data, lambda d: d == 'http') == ['#/ports/80']
     assert locs.extract('#/ports/80', data) == 'http'
 
 

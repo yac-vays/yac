@@ -83,7 +83,8 @@ async def get(
     except j2.J2Error as error:
         raise SchemaSpecsError(f"{error.loc}: {error}") from error
 
-    json_schema, ui_schema, context = await handle_schema(
+    # What the json_schema plugins recorded while walking the schema.
+    json_schema, ui_schema, plugin_state = await handle_schema(
         "#", json_schema, {}, {}, schema_props
     )
     _strip_injected(json_schema)
@@ -96,7 +97,7 @@ async def get(
 
     error = await _first_error(json_schema, new_data)
     if error is not None:
-        message, data_loc = _describe(error, context)
+        message, data_loc = _describe(error, plugin_state)
         return out.Schema(
             json_schema=json_schema,
             ui_schema=ui_schema,
@@ -108,7 +109,7 @@ async def get(
             data_loc=data_loc,
         )
 
-    excess = _shared_consts_excess(context, new_data)
+    excess = _shared_consts_excess(plugin_state, new_data)
     if excess is not None:
         return out.Schema(
             json_schema=json_schema,
@@ -166,7 +167,7 @@ def _strip_injected(json_schema: Any) -> None:
                 _strip_injected(sub)
 
 
-def _shared_consts_excess(context: dict, data: Any) -> tuple[str, str, str] | None:
+def _shared_consts_excess(plugin_state: dict, data: Any) -> tuple[str, str, str] | None:
     """
     The `enum` add_consts.py injects for a key without a (live) subschema in
     a shared subschema (e.g. array items) only limits the values to the
@@ -174,10 +175,12 @@ def _shared_consts_excess(context: dict, data: Any) -> tuple[str, str, str] | No
     before (so values can be kept, moved or removed, but not duplicated).
     Returns (message, json_schema_loc, data_loc) of the first excess use.
     """
-    for schema_loc, stored in context.get("add_consts_shared", {}).items():
+    for schema_loc, stored in plugin_state.get("add_consts_shared", {}).items():
         parent_loc, key = schema_loc.rsplit("/properties/", 1)
         left = Counter(locs.value_key(v) for v in stored)
-        objs = locs.reduce(parent_loc, locs.get(data, lambda d: isinstance(d, dict)))
+        objs = locs.filter_by_schema_loc(
+            parent_loc, locs.collect(data, lambda d: isinstance(d, dict))
+        )
         for data_loc in objs:
             obj = locs.extract(data_loc, data)
             if not isinstance(obj, dict) or key not in obj:
@@ -251,7 +254,7 @@ async def _validator(json_schema: dict, data: Any) -> Any:
         results.update({key: bool(valid) for key, valid in zip(keys, checked)})
 
 
-def _describe(error: jsonschema.ValidationError, context: dict) -> tuple[str, str]:
+def _describe(error: jsonschema.ValidationError, plugin_state: dict) -> tuple[str, str]:
     """
     The (message, data_loc) to report for a validation error.
 
@@ -279,7 +282,7 @@ def _describe(error: jsonschema.ValidationError, context: dict) -> tuple[str, st
                 + [str(i) for i in list(error.schema_path)[:-1]]
                 + ["properties", str(missing)]
             )
-            state = context.get("add_consts_state", {}).get(schema_loc)
+            state = plugin_state.get("add_consts_state", {}).get(schema_loc)
             if state == "unknown":
                 message = (
                     f"'{missing}' is not covered by the schema, removing it"

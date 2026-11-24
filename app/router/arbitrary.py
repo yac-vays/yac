@@ -28,7 +28,7 @@ async def run_action_on_entity(
     user: CurrentUser,
     type_name: PathType,
     entity_name: PathName,
-    run: PathAction,
+    action_name: PathAction,
 ) -> None:
     """
     Will run the specified action on a specific entity.
@@ -41,7 +41,7 @@ async def run_action_on_entity(
         operation="arbitrary",
         type=type_name,
         name=entity_name,
-        actions=[run],
+        actions=[action_name],
         entity=None,
     )
 

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 def _stored_values(loc: str, data_locs: list[str], old_data: dict) -> dict[str, list]:
     """Key -> stored values (one per object at loc holding it), in data order."""
     values: dict[str, list] = {}
-    for data_loc in locs.reduce(loc, data_locs, recursive=False):
+    for data_loc in locs.filter_by_schema_loc(loc, data_locs, recursive=False):
         data = locs.extract(data_loc, old_data)
         if isinstance(data, dict):
             for key, value in data.items():
@@ -76,7 +76,7 @@ class AddConsts(IJsonSchema):
             return json_schema, context
 
         if "add_consts" not in context:
-            context["add_consts"] = locs.get(
+            context["add_consts"] = locs.collect(
                 props["old"]["data"], lambda d: isinstance(d, dict)
             )
 

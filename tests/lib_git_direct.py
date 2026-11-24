@@ -6,7 +6,7 @@ commit identity travels via the git env the plugin sets, so pushes/pulls work
 entirely offline.
 
 Covered: the path-template rendering/validation (`_render_glob` / `_path_template`),
-the read operations (list/exists/is_link/get_link/get/_has_link), the full write
+the read operations (list/exists/is_link/get_link/get/_is_link_target), the full write
 cycle through a writer scope (create/copy/link/rename/delete with their conflict
 and "linked source" guards), the reader-scope write lockout, and the
 path-escape guard.
@@ -121,10 +121,10 @@ async def test_link_introspection(repo):
     assert (await repo._get("host", "link", DETAILS)).strip() == "cpu: 4"
 
 
-async def test_has_link_detects_incoming_links(repo):
+async def test_is_link_target_detects_incoming_links(repo):
     # `a` is the target of `link`; `b` is referenced by nobody
-    assert await repo._has_link("host", "a", DETAILS) is True
-    assert await repo._has_link("host", "b", DETAILS) is False
+    assert await repo._is_link_target("host", "a", DETAILS) is True
+    assert await repo._is_link_target("host", "b", DETAILS) is False
 
 
 # ----- write cycle through a writer scope -----
@@ -313,8 +313,8 @@ async def test_name_as_directory_full_cycle(repo, tmp_path):
         assert await s.is_link("svc", "src") is False
         assert await s.get_link("svc", "ln") == "src"
         assert await s.get("svc", "ln") == "cpu: 2\n"
-        assert await repo._has_link("svc", "src", details) is True
-        assert await repo._has_link("svc", "mv", details) is False
+        assert await repo._is_link_target("svc", "src", details) is True
+        assert await repo._is_link_target("svc", "mv", details) is False
         with pytest.raises(RepoClientError):
             await s.delete("svc", "src", "cpu: 2\n", CommitMsg())
         with pytest.raises(RepoClientError):

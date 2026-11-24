@@ -92,6 +92,8 @@ DIRTY_MAX = int(_CONN.get("dirty_max_age", 0))
 # Writes always retry, they cannot proceed without the remote. Keeps an
 # outage from turning every read into a wait on a dead connection.
 REMOTE_BACKOFF_SECONDS = 10
+# Value of `GitRepo._reader_count` while a writer holds the lock.
+_WRITER_ACTIVE = -1
 
 
 # git's output for a push the remote refused because its branch has moved on.
@@ -233,7 +235,7 @@ class _GitRepoSession(IRepoSession):
 
     async def is_link_target(self, type_name: str, name: str) -> bool:
         # pylint: disable-next=protected-access
-        return await self._h._has_link(type_name, name, self._details)
+        return await self._h._is_link_target(type_name, name, self._details)
 
     def _require_writing(self) -> None:
         if not self._writing:
@@ -319,10 +321,10 @@ class GitRepo(IRepo):
         self.path: str = f"/repo/{getpid()}"
         # Whether the on-disk repo has been load()-checked or cloned at least once.
         self._loaded: bool = False
-        # Reader/writer locking: positive count = readers, -1 = writer active.
+        # Reader/writer locking: number of readers, or _WRITER_ACTIVE.
         self._reader_count: int = 0
         self._reader_update_lock: asyncio.Lock = asyncio.Lock()
-        self._no_readers: asyncio.Condition = asyncio.Condition(
+        self._lock_changed: asyncio.Condition = asyncio.Condition(
             self._reader_update_lock
         )
         self._writer_lock: asyncio.Lock = asyncio.Lock()
@@ -349,8 +351,8 @@ class GitRepo(IRepo):
             await self._refresh_for_read(user)
 
         async with self._reader_update_lock:
-            while self._reader_count == -1:
-                await self._no_readers.wait()
+            while self._reader_count == _WRITER_ACTIVE:
+                await self._lock_changed.wait()
             logger.debug(f"... git reader lock for {self.path} acquired!")
             self._reader_count += 1
 
@@ -363,7 +365,7 @@ class GitRepo(IRepo):
                 logger.debug(f"Releasing git reader lock for {self.path}!")
                 self._reader_count -= 1
                 if self._reader_count == 0:
-                    self._no_readers.notify_all()
+                    self._lock_changed.notify_all()
 
     @asynccontextmanager
     async def writer(
@@ -373,9 +375,9 @@ class GitRepo(IRepo):
         async with self._writer_lock:
             async with self._reader_update_lock:
                 while self._reader_count != 0:
-                    await self._no_readers.wait()
+                    await self._lock_changed.wait()
                 logger.debug(f"... git writer lock for {self.path} acquired!")
-                self._reader_count = -1
+                self._reader_count = _WRITER_ACTIVE
 
             try:
                 await self._pull(user)
@@ -386,7 +388,7 @@ class GitRepo(IRepo):
             finally:
                 async with self._reader_update_lock:
                     self._reader_count = 0
-                    self._no_readers.notify_all()
+                    self._lock_changed.notify_all()
 
     # ------------------------------------------------------------------ #
     # On-disk operations. Each method takes the parameters it needs; no
@@ -532,7 +534,7 @@ class GitRepo(IRepo):
         self._loaded = True
         self._remote_success()
 
-    async def _push(
+    async def _commit_and_push(
         self, user: User | None, files: list[str], subject: str, msg: CommitMsg
     ) -> None:
         """
@@ -674,7 +676,7 @@ class GitRepo(IRepo):
     async def _file_path(self, type_name: str, name: str, details: dict) -> str:
         return f"{self.path}/{await _render_path(type_name, name, details)}"
 
-    async def _has_link(self, type_name: str, name: str, details: dict) -> bool:
+    async def _is_link_target(self, type_name: str, name: str, details: dict) -> bool:
         """
         Return True iff any other entity of `type_name` is a symlink whose
         resolved target is the entity (`type_name`, `name`).
@@ -799,7 +801,7 @@ class GitRepo(IRepo):
         await self._make_parents(file_abs)
         await self._write_file(file_abs, content_new)
 
-        await self._push(
+        await self._commit_and_push(
             user, [file_abs], f"{'Edited' if exists else 'Created'} {path_rel}", msg
         )
         patch = "\n".join(
@@ -840,7 +842,7 @@ class GitRepo(IRepo):
                 raise RepoConflict("The data has changed in the meantime")
             if await self._is_link(type_name, name_old, details):
                 raise RepoClientError("Modifying links is not allowed")
-            if await self._has_link(type_name, name_old, details):
+            if await self._is_link_target(type_name, name_old, details):
                 raise RepoClientError(
                     "The file must not be renamed because it is linked"
                 )
@@ -857,7 +859,7 @@ class GitRepo(IRepo):
         except OSError as error:
             raise RepoError(f"Could not delete file {file_old}") from error
 
-        await self._push(
+        await self._commit_and_push(
             user,
             [file_old, file_new],
             f"Edited {path_new} (renamed from {name_old})",
@@ -898,7 +900,7 @@ class GitRepo(IRepo):
         await self._make_parents(file_dest)
         await self._write_file(file_dest, content)
 
-        await self._push(
+        await self._commit_and_push(
             user,
             [file_dest],
             f"Created {path_dest} (copy of {name_src})",
@@ -942,7 +944,7 @@ class GitRepo(IRepo):
         except OSError as error:
             raise RepoError(f"Could not create symlink {link}") from error
 
-        await self._push(
+        await self._commit_and_push(
             user,
             [link],
             f"Created {path_link} (link to {name_src})",
@@ -971,7 +973,7 @@ class GitRepo(IRepo):
     ) -> None:
         if not await self._exists(type_name, name, details):
             raise RepoNotFound("The file does not exist")
-        if await self._has_link(type_name, name, details):
+        if await self._is_link_target(type_name, name, details):
             raise RepoClientError("The file must not be deleted because it is linked")
 
         # Optimistic pin, mirroring `_write`: the caller validated the delete
@@ -990,7 +992,7 @@ class GitRepo(IRepo):
         except OSError as error:
             raise RepoError(f"Could not delete file {file}") from error
 
-        await self._push(
+        await self._commit_and_push(
             user, [file], f"Deleted {os.path.relpath(file, self.path)}", msg
         )
 

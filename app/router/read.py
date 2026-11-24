@@ -77,7 +77,7 @@ async def get_types(
     summary="List entities of a specific type",
     responses=http_responses(),
 )
-async def get_entities(
+async def list_entities(
     request: Request,
     user: CurrentUser,
     type_name: PathType,

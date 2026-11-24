@@ -32,7 +32,7 @@ router = APIRouter()
     status_code=status.HTTP_201_CREATED,
     responses=http_responses(),
 )
-async def add_entity(
+async def create_entity(
     request: Request,
     response: Response,
     user: CurrentUser,
