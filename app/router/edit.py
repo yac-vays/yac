@@ -6,7 +6,6 @@ from fastapi import Response
 
 from app.lib import action
 from app.lib import limits
-from app.lib import repo
 from app.lib import validator
 from app.lib import yaml
 from app.lib.auth import CurrentUser
@@ -23,9 +22,10 @@ from app.model.int import Entity
 from app.model.out import Diff
 from app.model.out import TypeActionHook
 from app.model.plg import CommitMsg
+from app.model.plg import IRepoSession
+from app.router import common
 from app.router.common import load
 from app.router.common import operation_request
-from app.router.common import session
 
 router = APIRouter()
 
@@ -56,18 +56,20 @@ async def _edit(
     name_old = op.name or ""
     name_new = (op.entity.name if op.entity else None) or name_old
 
-    async with repo.handler.writer(op.user) as raw:
-        rpo = session(raw, s)
+    async def write(rpo: IRepoSession) -> Diff:
         # The usages the validator checked were measured in the reader scope;
         # a concurrent write may have consumed the remaining quota since.
         # Measure and enforce again, serialized with the write.
         await limits.enforce(rpo, op, s, old, ctx.new_data)
         if name_new == name_old:
-            diff = await rpo.write(op.type_name, name_old, yaml_old, yaml_new, commit)
-        else:
-            diff = await rpo.write_rename(
-                op.type_name, name_old, name_new, yaml_old, yaml_new, commit
+            return await rpo.write(
+                op.type_name, name_old, yaml_old, yaml_new, commit
             )
+        return await rpo.write_rename(
+            op.type_name, name_old, name_new, yaml_old, yaml_new, commit
+        )
+
+    diff = await common.write(op, s, write)
 
     await action.run_after(TypeActionHook.EDIT_AFTER, op, s, response)
 

@@ -4,7 +4,6 @@ from fastapi import Response
 from fastapi import status
 
 from app.lib import action
-from app.lib import repo
 from app.lib import validator
 from app.lib.auth import CurrentUser
 from app.model.inp import PathName
@@ -13,9 +12,10 @@ from app.model.inp import QueryActions
 from app.model.inp import QueryMsg
 from app.model.out import TypeActionHook
 from app.model.plg import CommitMsg
+from app.model.plg import IRepoSession
+from app.router import common
 from app.router.common import load
 from app.router.common import operation_request
-from app.router.common import session
 
 router = APIRouter()
 
@@ -48,13 +48,14 @@ async def delete_entity(
 
     await action.run(TypeActionHook.DELETE_BEFORE, op, s)
 
-    async with repo.handler.writer(op.user) as raw:
-        rpo = session(raw, s)
+    async def write(rpo: IRepoSession) -> None:
         # `old.yaml` is what the validator derived the delete permission from
         # (roles can reference `old.data`) and what the DELETE_BEFORE hook was
-        # templated with. The writer scope pulled since then; the plugin
+        # templated with. The writer scope synced since then; the plugin
         # compares and raises RepoConflict (409) if the entity changed, so a
         # delete never acts on stale authorization.
         await rpo.delete(type_name, op.name or "", old.yaml or "", CommitMsg(body=msg))
+
+    await common.write(op, s, write)
 
     await action.run_after(TypeActionHook.DELETE_AFTER, op, s, response)

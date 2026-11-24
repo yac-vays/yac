@@ -45,7 +45,7 @@ from contextlib import asynccontextmanager
 from difflib import unified_diff
 from os import getpid
 from os.path import dirname
-from typing import AsyncGenerator, Awaitable, Callable, TypeVar
+from typing import AsyncGenerator
 import asyncio
 import errno
 import logging
@@ -62,6 +62,7 @@ from app.lib import specs as _specs
 from app.lib import staleness
 from app.model.err import RepoClientError
 from app.model.err import RepoConflict
+from app.model.err import RepoPushRejected
 from app.model.err import RepoMaintenance
 from app.model.err import RepoUnavailable
 from app.model.err import RepoError
@@ -78,7 +79,6 @@ from app.model.plg import IRepoUntyped
 
 
 logger = logging.getLogger(__name__)
-T = TypeVar("T")
 _CONN = _specs.get_repo_connection()
 URL = _CONN.get("url", "")
 BRANCH = _CONN.get("branch", "main")
@@ -111,10 +111,6 @@ def _patch(old: str | None, new: str, path_old: str, path_new: str) -> str:
             lineterm="",
         )
     )
-
-
-class _PushRejected(RepoConflict):
-    """Someone else pushed between this writer's sync and its push."""
 
 
 # Module-level cache of rendered globs/paths keyed by (type, template). Path
@@ -258,11 +254,8 @@ class _GitRepoSession(IRepoSession):
         self, type: str, name: str, content_old: str, content_new: str, msg: CommitMsg
     ) -> Diff:
         self._require_writing()
-        return await self._h.retry_rejected(
-            self._user,
-            lambda: self._h._write(
-                self._user, self._details, type, name, content_old, content_new, msg
-            ),
+        return await self._h._write(
+            self._user, self._details, type, name, content_old, content_new, msg
         )
 
     async def write_rename(
@@ -275,51 +268,39 @@ class _GitRepoSession(IRepoSession):
         msg: CommitMsg,
     ) -> Diff:
         self._require_writing()
-        return await self._h.retry_rejected(
+        return await self._h._write_rename(
             self._user,
-            lambda: self._h._write_rename(
-                self._user,
-                self._details,
-                type,
-                name_old,
-                name_new,
-                content_old,
-                content_new,
-                msg,
-            ),
+            self._details,
+            type,
+            name_old,
+            name_new,
+            content_old,
+            content_new,
+            msg,
         )
 
     async def copy(
         self, type: str, name_dest: str, name_src: str, msg: CommitMsg
     ) -> Diff:
         self._require_writing()
-        return await self._h.retry_rejected(
-            self._user,
-            lambda: self._h._copy(
-                self._user, self._details, type, name_dest, name_src, msg
-            ),
+        return await self._h._copy(
+            self._user, self._details, type, name_dest, name_src, msg
         )
 
     async def link(
         self, type: str, name_link: str, name_src: str, msg: CommitMsg
     ) -> Diff:
         self._require_writing()
-        return await self._h.retry_rejected(
-            self._user,
-            lambda: self._h._link(
-                self._user, self._details, type, name_link, name_src, msg
-            ),
+        return await self._h._link(
+            self._user, self._details, type, name_link, name_src, msg
         )
 
     async def delete(
         self, type: str, name: str, content_old: str, msg: CommitMsg
     ) -> None:
         self._require_writing()
-        await self._h.retry_rejected(
-            self._user,
-            lambda: self._h._delete(
-                self._user, self._details, type, name, content_old, msg
-            ),
+        await self._h._delete(
+            self._user, self._details, type, name, content_old, msg
         )
 
 
@@ -598,29 +579,12 @@ class GitRepo(IRepo):
                 logger.error(f"Commit/push from {self.path} failed: {error}")
             await self._cleanup(user)
             if _PUSH_REJECTED_RE.search(str(error)):
-                raise _PushRejected(
+                raise RepoPushRejected(
                     "The repository has changed in the meantime"
                 ) from error
             raise RepoError(
                 f"Unable to commit and push changes from {self.path}"
             ) from error
-
-    async def retry_rejected(
-        self, user: User | None, operation: Callable[[], Awaitable[T]]
-    ) -> T:
-        """
-        Run a write operation; if its push is rejected because another
-        instance pushed since this writer scope synced (the scope spans the
-        caller's checks, not just the push), sync again and repeat it once.
-        The operation re-checks the content it expects, so a real conflict
-        still surfaces as one.
-        """
-        try:
-            return await operation()
-        except _PushRejected:
-            logger.info(f"Push from {self.path} was rejected, syncing and retrying")
-            await self._pull(user)
-            return await operation()
 
     async def _cleanup(self, user: User | None) -> None:
         """

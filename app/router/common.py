@@ -4,6 +4,7 @@ loading everything it is validated against.
 """
 
 from dataclasses import dataclass, field
+from typing import Awaitable, Callable, TypeVar
 
 from fastapi import Request
 
@@ -13,6 +14,7 @@ from app.lib import specs
 from app.lib import validator
 from app.model import inp
 from app.model import out
+from app.model.err import RepoPushRejected
 from app.model.int import Entity
 from app.model.plg import IRepoSession
 from app.model.plg import IRepoUntyped
@@ -49,6 +51,25 @@ def operation_request(
 def session(raw: IRepoUntyped, s: Specs) -> IRepoSession:
     """The typed repo session for the type selected in the specs."""
     return raw.session(s.repo.details if s.type else {})
+
+
+T = TypeVar("T")
+
+
+async def write(
+    op: inp.OperationRequest, s: Specs, body: Callable[[IRepoSession], Awaitable[T]]
+) -> T:
+    """
+    Runs `body` in a writer scope. If another instance pushed first, the
+    scope is entered once more, so everything in `body` (limits, generated
+    name, expected content) is checked again on the new state.
+    """
+    try:
+        async with repo.handler.writer(op.user) as raw:
+            return await body(session(raw, s))
+    except RepoPushRejected:
+        async with repo.handler.writer(op.user) as raw:
+            return await body(session(raw, s))
 
 
 @dataclass

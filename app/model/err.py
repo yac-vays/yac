@@ -131,6 +131,13 @@ class RepoConflict(RepoClientError):
     title = "Conflict"
 
 
+class RepoPushRejected(RepoConflict):
+    """
+    Another instance pushed between this writer scope's sync and its push.
+    Nothing was written; the scope can be repeated on the new state.
+    """
+
+
 class RepoForbidden(RepoClientError):
     code = 403
     title = "Forbidden"

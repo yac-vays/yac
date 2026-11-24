@@ -18,9 +18,10 @@ from app.model.inp import QueryMsg
 from app.model.out import Diff
 from app.model.out import TypeActionHook
 from app.model.plg import CommitMsg
+from app.model.plg import IRepoSession
+from app.router import common
 from app.router.common import load
 from app.router.common import operation_request
-from app.router.common import session
 
 router = APIRouter()
 
@@ -63,8 +64,7 @@ async def create_entity(
 
     await action.run(TypeActionHook.CREATE_BEFORE, op, s)
 
-    async with repo.handler.writer(op.user) as raw:
-        rpo = session(raw, s)
+    async def write(rpo: IRepoSession) -> tuple[str, Diff]:
         # The usages the validator checked were measured in the reader scope;
         # a concurrent create may have consumed the remaining quota since.
         # Measure and enforce again, serialized with the write.
@@ -83,11 +83,12 @@ async def create_entity(
             )
 
         if isinstance(entity, CopyEntity):
-            diff = await rpo.copy(type_name, name, entity.copy_name, commit)
-        elif isinstance(entity, LinkEntity):
-            diff = await rpo.link(type_name, name, entity.link_name, commit)
-        else:
-            diff = await rpo.write(type_name, name, "", entity.yaml, commit)
+            return name, await rpo.copy(type_name, name, entity.copy_name, commit)
+        if isinstance(entity, LinkEntity):
+            return name, await rpo.link(type_name, name, entity.link_name, commit)
+        return name, await rpo.write(type_name, name, "", entity.yaml, commit)
+
+    name, diff = await common.write(op, s, write)
 
     # A generated name is only known now (`create:before` cannot have it).
     op = op.model_copy(update={"entity": entity.model_copy(update={"name": name})})
