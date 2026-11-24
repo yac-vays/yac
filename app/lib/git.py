@@ -65,6 +65,13 @@ _UNAVAILABLE_RE = re.compile(
     r"|Empty reply from server"
     r"|Recv failure"
     r"|ssh: connect to host .* port \d+:"
+    r"|The requested URL returned error: 429\b"
+    r"|kex_exchange_identification"
+    r"|Connection closed by"
+    r"|SSL_ERROR_SYSCALL"
+    r"|RPC failed"
+    r"|remote end hung up unexpectedly"
+    r"|Operation timed out"
 )
 
 # Credentials embedded in remote URLs (https://user:token@host/...) show up
@@ -96,12 +103,11 @@ def classify_remote_failure(error: GitError) -> GitError:
     )
 
 
-# Network operations (clone / pull / push) share a generous timeout: a slow
-# remote must not look like a failure. This matters twice for pull, which the
-# git_direct plugin answers with a full reclone, and for push, whose
-# server-side ref update usually completes even when the client is killed on
-# timeout (the user then sees an error for a commit that did land). Local
-# commands keep their short timeouts.
+# Network operations (clone / fetch / pull / push) share a generous timeout:
+# a slow remote must not look like a failure. This matters most for push,
+# whose server-side ref update usually completes even when the client is
+# killed on timeout (the user then sees an error for a commit that did land).
+# Local commands keep their short timeouts.
 NETWORK_TIMEOUT = 30
 
 
@@ -155,8 +161,17 @@ class Repo:
             raise classified from error
 
     async def load(self) -> None:
+        """
+        Check that `path` is the root of a usable checkout: its own `.git`
+        (not a parent directory's) with a HEAD that resolves to a commit --
+        an interrupted clone has neither.
+        """
+        if not await Path(f"{self.path}/.git").exists():
+            raise GitError(f"{self.path} is not a git checkout")
         try:
-            await self.__run("rev-parse", timeout=2)
+            await self.__run(
+                "rev-parse", "--verify", "--quiet", "HEAD^{commit}", timeout=2
+            )
         except FileNotFoundError as error:
             raise GitError(f"Directory {self.path} does not exist") from error
         self.loaded = True
@@ -188,6 +203,10 @@ class Repo:
     async def pull(self, timeout: int = NETWORK_TIMEOUT) -> None:
         await self.__run_remote("pull", timeout=timeout)
 
+    async def fetch(self, timeout: int = NETWORK_TIMEOUT) -> None:
+        """Update the remote-tracking refs of `origin` (no merge)."""
+        await self.__run_remote("fetch", "origin", timeout=timeout)
+
     async def add(self, files: list[str]) -> None:
         await self.__run("add", *files, timeout=3)
 
@@ -212,12 +231,16 @@ class Repo:
             args.append("--hard")
         await self.__run(*args, timeout=3)
 
-    async def clean(self, recursive: bool = True, force: bool = True) -> None:
+    async def clean(
+        self, recursive: bool = True, force: bool = True, ignored: bool = False
+    ) -> None:
         args = ["clean"]
         if recursive:
             args.append("-d")
         if force:
             args.append("-ff")
+        if ignored:
+            args.append("-x")
         await self.__run(*args, timeout=3)
 
     async def get_hash(self, ref: str = "HEAD") -> str:

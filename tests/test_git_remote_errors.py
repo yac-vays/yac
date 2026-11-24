@@ -36,6 +36,12 @@ def test_connection_level_failures_are_unavailable():
         "fatal: unable to access 'https://x/': Could not resolve host: git.example.com",
         "fatal: unable to access 'https://x/': Failed to connect to git.example.com port 443",
         "ssh: connect to host git.example.com port 22: Connection refused",
+        "kex_exchange_identification: Connection closed by remote host",
+        "fatal: unable to access 'https://x/': The requested URL returned error: 429",
+        "fatal: unable to access 'https://x/': OpenSSL SSL_connect: SSL_ERROR_SYSCALL",
+        "error: RPC failed; curl 92 HTTP/2 stream 5 was not closed cleanly",
+        "fatal: the remote end hung up unexpectedly",
+        "fatal: unable to access 'https://x/': Operation timed out after 30000 milliseconds",
     ]:
         classified = git.classify_remote_failure(_failure(stderr))
         assert isinstance(classified, git.GitRemoteError), stderr

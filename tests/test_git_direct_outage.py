@@ -5,7 +5,7 @@ with 503, the remote is not retried within the backoff window, and
 everything recovers once the remote is back.
 
 Reuses the bare-remote + working-clone fixture of lib_git_direct; the
-remote failure itself is injected by patching `git.Repo.pull/clone/push`.
+remote failure itself is injected by patching `git.Repo.fetch/clone/push`.
 """
 
 import time
@@ -24,7 +24,7 @@ from tests.lib_git_direct import DETAILS, USER, repo  # noqa: F401  (fixture)
 
 def _remote_down(monkeypatch, *, maintenance: bool = False) -> dict:
     """Make every network git command fail as an unreachable remote."""
-    calls = {"pull": 0, "clone": 0, "push": 0}
+    calls = {"fetch": 0, "clone": 0, "push": 0}
 
     def failing(name):
         async def run(self, *args, **kwargs):
@@ -58,7 +58,7 @@ async def test_read_serves_last_known_state(repo, monkeypatch):
     with staleness.request_scope() as state:
         assert await _names(repo) == ["a", "b", "link"]
         assert state.stale is True
-    assert calls["pull"] == 1
+    assert calls["fetch"] == 1
     assert calls["clone"] == 0  # the checkout was NOT thrown away
     st = repo.state()
     assert st.failed is not None
@@ -70,12 +70,12 @@ async def test_read_outside_backoff_retries_the_remote(repo, monkeypatch):
     calls = _remote_down(monkeypatch)
     await _names(repo)
     await _names(repo)
-    assert calls["pull"] == 1  # second read within the backoff: no retry
+    assert calls["fetch"] == 1  # second read within the backoff: no retry
     repo._remote_failed = time.time() - gd.REMOTE_BACKOFF_SECONDS - 1
     with staleness.request_scope() as state:
         await _names(repo)
         assert state.stale is True
-    assert calls["pull"] == 2
+    assert calls["fetch"] == 2
 
 
 async def test_write_fails_with_503_and_keeps_checkout(repo, monkeypatch):
@@ -116,12 +116,12 @@ async def test_without_checkout_reads_fail_and_backoff_applies(repo, tmp_path, m
 
 
 async def test_recovery_clears_the_failure_state(repo, monkeypatch):
-    original_pull = git.Repo.pull
+    original_fetch = git.Repo.fetch
     _remote_down(monkeypatch)
     await _names(repo)
     assert repo.state().failed is not None
 
-    monkeypatch.setattr(git.Repo, "pull", original_pull)
+    monkeypatch.setattr(git.Repo, "fetch", original_fetch)
     repo._remote_failed = time.time() - gd.REMOTE_BACKOFF_SECONDS - 1
     with staleness.request_scope() as state:
         assert await _names(repo) == ["a", "b", "link"]
@@ -132,7 +132,7 @@ async def test_recovery_clears_the_failure_state(repo, monkeypatch):
 
 
 async def test_push_failure_is_503_and_leaves_a_clean_tree(repo, monkeypatch):
-    original = {name: getattr(git.Repo, name) for name in ("pull", "clone")}
+    original = {name: getattr(git.Repo, name) for name in ("fetch", "clone")}
     _remote_down(monkeypatch)
     # the pull before the write must succeed, only the push hits the outage
     for name, method in original.items():

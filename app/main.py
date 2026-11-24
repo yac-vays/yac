@@ -74,17 +74,19 @@ if consts.ENV.debug_mode:
 
 def _cleanup_stale_repo_dirs() -> None:
     """
-    Remove /repo/<pid> directories left behind by previous workers (e.g. after
-    SIGKILL). The current worker keeps its own directory.
+    Remove /repo/<pid> directories (and their <pid>.new clone targets) left
+    behind by previous workers (e.g. after SIGKILL). The current worker keeps
+    its own directory.
     """
     base = "/repo"
     if not os.path.isdir(base):
         return
     my_pid = str(os.getpid())
     for name in os.listdir(base):
-        if name == my_pid or not name.isdigit():
+        pid = name.removesuffix(".new")
+        if pid == my_pid or not pid.isdigit():
             continue
-        pid_path = f"/proc/{name}"
+        pid_path = f"/proc/{pid}"
         if os.path.isdir(pid_path):
             continue  # owner still alive
         stale = os.path.join(base, name)

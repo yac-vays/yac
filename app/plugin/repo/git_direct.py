@@ -24,6 +24,9 @@ process startup; changes require a pod restart.
                         where a dirty read will not update the data again.
                         default: 0
 
+Before every non-dirty access the checkout is made identical to the remote
+branch (fetch + hard reset + clean); it is only recloned when it is broken.
+
 Remote outages: when the remote cannot be reached (or answers 5xx, e.g. 503
 in maintenance), the local checkout is kept and reads are answered from it,
 flagged as stale (see app.lib.staleness). Writes, and reads without any
@@ -303,7 +306,7 @@ class GitRepo(IRepo):
         self, user: User | None, *, dirty: bool = False
     ) -> AsyncGenerator[_GitRepoUntyped, None]:
         logger.debug(f"Acquiring git reader lock for {self.path}...")
-        if not dirty or await self._is_outdated():
+        if not dirty or not self._loaded or await self._is_outdated():
             await self._refresh_for_read(user)
 
         async with self._reader_update_lock:
@@ -412,49 +415,81 @@ class GitRepo(IRepo):
         return (time.time() - last_fetch) > 60 * DIRTY_MAX
 
     async def _pull(self, user: User | None) -> None:
+        """
+        Make the checkout identical to the remote branch: fetch, then hard
+        reset and clean. That never merges, so leftovers of an interrupted
+        write (uncommitted files, an unpushed commit) and a rewound remote
+        are healed on the way. Only a checkout that is itself broken is
+        replaced by a fresh clone.
+        """
         gr = _make_git_repo(self.path, user)
         if not self._loaded:
             try:
                 await gr.load()
                 self._loaded = True
             except git.GitError:
-                await self._reclone(user, gr)
+                await self._reclone(user)
                 return
         try:
-            logger.debug(f"Pulling git repo at {self.path}")
-            await gr.pull()
+            logger.debug(f"Fetching git repo at {self.path}")
+            await gr.fetch()
         except (git.GitRemoteError, git.GitTimeoutError) as error:
             # The remote is down or not answering: keep the checkout, it is
             # the best data we have (readers serve it, writers fail).
             raise self._remote_failure(error) from error
         except git.GitError as error:
-            # A problem with the checkout itself (corrupt, diverged, ...):
-            # start over from the remote.
-            logger.warning(f"Pull at {self.path} failed ({error}), recloning")
-            await self._reclone(user, gr)
+            try:
+                await gr.load()
+            except git.GitError:
+                logger.warning(f"Checkout {self.path} is broken ({error}), recloning")
+                await self._reclone(user)
+                return
+            # The checkout is fine, so the fetch itself was refused (bad
+            # credentials, ...): nothing a reclone could fix.
+            logger.error(f"Fetch at {self.path} failed: {error}")
+            raise RepoError(f"Cannot update the repo at {self.path}") from error
+        try:
+            await self._reset(gr)
+        except git.GitError as error:
+            logger.warning(f"Reset at {self.path} failed ({error}), recloning")
+            await self._reclone(user)
             return
         self._remote_success()
 
-    async def _reclone(self, user: User | None, gr: git.Repo) -> None:
-        del user
+    async def _reset(self, gr: git.Repo) -> None:
+        """Drop everything that is not on the remote branch (as last fetched)."""
+        # Every process has its own checkout and this runs under its writer
+        # lock: an index lock can only be left over from a killed git.
+        await Path(f"{self.path}/.git/index.lock").unlink(missing_ok=True)
+        await gr.reset(f"origin/{BRANCH}", hard=True)
+        await gr.clean(recursive=True, force=True, ignored=True)
+
+    async def _reclone(self, user: User | None) -> None:
+        """
+        Replace the checkout by a fresh clone. The clone goes to a temporary
+        directory and is only swapped in once complete: a failed clone leaves
+        the old checkout (if any) untouched and no half-initialised one.
+        """
         self._loaded = False
-        try:
-            await rmtree(self.path)
-        except FileNotFoundError:
-            pass  # it may not be there yet
-        except OSError as error:
-            raise RepoError(f"Cannot delete {self.path}") from error
         if self._in_backoff():
-            # Nothing to lose here (no checkout), but no point in hammering
-            # a remote that just failed either.
+            # No point in hammering a remote that just failed.
             raise self._unavailable()
+        tmp = f"{self.path}.new"
         logger.info(f"Cloning git repo to {self.path}")
         try:
-            await gr.clone(URL, branch=BRANCH)
+            await rmtree(tmp, ignore_errors=True)
+            await _make_git_repo(tmp, user).clone(URL, branch=BRANCH)
         except (git.GitRemoteError, git.GitTimeoutError) as error:
+            await rmtree(tmp, ignore_errors=True)
             raise self._remote_failure(error) from error
         except git.GitError as error:
+            await rmtree(tmp, ignore_errors=True)
             raise RepoError(f"Cannot clone repo to {self.path}: {error}") from error
+        try:
+            await rmtree(self.path, ignore_errors=True)
+            await Path(tmp).rename(self.path)
+        except OSError as error:
+            raise RepoError(f"Cannot replace {self.path}") from error
         self._loaded = True
         self._remote_success()
 
@@ -479,11 +514,6 @@ class GitRepo(IRepo):
             await self._cleanup(user)
             raise self._remote_failure(error) from error
         except git.GitError as error:
-            # Very unlikely scenario where someone pushes from a different
-            # instance or directly to the repo in the millisecond between
-            # pull and push. If this occurs more often than expected
-            # (~ never), we can implement a retry mechanism here.
-            #
             # The git output only lives in the chained exception, which the
             # error handler does not log -- so log it here. A timeout is
             # special: the push may well have reached the remote already
@@ -500,7 +530,6 @@ class GitRepo(IRepo):
             raise RepoError(
                 f"Unable to commit and push changes from {self.path}"
             ) from error
-        await self._cleanup(user)
 
     async def _cleanup(self, user: User | None) -> None:
         """
@@ -509,20 +538,13 @@ class GitRepo(IRepo):
         (otherwise a commit the user got an error for would ride along with
         the next successful write).
         """
-        gr = _make_git_repo(self.path, user)
-        try:
-            unpushed = await gr.get_hash() != await gr.get_hash(f"origin/{BRANCH}")
-        except git.GitError:
-            unpushed = True
-        if not unpushed and not await gr.is_dirty():
-            return
         try:
             logger.debug(f"Cleaning git repo at {self.path}")
-            await gr.reset(f"origin/{BRANCH}", hard=True)
-            await gr.clean(recursive=True, force=True)
-            assert not await gr.is_dirty()
-        except (git.GitError, AssertionError):
-            await self._pull(user)
+            await self._reset(_make_git_repo(self.path, user))
+        except (git.GitError, OSError) as error:
+            # Not to be served as it is: checked (and recloned) on next use.
+            logger.error(f"Could not clean {self.path}: {error}")
+            self._loaded = False
 
     @staticmethod
     def _make_relative(path: str, path2: str) -> str:
