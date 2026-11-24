@@ -341,6 +341,8 @@ class GitRepo(IRepo):
             self._reader_update_lock
         )
         self._writer_lock: asyncio.Lock = asyncio.Lock()
+        # Monotonic start time of the last successful sync with the remote.
+        self._sync_started: float | None = None
         # Remote-connection diagnostics, see `state()`.
         self._synced: float | None = None
         self._remote_error: str | None = None
@@ -382,8 +384,13 @@ class GitRepo(IRepo):
 
     @asynccontextmanager
     async def writer(
-        self, user: User | None
+        self, user: User | None, *, synced_since: float | None = None
     ) -> AsyncGenerator[_GitRepoUntyped, None]:
+        """
+        Starts with a sync, unless one that started after `synced_since`
+        (monotonic time) has already succeeded: concurrent readers waiting
+        for the lock then share one sync.
+        """
         logger.debug(f"Acquiring git writer lock for {self.path}...")
         async with self._writer_lock:
             async with self._reader_update_lock:
@@ -393,7 +400,15 @@ class GitRepo(IRepo):
                 self._reader_count = _WRITER_ACTIVE
 
             try:
-                await self._pull(user)
+                if (
+                    synced_since is None
+                    or not self._loaded
+                    or self._sync_started is None
+                    or self._sync_started < synced_since
+                ):
+                    started = time.monotonic()
+                    await self._pull(user)
+                    self._sync_started = started
                 try:
                     yield _GitRepoUntyped(self, user, writing=True)
                 except git.GitTimeoutError as error:
@@ -420,8 +435,9 @@ class GitRepo(IRepo):
             staleness.mark_stale(self._synced)
             return
         logger.debug(f"Upgrading lock to git writer lock to pull repo at {self.path}!")
+        asked = time.monotonic()
         try:
-            async with self.writer(user):
+            async with self.writer(user, synced_since=asked):
                 pass
         except RepoUnavailable:
             if not self._loaded:
