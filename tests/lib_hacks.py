@@ -40,7 +40,7 @@ def _app_with_oidc():
 
 def test_openapi_injects_token_name_and_caches():
     app = _app_with_oidc()
-    get_schema = hacks.get_openapi_schema_with_oidc_idtoken(app, "desc")
+    get_schema = hacks.get_openapi_schema_with_oidc_idtoken(app)
 
     schema = get_schema()
     scheme = schema["components"]["securitySchemes"]["OpenID Connect"]

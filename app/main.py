@@ -19,6 +19,7 @@ from app.lib import hacks
 from app.lib import plugin
 from app.lib import specs
 from app.lib import staleness
+from app.model.err import ERROR_RESPONSES
 from app.model.err import RepoUnavailable
 from app.model.err import YACError
 from app.router import arbitrary
@@ -159,8 +160,10 @@ yac = FastAPI(
     description=DESCRIPTION,
     version=VERSION,
     root_path="" if consts.ENV.root_path == "/" else consts.ENV.root_path,
+    root_path_in_servers=False,
     contact=consts.CONTACT,
     license_info=consts.LICENSE,
+    responses=ERROR_RESPONSES,
     # The docs page at `/` is added by `docs.setup` below (self-hosted assets
     # instead of FastAPI's CDN links).
     docs_url=None,
@@ -205,4 +208,4 @@ yac.add_exception_handler(YACError, error.handle_yac)  # type: ignore
 yac.add_exception_handler(RequestValidationError, error.handle_invalid)  # type: ignore
 yac.add_exception_handler(500, error.handle_all)
 
-yac.openapi = hacks.get_openapi_schema_with_oidc_idtoken(yac, DESCRIPTION)
+yac.openapi = hacks.get_openapi_schema_with_oidc_idtoken(yac)

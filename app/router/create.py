@@ -6,15 +6,11 @@ from fastapi import status
 from app.lib import action
 from app.lib import limits
 from app.lib import repo
-from app.lib import specs
 from app.lib import validator
 from app.lib.auth import CurrentUser
-from app.model.err import ServerError
-from app.model.err import http_responses
 from app.model.inp import CopyEntity
 from app.model.inp import LinkEntity
 from app.model.inp import NewEntity
-from app.model.inp import OperationRequest
 from app.model.inp import PathType
 from app.model.inp import QueryActions
 from app.model.inp import QueryForce
@@ -22,6 +18,9 @@ from app.model.inp import QueryMsg
 from app.model.out import Diff
 from app.model.out import TypeActionHook
 from app.model.plg import CommitMsg
+from app.router.common import load
+from app.router.common import operation_request
+from app.router.common import session
 
 router = APIRouter()
 
@@ -30,7 +29,6 @@ router = APIRouter()
     "/entity/{type}",
     summary="Create a new entity",
     status_code=status.HTTP_201_CREATED,
-    responses=http_responses(),
 )
 async def create_entity(
     request: Request,
@@ -50,27 +48,13 @@ async def create_entity(
     created even when its data fails schema validation; YAML syntax, name
     rules, permissions, conflicts and limits are still enforced.
     """
-    op = OperationRequest(
-        request_headers=dict(request.headers),
-        request_ip=request.client.host if request.client else "",
-        user=user,
-        operation="create",
-        type=type_name,
-        name=None,
-        actions=run,
-        entity=entity,
-        force=force,
+    op = operation_request(
+        request, user, "create", type_name, actions=run, entity=entity, force=force
     )
+    ctx = await load(op, with_limits=True)
+    s, old = ctx.specs, ctx.old
 
-    s = await specs.read(op)
-    async with repo.handler.reader(op.user) as raw:
-        rpo = raw.session(s.repo.details if s.type else {})
-        hash = await rpo.get_hash()
-        old, new, perms = await repo.get_entities(hash, rpo, op, s)
-        new_data, _ = validator.incoming_new_data(op, old)
-        usages = await limits.measure(rpo, op, s, old, new_data)
-
-    result = await validator.test_all(op, s, old, new, perms, usages)
+    result = await validator.test_all(op, s, old, ctx.new, ctx.perms, ctx.usages)
     commit = CommitMsg(body=msg)
     if force and not result.schemas.valid:
         # Audit trail: the repo history must show that this commit was written
@@ -80,38 +64,33 @@ async def create_entity(
     await action.run(TypeActionHook.CREATE_BEFORE, op, s)
 
     async with repo.handler.writer(op.user) as raw:
-        rpo = raw.session(s.repo.details if s.type else {})
-        # The reader-scope measurement above produced the `usages` the
-        # validator checked (and the UI displays), but a concurrent create
-        # may have consumed the remaining quota since that scope closed.
-        # Re-measure with the writer session and enforce again before
-        # writing (enforcement only; `usages` stays the displayed value).
-        await limits.enforce(rpo, op, s, old, new_data)
-        name = op.entity.name if op.entity else None
+        rpo = session(raw, s)
+        # The usages the validator checked were measured in the reader scope;
+        # a concurrent create may have consumed the remaining quota since.
+        # Measure and enforce again, serialized with the write.
+        await limits.enforce(rpo, op, s, old, ctx.new_data)
+        name = entity.name
         if name is None:
-            if isinstance(op.entity, (CopyEntity, LinkEntity)):
-                # Copies/links inherit the source entity's data, so generate
-                # the name from it the same way as for new entities.
-                new_data = old.data or {}
-            else:
-                new_data = result.schemas.data
+            # Copies/links inherit the source entity's data, so their name is
+            # generated from it the same way as for new entities.
+            namegen_data = (
+                result.schemas.data
+                if isinstance(entity, NewEntity)
+                else old.data or {}
+            )
             name = await repo.gen_name(
-                op, s, await rpo.list(type_name), new_data
+                op, s, await rpo.list(type_name), namegen_data
             )
 
-        if isinstance(op.entity, CopyEntity):
-            diff = await rpo.copy(type_name, name, op.entity.copy_name, commit)
-        elif isinstance(op.entity, LinkEntity):
-            diff = await rpo.link(type_name, name, op.entity.link_name, commit)
-        elif isinstance(op.entity, NewEntity):
-            diff = await rpo.write(type_name, name, "", op.entity.yaml, commit)
+        if isinstance(entity, CopyEntity):
+            diff = await rpo.copy(type_name, name, entity.copy_name, commit)
+        elif isinstance(entity, LinkEntity):
+            diff = await rpo.link(type_name, name, entity.link_name, commit)
         else:
-            raise ServerError("Cannot happen!")
+            diff = await rpo.write(type_name, name, "", entity.yaml, commit)
 
     # A generated name is only known now (`create:before` cannot have it).
-    op = op.model_copy(
-        update={"entity": op.entity.model_copy(update={"name": name})}
-    )
+    op = op.model_copy(update={"entity": entity.model_copy(update={"name": name})})
     await action.run_after(TypeActionHook.CREATE_AFTER, op, s, response)
 
     return diff

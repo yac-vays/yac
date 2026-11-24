@@ -20,6 +20,7 @@ from app.model.inp import CopyEntity
 from app.model.inp import LinkEntity
 from app.model.inp import OperationRequest
 from app.model.out import DetailedEntity
+from app.model.out import ListedEntity
 from app.model.int import Entity
 from app.model.plg import IRepo
 from app.model.plg import IRepoSession
@@ -256,9 +257,7 @@ async def get_entity_for_list(
     return old, p
 
 
-def to_detailed_entity(
-    entity: Entity, p: list[str], entity_hash: str, type_spec: Type | None
-) -> DetailedEntity:
+def _options(entity: Entity, type_spec: Type | None) -> dict:
     options = {}
     if type_spec is not None:
         data = entity.data or {}
@@ -270,11 +269,27 @@ def to_detailed_entity(
                     options[o.name] = o.default if value is None else value
             elif o.name in data or o.default is not None:
                 options[o.name] = data.get(o.name, o.default)
+    return options
 
+
+def to_listed_entity(
+    entity: Entity, p: list[str], type_spec: Type | None
+) -> ListedEntity:
+    return ListedEntity(
+        name=entity.name or "",
+        link=entity.link if entity.is_link else None,
+        options=_options(entity, type_spec),
+        perms=p,
+    )
+
+
+def to_detailed_entity(
+    entity: Entity, p: list[str], entity_hash: str, type_spec: Type | None
+) -> DetailedEntity:
     return DetailedEntity(
         name=entity.name or "",
         link=entity.link if entity.is_link else None,
-        options=options,
+        options=_options(entity, type_spec),
         data=entity.data or {},
         yaml=entity.yaml,
         perms=p,

@@ -156,24 +156,20 @@ class AuthError(YACError):
     title = "Login Failed"
 
 
-def http_responses() -> dict:
-    result = {}
-    for c in [400, 401, 403, 404, 409, 422, 500, 503]:
-        result.update(
-            {
-                c: {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object",
-                                "properties": {
-                                    "title": {"type": "string"},
-                                    "message": {"type": "string"},
-                                },
-                            }
-                        }
-                    }
+# The body of every error answer, for the OpenAPI schema of all routes.
+ERROR_RESPONSES: dict = {
+    code: {
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "message": {"type": "string"},
+                    },
                 }
             }
-        )
-    return result
+        }
+    }
+    for code in [400, 401, 403, 404, 409, 422, 500, 503]
+}

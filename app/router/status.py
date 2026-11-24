@@ -6,20 +6,19 @@ from fastapi import APIRouter, status, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from app.lib import hacks
 from app.lib import repo
 from app.lib import specs
 from app.lib import staleness
 from app.lib.auth import CurrentUser
 from app.version import VERSION
-from app.model.err import http_responses
 from app.model.err import RepoMaintenance
 from app.model.err import RepoUnavailable
-from app.model.inp import OperationRequest
 from app.model.out import RepoStatus
 from app.model.out import Status
 from app.model.out import Meta
 from app.model.out import User
+from app.router.common import NO_TYPE
+from app.router.common import operation_request
 
 router = APIRouter()
 
@@ -55,7 +54,6 @@ def _repo_status(*, stale: bool) -> RepoStatus:
 @router.get(
     "/meta",
     summary="Meta data",
-    responses=http_responses(),
 )
 async def get_meta() -> Meta:
     """
@@ -72,7 +70,6 @@ async def get_meta() -> Meta:
     "/health",
     summary="Test if the application is running",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=http_responses(),
 )
 async def get_health() -> None:
     """
@@ -83,7 +80,6 @@ async def get_health() -> None:
 @router.get(
     "/status",
     summary="Get the status, including the data repository's availability",
-    responses=http_responses(),
 )
 async def get_status(request: Request) -> Status:
     """
@@ -106,19 +102,11 @@ async def get_status(request: Request) -> Status:
         if _status_cache["status"] is not None and now < _status_cache["expires_at"]:
             return _status_cache["status"]
 
-        op = OperationRequest(
-            request_headers=dict(request.headers),
-            request_ip=request.client.host if request.client else "",
-            user=User(
-                name="dummy-status-user",
-                email="invalid",
-                full_name="Dummy Status User",
-            ),
-            operation="read",
-            type="does-not-exist",
-            name=None,
-            actions=[],
-            entity=None,
+        op = operation_request(
+            request,
+            User(name="dummy-status-user", email="invalid", full_name="Dummy Status User"),
+            "read",
+            NO_TYPE,
         )
 
         _ = await specs.read(op)
@@ -128,13 +116,10 @@ async def get_status(request: Request) -> Status:
         except RepoUnavailable:
             # Not cached: the next call should notice recovery right away
             # (the plugin's own backoff keeps this from hammering the remote).
-            return hacks.add_cors_headers_to_response(
-                request,
-                JSONResponse(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    content=jsonable_encoder(
-                        Status(hash=None, repo=_repo_status(stale=False))
-                    ),
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content=jsonable_encoder(
+                    Status(hash=None, repo=_repo_status(stale=False))
                 ),
             )
 
@@ -149,7 +134,6 @@ async def get_status(request: Request) -> Status:
 @router.get(
     "/me",
     summary="Test the token for validity and get its content",
-    responses=http_responses(),
 )
 async def me(user: CurrentUser) -> User:
     """

@@ -8,14 +8,12 @@ from fastapi.responses import PlainTextResponse
 from app.lib import links
 from app.lib import log
 from app.lib import perms
-from app.lib import props as _props
+from app.lib import props
 from app.lib import repo
 from app.lib import specs
 from app.lib import validator
 from app.lib.auth import CurrentUser
 from app.model.err import RepoError
-from app.model.err import http_responses
-from app.model.inp import OperationRequest
 from app.model.inp import PathLog
 from app.model.inp import PathName
 from app.model.inp import PathType
@@ -24,9 +22,14 @@ from app.model.inp import QuerySearch
 from app.model.inp import QuerySkip
 from app.model.out import DetailedEntity
 from app.model.out import EntityList
+from app.model.out import ListedEntity
 from app.model.out import Log
 from app.model.out import LogContent
 from app.model.out import Type
+from app.router.common import NO_TYPE
+from app.router.common import load
+from app.router.common import operation_request
+from app.router.common import session
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -41,7 +44,6 @@ _LIST_CONCURRENCY = 32
 @router.get(
     "/entity",
     summary="List all entity types",
-    responses=http_responses(),
 )
 async def get_types(
     request: Request,
@@ -53,16 +55,7 @@ async def get_types(
     Type metadata is intentionally visible to every authenticated user,
     regardless of roles; entity data itself remains role-protected.
     """
-    op = OperationRequest(
-        request_headers=dict(request.headers),
-        request_ip=request.client.host if request.client else "",
-        user=user,
-        operation="read",
-        type="does-not-exist",
-        name=None,
-        actions=[],
-        entity=None,
-    )
+    op = operation_request(request, user, "read", NO_TYPE)
 
     s = await specs.read(op)
 
@@ -75,7 +68,6 @@ async def get_types(
 @router.get(
     "/entity/{type}",
     summary="List entities of a specific type",
-    responses=http_responses(),
 )
 async def list_entities(
     request: Request,
@@ -89,20 +81,11 @@ async def list_entities(
     Will collect some data about the (searched) entities of {type}. Entities
     for which the user does not hold the 'see' permission are filtered out.
     """
-    op = OperationRequest(
-        request_headers=dict(request.headers),
-        request_ip=request.client.host if request.client else "",
-        user=user,
-        operation="read",
-        type=type_name,
-        name=None,
-        actions=[],
-        entity=None,
-    )
+    op = operation_request(request, user, "read", type_name)
 
     s = await specs.read(op)
     async with repo.handler.reader(op.user) as raw:
-        rpo = raw.session(s.repo.details if s.type else {})
+        rpo = session(raw, s)
         hash = await rpo.get_hash()
         await validator.test_ls(op, s)
 
@@ -111,13 +94,13 @@ async def list_entities(
         active_roles = await perms.get_active_role_set(op, s)
         # Build the per-request shared portion of role props once; each
         # gathered task shallow-extends it with its own old/new/name keys.
-        base_props = _props.get_roles_base(op, s.request)
-        links_props = _props.get_links_base(op, s.request)
+        base_props = props.get_roles_base(op, s.request)
+        links_props = props.get_links_base(op, s.request)
 
         matches = [n for n in await rpo.list(type_name) if search in n]
         sem = asyncio.Semaphore(_LIST_CONCURRENCY)
 
-        async def _process(entity_name: str) -> DetailedEntity | None:
+        async def _process(entity_name: str) -> ListedEntity | None:
             async with sem:
                 try:
                     old, entity_perms = await repo.get_entity_for_list(
@@ -129,7 +112,7 @@ async def list_entities(
                     return None
             if "see" not in entity_perms:
                 return None
-            entity = repo.to_detailed_entity(old, entity_perms, hash, s.type)
+            entity = repo.to_listed_entity(old, entity_perms, s.type)
             entity.links = await links.render(s.type, old, links_props)
             return entity
 
@@ -139,7 +122,7 @@ async def list_entities(
         # bounded parallelism).
         target = limit + skip
         wave = max(target, _LIST_CONCURRENCY)
-        result: list[DetailedEntity] = []
+        result: list[ListedEntity] = []
         i = 0
         while i < len(matches) and len(result) < target:
             chunk = matches[i : i + wave]
@@ -155,7 +138,6 @@ async def list_entities(
 @router.get(
     "/entity/{type}/{name}",
     summary="Get all data of a specific entity",
-    responses=http_responses(),
 )
 async def get_entity(
     request: Request,
@@ -166,28 +148,16 @@ async def get_entity(
     """
     All data of a specific entity, including its raw YAML.
     """
-    op = OperationRequest(
-        request_headers=dict(request.headers),
-        request_ip=request.client.host if request.client else "",
-        user=user,
-        operation="read",
-        type=type_name,
-        name=entity_name,
-        actions=[],
-        entity=None,
-    )
+    op = operation_request(request, user, "read", type_name, entity_name)
 
-    s = await specs.read(op)
-    async with repo.handler.reader(op.user) as raw:
-        rpo = raw.session(s.repo.details if s.type else {})
-        hash = await rpo.get_hash()
-        old, new, perms = await repo.get_entities(hash, rpo, op, s)
+    ctx = await load(op)
+    s, old = ctx.specs, ctx.old
 
-    await validator.test_all(op, s, old, new, perms)
+    await validator.test_all(op, s, old, ctx.new, ctx.perms)
 
-    entity = repo.to_detailed_entity(old, perms, hash, s.type)
+    entity = repo.to_detailed_entity(old, ctx.perms, ctx.hash, s.type)
     entity.links = await links.render(
-        s.type, old, _props.get_links_base(op, s.request)
+        s.type, old, props.get_links_base(op, s.request)
     )
     return entity
 
@@ -196,7 +166,6 @@ async def get_entity(
     "/entity/{type}/{name}/yaml",
     summary="Get the raw YAML data of a specific entity",
     response_class=PlainTextResponse,
-    responses=http_responses(),
 )
 async def get_entity_yaml(
     request: Request,
@@ -204,24 +173,12 @@ async def get_entity_yaml(
     type_name: PathType,
     entity_name: PathName,
 ):
-    op = OperationRequest(
-        request_headers=dict(request.headers),
-        request_ip=request.client.host if request.client else "",
-        user=user,
-        operation="read",
-        type=type_name,
-        name=entity_name,
-        actions=[],
-        entity=None,
-    )
+    op = operation_request(request, user, "read", type_name, entity_name)
 
-    s = await specs.read(op)
-    async with repo.handler.reader(op.user) as raw:
-        rpo = raw.session(s.repo.details if s.type else {})
-        hash = await rpo.get_hash()
-        old, new, perms = await repo.get_entities(hash, rpo, op, s)
+    ctx = await load(op)
+    s, old = ctx.specs, ctx.old
 
-    await validator.test_all(op, s, old, new, perms)
+    await validator.test_all(op, s, old, ctx.new, ctx.perms)
 
     return PlainTextResponse(content=old.yaml, media_type="application/yaml")
 
@@ -229,7 +186,6 @@ async def get_entity_yaml(
 @router.get(
     "/entity/{type}/{name}/logs",
     summary="Get the logs of a specific entity",
-    responses=http_responses(),
 )
 async def get_entity_logs(
     request: Request,
@@ -238,35 +194,21 @@ async def get_entity_logs(
     entity_name: PathName,
 ) -> list[Log]:
 
-    op = OperationRequest(
-        request_headers=dict(request.headers),
-        request_ip=request.client.host if request.client else "",
-        user=user,
-        operation="read",
-        type=type_name,
-        name=entity_name,
-        actions=[],
-        entity=None,
-    )
+    op = operation_request(request, user, "read", type_name, entity_name)
 
-    s = await specs.read(op)
-
-    async with repo.handler.reader(op.user, dirty=True) as raw:
-        rpo = raw.session(s.repo.details if s.type else {})
-        hash = await rpo.get_hash()
-        old, new, perms = await repo.get_entities(hash, rpo, op, s)
+    ctx = await load(op, dirty=True)
+    s, old = ctx.specs, ctx.old
 
     # Enforce the `see` permission and entity existence BEFORE fetching the
     # logs — log plugins may reach external systems and must not run (or be
     # orphaned) for requests that are not allowed to see the entity.
-    await validator.test_all(op, s, old, new, perms)
+    await validator.test_all(op, s, old, ctx.new, ctx.perms)
     return await log.get(op, s, old.data)
 
 
 @router.get(
     "/entity/{type}/{name}/logs/{log}/content",
     summary="Get the content document of a log of a specific entity",
-    responses=http_responses(),
 )
 async def get_entity_log_content(
     request: Request,
@@ -281,24 +223,11 @@ async def get_entity_log_content(
     entries, which are polled), so it may be big.
     """
 
-    op = OperationRequest(
-        request_headers=dict(request.headers),
-        request_ip=request.client.host if request.client else "",
-        user=user,
-        operation="read",
-        type=type_name,
-        name=entity_name,
-        actions=[],
-        entity=None,
-    )
+    op = operation_request(request, user, "read", type_name, entity_name)
 
-    s = await specs.read(op)
-
-    async with repo.handler.reader(op.user, dirty=True) as raw:
-        rpo = raw.session(s.repo.details if s.type else {})
-        hash = await rpo.get_hash()
-        old, new, perms = await repo.get_entities(hash, rpo, op, s)
+    ctx = await load(op, dirty=True)
+    s, old = ctx.specs, ctx.old
 
     # Same as for the entries: `see` and existence first, then the plugin.
-    await validator.test_all(op, s, old, new, perms)
+    await validator.test_all(op, s, old, ctx.new, ctx.perms)
     return await log.content(op, s, log_name, old.data)

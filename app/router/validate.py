@@ -7,10 +7,10 @@ from app.lib import specs
 from app.lib import validator
 from app.lib.auth import CurrentUser
 from app.model.err import RequestError
-from app.model.err import http_responses
 from app.model.inp import Operation
-from app.model.inp import OperationRequest
 from app.model.out import ValidationResult
+from app.router.common import operation_request
+from app.router.common import session
 
 router = APIRouter()
 
@@ -18,7 +18,6 @@ router = APIRouter()
 @router.post(
     "/validate",
     summary="Validate an operation (including entity data) and return the schema",
-    responses=http_responses(),
 )
 async def validate_operation(
     request: Request, user: CurrentUser, op: Operation
@@ -28,20 +27,19 @@ async def validate_operation(
     depending on all the data sent in the request.
     """
 
-    op = OperationRequest(
-        request_headers=dict(request.headers),
-        request_ip=request.client.host if request.client else "",
-        user=user,
-        operation=op.operation,
-        type=op.type_name,
-        name=op.name,
+    op = operation_request(
+        request,
+        user,
+        op.operation,
+        op.type_name,
+        op.name,
         actions=op.actions,
         entity=op.entity,
     )
 
     s = await specs.read(op)
     async with repo.handler.reader(op.user, dirty=True) as raw:
-        rpo = raw.session(s.repo.details if s.type else {})
+        rpo = session(raw, s)
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
         # Nothing derived from an entity the user may not read (see

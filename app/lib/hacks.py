@@ -3,34 +3,23 @@ from typing import Callable
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from fastapi.openapi.utils import get_openapi
 
-from app import consts
 from app.lib import specs
-from app.version import VERSION
 
 
-def get_openapi_schema_with_oidc_idtoken(app: FastAPI, description: str) -> Callable:
+def get_openapi_schema_with_oidc_idtoken(app: FastAPI) -> Callable:
     """
+    Makes Swagger UI send the id_token instead of the access_token.
     Hack from: https://github.com/fastapi/fastapi/discussions/8557
     """
+    default = app.openapi
 
     def get_schema():
-        if app.openapi_schema:
-            return app.openapi_schema
-        openapi_schema = get_openapi(
-            title=consts.TITLE,
-            description=description,
-            version=VERSION,
-            contact=consts.CONTACT,
-            license_info=consts.LICENSE,
-            routes=app.routes,
-        )
-        openapi_schema["components"]["securitySchemes"]["OpenID Connect"][
+        schema = default()  # generated once, cached on the app
+        schema["components"]["securitySchemes"]["OpenID Connect"][
             "x-tokenName"
         ] = "id_token"
-        app.openapi_schema = openapi_schema
-        return app.openapi_schema
+        return schema
 
     return get_schema
 
@@ -39,7 +28,8 @@ def add_cors_headers_to_response(
     request: Request, response: JSONResponse
 ) -> JSONResponse:
     """
-    CORS headers are not automatically added to error handlers with FastAPI.
+    The handler of unexpected exceptions (500) runs outside the CORS
+    middleware, so its response gets no CORS headers on its own.
     Hack from: https://github.com/fastapi/fastapi/discussions/8027
     """
     response.headers.update(
