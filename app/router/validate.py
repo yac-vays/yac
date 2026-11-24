@@ -51,7 +51,7 @@ async def validate_operation(
         if validator.may_read(old, perms):
             new_data, _ = validator.incoming_new_data(op, old)
             try:
-                usages = await limits.measure(hash, rpo, op, s, old, new_data)
+                usages = await limits.measure(rpo, op, s, old, new_data)
             except RequestError as error:
                 # E.g. a limit referencing data the form has not filled in
                 # yet: a validation result like any other, not a failure.

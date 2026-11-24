@@ -73,7 +73,7 @@ async def test_limit_sums_carry_no_float_noise(fake_repo):
     )
     old = Entity(name="A", exists=True, data={"cpus": 0.1})
     usages = await limits.measure(
-        "h", rpo, _edit_op({"cpus": 0.4}), _specs_with(lim), old, {"cpus": 0.4}
+        rpo, _edit_op({"cpus": 0.4}), _specs_with(lim), old, {"cpus": 0.4}
     )
     # 0.4 + 0.2 is 0.6000000000000001 in floats, which would be over the cap
     assert usages[0].used == 0.6

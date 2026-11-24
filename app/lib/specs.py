@@ -8,7 +8,6 @@ Raises: [app.model.err.SpecsError]
 """
 
 import copy
-import hashlib
 import logging
 import re
 import sys
@@ -122,24 +121,9 @@ def _process_includes_sync(data: Any, base_path: str) -> Any:
 
                 inc_data = _process_includes_sync(inc_data, dirname(inc_file_path))
 
-                if isinstance(inc_data, dict):
-                    for key, value in inc_data.items():
-                        if key not in data:
-                            data[key] = value
-                else:
-                    if len(data) > 0:
-                        logger.warning(
-                            f"Cannot merge {type(data)} from yac_include of"
-                            f" {inc_file_path} into an object"
-                        )
-                        continue
-                    if len(includes) > 1:
-                        logger.warning(
-                            f"Cannot merge {type(data)} from yac_include of"
-                            f" {inc_file_path} into other non-object types"
-                        )
-                        continue
-                    data = inc_data
+                for key, value in inc_data.items():
+                    if key not in data:
+                        data[key] = value
 
         for key, value in list(data.items()):
             data[key] = _process_includes_sync(value, base_path)
@@ -150,11 +134,11 @@ def _process_includes_sync(data: Any, base_path: str) -> Any:
     return data
 
 
-def _load_raw_data() -> tuple[dict, str]:
+def _load_raw_data() -> dict:
     """
     Load the static specs file and process `yac_include`. The returned
     dict has not been j2-rendered yet (rendering happens per request in
-    `read()`). The hash is a stable digest of the post-include text.
+    `read()`).
     """
     text = _load_text_sync(consts.ENV.specs)
     try:
@@ -163,14 +147,9 @@ def _load_raw_data() -> tuple[dict, str]:
         logger.critical(f"In YAML syntax of {consts.ENV.specs}: {error}")
         sys.exit(1)
 
-    if not isinstance(data, dict):
-        logger.critical(f"Specs file at {consts.ENV.specs} must be an object")
-        sys.exit(1)
-
     data = _process_includes_sync(data, dirname(consts.ENV.specs))
     _validate_role_keys(data)
-    data_hash = hashlib.sha1(repr(stable_key(data)).encode("utf-8")).hexdigest()
-    return data, data_hash
+    return data
 
 
 def _validate_role_keys(data: Any) -> None:
@@ -194,7 +173,7 @@ def _validate_role_keys(data: Any) -> None:
 
 
 # Loaded once at process startup. Subsequent requests reuse this raw dict.
-_RAW_DATA, _RAW_HASH = _load_raw_data()
+_RAW_DATA = _load_raw_data()
 
 
 def _render_at_startup(

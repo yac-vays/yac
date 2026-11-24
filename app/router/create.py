@@ -68,7 +68,7 @@ async def add_entity(
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
         new_data, _ = validator.incoming_new_data(op, old)
-        usages = await limits.measure(hash, rpo, op, s, old, new_data)
+        usages = await limits.measure(rpo, op, s, old, new_data)
 
     result = await validator.test_all(op, s, old, new, perms, usages)
     commit = CommitMsg(body=msg)

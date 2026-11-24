@@ -90,7 +90,6 @@ async def _scan_existing(
 
 
 async def measure(
-    hash: str,
     rpo: IRepoSession,
     op: OperationRequest,
     s: Specs,
@@ -109,8 +108,6 @@ async def measure(
     Must be called inside an open repo reader scope. Returns the usages for
     display; enforcement (raising on `not ok`) happens in `lib.validator`.
     """
-    del hash  # the live `rpo` already reflects the scoped repo state
-
     if s.type is None or not s.type.limits:
         return []
 
@@ -183,9 +180,7 @@ async def enforce(
     writer lock. Raises the same RequestError as `lib.validator.test_all`
     (via `assert_within`), so the HTTP response shape is unchanged.
     """
-    # `measure`'s hash argument only documents cache scoping and is unused
-    # (the live `rpo` already reflects the writer-scope repo state).
-    assert_within(await measure("", rpo, op, s, old, new_data))
+    assert_within(await measure(rpo, op, s, old, new_data))
 
 
 def _fmt(n: float) -> str:

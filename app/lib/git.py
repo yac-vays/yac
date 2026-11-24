@@ -136,7 +136,6 @@ async def _stop(proc: Process) -> None:
 class Repo:
 
     def __init__(self, path: str, env: dict[str, str]) -> None:
-        self.loaded = False
         self.path = path
         self.env = env
 
@@ -202,7 +201,6 @@ class Repo:
         await self.__run(
             "rev-parse", "--verify", "--quiet", "HEAD^{commit}", timeout=2
         )
-        self.loaded = True
 
     async def clone(
         self,
@@ -226,7 +224,6 @@ class Repo:
             ".",
             timeout=timeout,
         )
-        self.loaded = True
 
     async def pull(self, timeout: int = NETWORK_TIMEOUT) -> None:
         await self.__run_remote("pull", timeout=timeout)

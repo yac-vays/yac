@@ -56,7 +56,7 @@ async def test_symlink_to_edited_entity_counts_incoming_data(fake_repo):
     old = Entity(name="A", exists=True, data={"cpus": 4})
     lim = TypeLimit.model_construct(**_CPUS_LIMIT)
     usages = await limits.measure(
-        "h", _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
+        _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
     )
     # A=40 (incoming) + B=40 (symlink -> A, the *new* value) + C=2 = 82.
     # The bug counted B with its stale on-disk copy (4) -> 46, bypassing the cap.
@@ -69,7 +69,7 @@ async def test_non_number_data_does_not_abort_measure(fake_repo):
     # Incoming cpus is a (schema-invalid) string: the value cannot be coerced to
     # a number, but measure must not raise -- the contribution falls back to 0.
     usages = await limits.measure(
-        "h", _repo(fake_repo), _edit_op({"cpus": "nope"}),
+        _repo(fake_repo), _edit_op({"cpus": "nope"}),
         _specs_with(lim), old, {"cpus": "nope"},
     )
     # incoming A -> 0, B mirrors A's new data -> 0, C -> 2; the point is no raise.
@@ -83,7 +83,7 @@ async def test_name_only_limit_unaffected(fake_repo):
         title="count", on=["edit"], scope="true", value="1", max="100"
     )
     usages = await limits.measure(
-        "h", _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
+        _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
     )
     assert usages[0].used == 3, usages[0].used  # A + B + C, one each
 
@@ -95,7 +95,7 @@ async def test_over_cap_reports_not_ok(fake_repo):
         value="old.data.cpus | default(0)", max="50",
     )
     usages = await limits.measure(
-        "h", _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
+        _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
     )
     # 40 + 40 + 2 = 82 > 50
     assert usages[0].used == 82 and usages[0].max == 50 and usages[0].ok is False
@@ -117,13 +117,13 @@ async def test_scope_filters_out_of_scope_entities(fake_repo):
     )
     # incoming vm + existing vms (A, C); the bare B is out of scope.
     usages = await limits.measure(
-        "h", rpo, _create_op("kind: vm"), _specs_with(lim),
+        rpo, _create_op("kind: vm"), _specs_with(lim),
         Entity(name=None, exists=False), {"kind": "vm"},
     )
     assert usages[0].used == 3
     # an out-of-scope incoming entity does not count itself.
     usages = await limits.measure(
-        "h", rpo, _create_op("kind: bare"), _specs_with(lim),
+        rpo, _create_op("kind: bare"), _specs_with(lim),
         Entity(name=None, exists=False), {"kind": "bare"},
     )
     assert usages[0].used == 2  # only existing A, C
@@ -165,7 +165,7 @@ async def test_path_is_propagated_to_usage(fake_repo):
     old = Entity(name="A", exists=True, data={"cpus": 4})
     lim = TypeLimit.model_construct(**_CPUS_LIMIT, path="#/cpus")
     usages = await limits.measure(
-        "h", _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
+        _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
     )
     assert usages[0].path == "#/cpus"
 
@@ -174,7 +174,7 @@ async def test_path_defaults_to_none(fake_repo):
     old = Entity(name="A", exists=True, data={"cpus": 4})
     lim = TypeLimit.model_construct(**_CPUS_LIMIT)
     usages = await limits.measure(
-        "h", _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
+        _repo(fake_repo), _edit_op({"cpus": 40}), _specs_with(lim), old, {"cpus": 40}
     )
     # Pathless limits serialize `path: null` -- the wire shape VAYS's runtime
     # type-check (`path: Maybe String`) relies on.
@@ -189,7 +189,7 @@ async def test_limit_not_applicable_to_operation(fake_repo):
         title="cpus", on=["create"], scope="true", value="old.data.cpus | default(0)", max="100"
     )
     usages = await limits.measure(
-        "h", rpo, _edit_op({"cpus": 4}), _specs_with(lim),
+        rpo, _edit_op({"cpus": 4}), _specs_with(lim),
         Entity(name="A", exists=True, data={"cpus": 4}), {"cpus": 4},
     )
     assert usages == []

@@ -61,7 +61,6 @@ def work(tmp_path, remote):
 
 async def test_load_ok(work):
     await work.load()
-    assert work.loaded is True
 
 
 async def test_load_missing_directory_raises_git_error(tmp_path):
@@ -76,7 +75,6 @@ async def test_clone_creates_working_copy(tmp_path, remote):
     dest = tmp_path / "fresh"
     repo = git.Repo(path=str(dest), env=ENV)
     await repo.clone(str(remote), branch="main")
-    assert repo.loaded is True
     assert (dest / "file.txt").read_text() == "one\n"
 
 
