@@ -95,19 +95,20 @@ async def test_git_direct_refuses_to_rename_a_link_target(repo):  # noqa: F811
 async def test_git_redis_finds_links_to_an_entity():
     import app.plugin.repo.git_redis as grs
 
-    store = {
-        "data:H:hosts/a.yml": "f:x: 1\n",
-        "data:H:hosts/b.yml": "f:x: 2\n",
-        "data:H:hosts/link.yml": "l:hosts/a.yml",
+    snapshot = {
+        "hosts/a.yml": "f:x: 1\n",
+        "hosts/b.yml": "f:x: 2\n",
+        "hosts/link.yml": "l:hosts/a.yml",
     }
 
     class _Redis:
-        async def smembers(self, key):
-            assert key == "paths:H"
-            return {k.split(":", 2)[2] for k in store}
+        async def hkeys(self, key):
+            assert key == "snap:H"
+            return list(snapshot)
 
-        async def mget(self, keys):
-            return [store.get(k) for k in keys]
+        async def hmget(self, key, fields):
+            assert key == "snap:H"
+            return [snapshot.get(f) for f in fields]
 
     s = grs._GitRedisSession(None, _Redis(), "H", DETAILS)
     assert await s.is_link_target("host", "a") is True

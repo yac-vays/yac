@@ -1,23 +1,25 @@
 """
-Tests for the `git_redis` repo plugin's `_rebuild_snapshot` rollback guard.
+Tests for the `git_redis` repo plugin: which snapshot gets published when
+pods race (rollback guard, compare-and-set on `latest`), how replaced and
+abandoned snapshots expire, which snapshot a read is served from while
+another pod refreshes or the remote is down, and the read-only session.
 
-Two pods race: pod A pushes and publishes snapshot H1 while pod B is still
-rebuilding from the slightly older HEAD H0. Without the guard, B would SET
-`latest` back to H0 (rolling back A's publish) and schedule the H1 snapshot
-keys for deletion. The guard must keep the newer published snapshot when the
-local HEAD is its ancestor, and publish as before in every other case.
-
-Redis and git are faked: a minimal in-memory client stands in for Redis and
-the ancestry check / HEAD read / tree scan are monkeypatched, so no network,
-git repo, or Redis server is required.
+Redis and git are faked: an in-memory client stands in for Redis (see
+`FakeRedis`) and the HEAD read / tree scan / ancestry check are
+monkeypatched, so no network, git repo or Redis server is required.
 """
 
+from contextlib import asynccontextmanager
 import asyncio
+import time
 
 import pytest
+from redis.exceptions import LockNotOwnedError, ResponseError, WatchError
 
 import app.plugin.repo.git_redis as grs
-from app.lib import git
+from app.lib import staleness
+from app.model.err import RepoError, RepoSpecsError, RepoUnavailable
+from app.model.plg import RepoState
 
 
 #
@@ -26,84 +28,183 @@ from app.lib import git
 
 
 class FakePipeline:
-    """Records commands and applies them to the FakeRedis on execute()."""
+    """Queues commands; with a transaction, EXEC fails if a watched key changed."""
 
-    def __init__(self, fake: "FakeRedis") -> None:
+    def __init__(self, fake: "FakeRedis", transaction: bool) -> None:
         self._fake = fake
+        self._transaction = transaction
         self._ops = []
+        self._watched = None
+        self._queueing = True
 
-    def delete(self, *keys):
-        self._ops.append(("delete", keys))
+    async def __aenter__(self):
+        return self
 
-    def set(self, key, value):
-        self._ops.append(("set", (key, value)))
+    async def __aexit__(self, *exc):
+        self._watched = None
 
-    def sadd(self, key, *values):
-        self._ops.append(("sadd", (key, values)))
+    async def watch(self, *keys):
+        self._watched = {k: self._fake.versions.get(k, 0) for k in keys}
+        self._queueing = False
+
+    def multi(self):
+        self._queueing = True
+
+    def __getattr__(self, name):
+        command = getattr(self._fake, name)
+
+        def queue(*args, **kwargs):
+            if not self._queueing:
+                return command(*args, **kwargs)  # immediate, awaited by caller
+            self._ops.append((command, args, kwargs))
+            return self
+
+        return queue
 
     async def execute(self):
-        for op, args in self._ops:
-            if op == "delete":
-                for key in args:
-                    self._fake.store.pop(key, None)
-                    self._fake.sets.pop(key, None)
-            elif op == "set":
-                self._fake.store[args[0]] = args[1]
-                self._fake.set_calls.append(args)
-            elif op == "sadd":
-                self._fake.sets.setdefault(args[0], set()).update(args[1])
+        if self._fake.before_exec is not None:
+            hook, self._fake.before_exec = self._fake.before_exec, None
+            await hook()
+        if self._watched is not None:
+            for key, version in self._watched.items():
+                if self._fake.versions.get(key, 0) != version:
+                    self._ops = []
+                    raise WatchError("Watched variable changed.")
+        results = [await command(*a, **kw) for command, a, kw in self._ops]
         self._ops = []
+        return results
+
+
+class FakeLock:
+    def __init__(self, fake: "FakeRedis", name: str) -> None:
+        self._fake = fake
+        self._name = name
+        self._token = object()
+
+    async def acquire(self):
+        if self._name in self._fake.locks:
+            return False
+        self._fake.locks[self._name] = self._token
+        return True
+
+    async def release(self):
+        if self._fake.locks.get(self._name) is not self._token:
+            raise LockNotOwnedError("Cannot release a lock that's no longer owned")
+        del self._fake.locks[self._name]
 
 
 class FakeRedis:
-    """The minimal subset of redis.asyncio used by `_rebuild_snapshot`."""
+    """The subset of redis.asyncio the plugin uses (strings and hashes)."""
 
-    def __init__(self, store=None) -> None:
+    def __init__(self, store=None, snapshots=None) -> None:
         self.store = dict(store or {})
-        self.sets = {}
-        self.set_calls = []  # every SET, direct or via pipeline
+        self.hashes = {k: dict(v) for k, v in (snapshots or {}).items()}
+        self.ttl = {}
+        self.versions = {}
+        self.locks = {}
+        self.set_keys = []  # every SET, direct or via pipeline
+        self.before_exec = None  # async hook, run once before the next EXEC
+
+    def _touch(self, key):
+        self.versions[key] = self.versions.get(key, 0) + 1
 
     async def get(self, key):
         return self.store.get(key)
 
+    async def set(self, key, value):
+        self.store[key] = value
+        self.set_keys.append(key)
+        self._touch(key)
+        return True
+
+    async def exists(self, key):
+        return int(key in self.store or key in self.hashes)
+
     async def delete(self, *keys):
         for key in keys:
             self.store.pop(key, None)
+            self.hashes.pop(key, None)
+            self.ttl.pop(key, None)
+            self._touch(key)
 
-    async def set(self, key, value, nx=False, ex=None):
-        del ex
-        if nx and key in self.store:
-            return None
-        self.store[key] = value
-        self.set_calls.append((key, value))
-        return True
+    async def hset(self, key, field=None, value=None, mapping=None):
+        target = self.hashes.setdefault(key, {})
+        if field is not None:
+            target[field] = value
+        target.update(mapping or {})
 
-    def pipeline(self, transaction=False):
-        del transaction
-        return FakePipeline(self)
+    async def hget(self, key, field):
+        return self.hashes.get(key, {}).get(field)
+
+    async def hmget(self, key, fields):
+        return [self.hashes.get(key, {}).get(f) for f in fields]
+
+    async def hkeys(self, key):
+        return list(self.hashes.get(key, {}))
+
+    async def hexists(self, key, field):
+        return field in self.hashes.get(key, {})
+
+    async def expire(self, key, seconds):
+        if key in self.hashes or key in self.store:
+            self.ttl[key] = seconds
+
+    async def persist(self, key):
+        self.ttl.pop(key, None)
+
+    async def rename(self, src, dst):
+        if src not in self.hashes:
+            raise ResponseError("no such key")
+        self.hashes[dst] = self.hashes.pop(src)
+        self.ttl.pop(dst, None)
+        if src in self.ttl:
+            self.ttl[dst] = self.ttl.pop(src)
+
+    def pipeline(self, transaction=True):
+        return FakePipeline(self, transaction)
+
+    def lock(self, name, timeout=None, blocking=True):
+        del timeout, blocking
+        return FakeLock(self, name)
 
 
 class FakeGitDirect:
+    """Stands in for the git_direct handler: a checkout whose HEAD is `head`."""
+
     path = "/nonexistent-test-repo"
 
+    def __init__(self, head="H0") -> None:
+        self.head = head
+        self.pulls = 0
+        self.after_pull = None  # HEAD after the next sync
+        self.own_state = RepoState()
 
-#
-# Fixture: a handler whose git plumbing is fully faked out
-#
+    def state(self):
+        return self.own_state
+
+    async def _pull(self, user):
+        del user
+        self.pulls += 1
+        if self.after_pull is not None:
+            self.head = self.after_pull
+
+    @asynccontextmanager
+    async def writer(self, user):
+        await self._pull(user)
+        yield None
+
+
+SNAPSHOT = {"": "", "hosts/a.yml": "f:cpu: 4\n"}
 
 
 @pytest.fixture
-def handler(monkeypatch):
-    """
-    GitRedisRepo with `_gd()` pointing at a dummy path, HEAD pinned to "H0"
-    and a one-file tree. The ancestry answer is injected per test via
-    `_set_ancestry` (or left real for the git-failure fallback test).
-    """
-    monkeypatch.setattr(grs, "_git_direct", FakeGitDirect())
+def gd(monkeypatch):
+    fake = FakeGitDirect()
+    monkeypatch.setattr(grs, "_git_direct", fake)
 
     async def fake_head(repo_path):
         del repo_path
-        return "H0"
+        return fake.head
 
     async def fake_entries(repo_path):
         del repo_path
@@ -113,121 +214,209 @@ def handler(monkeypatch):
     monkeypatch.setattr(
         grs.GitRedisRepo, "_collect_entries", staticmethod(fake_entries)
     )
+    return fake
+
+
+@pytest.fixture
+def handler(gd):
+    del gd
     return grs.GitRedisRepo()
 
 
-def _set_ancestry(monkeypatch, answer: bool) -> list:
-    """Pin the (git-backed) ancestry check to a fixed answer; returns the
-    recorded calls so tests can assert whether/how it was consulted."""
+def _set_relation(monkeypatch, answer: str) -> list:
+    """Pin how the published snapshot relates to the local HEAD."""
     calls = []
 
-    async def fake_check(repo_path, new_hash, old_hash):
-        calls.append((repo_path, new_hash, old_hash))
+    async def fake_compare(repo_path, local, published):
+        calls.append((repo_path, local, published))
         return answer
 
-    monkeypatch.setattr(
-        grs.GitRedisRepo, "_published_is_newer", staticmethod(fake_check)
-    )
+    monkeypatch.setattr(grs.GitRedisRepo, "_compare", staticmethod(fake_compare))
     return calls
 
 
-async def _drain_cleanups(handler) -> None:
-    """Cancel the grace-period cleanup tasks so nothing outlives the test."""
-    tasks = list(handler._cleanups)
-    for task in tasks:
-        task.cancel()
-    if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
+def _tmp_keys(client) -> list[str]:
+    return [k for k in client.hashes if ":tmp:" in k]
 
 
 #
-# Guard behavior
+# Publishing
 #
 
 
 async def test_newer_published_snapshot_is_kept(handler, monkeypatch):
-    """(a) `latest` (H1) is strictly newer than the local HEAD (H0): do not
-    publish, do not schedule any cleanup, return the existing snapshot."""
-    calls = _set_ancestry(monkeypatch, True)
-    client = FakeRedis(store={"latest": "H1", "ready:H1": "1"})
+    calls = _set_relation(monkeypatch, "newer")
+    client = FakeRedis(store={"latest": "H1"}, snapshots={"snap:H1": SNAPSHOT})
 
-    result = await handler._rebuild_snapshot(client)
-
-    assert result == "H1"
-    assert client.store["latest"] == "H1"  # not rolled back to H0
-    assert client.set_calls == []  # no SET at all (latest/ready/synced/data)
-    assert handler._cleanups == set()  # H1's keys NOT scheduled for deletion
+    assert await handler._publish_snapshot(client, None) == "H1"
+    assert client.store["latest"] == "H1"
+    assert client.set_keys == []
+    assert client.ttl == {}
     assert calls == [(FakeGitDirect.path, "H0", "H1")]
 
 
-async def test_older_published_snapshot_is_replaced(handler, monkeypatch):
-    """(b) the local HEAD (H0) is the newer commit: publish as before and
-    schedule the grace-period cleanup of the replaced snapshot."""
-    _set_ancestry(monkeypatch, False)
-    client = FakeRedis(store={"latest": "OLD", "ready:OLD": "1"})
+async def test_older_published_snapshot_is_replaced_and_expires(handler, monkeypatch):
+    _set_relation(monkeypatch, "other")
+    client = FakeRedis(store={"latest": "OLD"}, snapshots={"snap:OLD": SNAPSHOT})
 
-    result = await handler._rebuild_snapshot(client)
-
-    assert result == "H0"
+    assert await handler._publish_snapshot(client, None) == "H0"
     assert client.store["latest"] == "H0"
-    assert client.store["ready:H0"] == "1"
-    assert client.store["data:H0:hosts/a.yml"] == "f:cpu: 4\n"
-    assert client.sets["paths:H0"] == {"hosts/a.yml"}
-    assert len(handler._cleanups) == 1  # OLD scheduled for cleanup
-    await _drain_cleanups(handler)
+    assert client.hashes["snap:H0"] == SNAPSHOT
+    assert client.ttl == {"snap:OLD": grs.GRACE}  # the new one does not expire
+    assert _tmp_keys(client) == []
+    assert handler._synced is not None
 
 
-async def test_partial_published_snapshot_is_replaced(handler, monkeypatch):
-    """A `latest` without its `ready` key is a partial/failed snapshot: the
-    guard must not keep it (the ancestry check is not even consulted)."""
-    calls = _set_ancestry(monkeypatch, True)
-    client = FakeRedis(store={"latest": "H1"})  # no ready:H1
+async def test_latest_without_its_snapshot_is_replaced(handler, monkeypatch):
+    calls = _set_relation(monkeypatch, "newer")
+    client = FakeRedis(store={"latest": "H1"})  # snap:H1 expired / never written
 
-    result = await handler._rebuild_snapshot(client)
-
-    assert result == "H0"
+    assert await handler._publish_snapshot(client, None) == "H0"
     assert client.store["latest"] == "H0"
     assert calls == []
-    await _drain_cleanups(handler)
 
 
-async def test_unchanged_head_fast_path_untouched(handler, monkeypatch):
-    """HEAD unchanged + snapshot ready: only `synced` is bumped (fast path
-    from before the guard, must still short-circuit first)."""
-    calls = _set_ancestry(monkeypatch, True)
-    client = FakeRedis(store={"latest": "H0", "ready:H0": "1"})
+async def test_unchanged_head_only_bumps_synced(handler, monkeypatch):
+    calls = _set_relation(monkeypatch, "newer")
+    client = FakeRedis(store={"latest": "H0"}, snapshots={"snap:H0": SNAPSHOT})
 
-    result = await handler._rebuild_snapshot(client)
-
-    assert result == "H0"
+    assert await handler._publish_snapshot(client, None) == "H0"
     assert calls == []
-    assert [key for key, _ in client.set_calls] == ["synced"]
+    assert client.set_keys == ["synced"]
 
 
-async def test_undecidable_ancestry_falls_back_to_publish(handler, monkeypatch):
-    """The published hash is unknown to the local clone (git errors out):
-    the real `_published_is_newer` logs a warning and returns False, so the
-    rebuild publishes the local HEAD as before (a wrong-direction publish is
-    corrected by the next refresh)."""
+async def test_unknown_published_commit_triggers_a_sync_first(handler, gd, monkeypatch):
+    """Another pod pushed and published H1 after this pod fetched H0."""
+    _set_relation(monkeypatch, "unknown")
+    gd.after_pull = "H1"
+    client = FakeRedis(store={"latest": "H1"}, snapshots={"snap:H1": SNAPSHOT})
 
-    class FailingRepo:
-        def __init__(self, path, env):
-            del path, env
+    assert await handler._publish_snapshot(client, None) == "H1"
+    assert gd.pulls == 1
+    assert client.store["latest"] == "H1"  # not rolled back to H0
+    assert client.ttl == {}
 
-        async def is_ancestor(self, ancestor, descendant):
-            del ancestor, descendant
-            raise git.GitError(
-                "fatal: Not a valid commit name H1", returncode=128
-            )
 
-    monkeypatch.setattr(git, "Repo", FailingRepo)
-    client = FakeRedis(store={"latest": "H1", "ready:H1": "1"})
+async def test_published_commit_unknown_to_the_remote_is_replaced(handler, gd, monkeypatch):
+    """Still unknown after the sync (e.g. the branch was rewound): publish."""
+    _set_relation(monkeypatch, "unknown")
+    client = FakeRedis(store={"latest": "GONE"}, snapshots={"snap:GONE": SNAPSHOT})
 
-    result = await handler._rebuild_snapshot(client)
-
-    assert result == "H0"  # published despite the newer-looking `latest`
+    assert await handler._publish_snapshot(client, None) == "H0"
+    assert gd.pulls == 1
     assert client.store["latest"] == "H0"
-    await _drain_cleanups(handler)
+
+
+async def test_publish_gives_way_to_a_concurrent_publish(handler, monkeypatch):
+    """`latest` moves to a newer snapshot while this pod uploads its own."""
+    relations = iter(["other", "newer"])
+
+    async def fake_compare(repo_path, local, published):
+        del repo_path, local, published
+        return next(relations)
+
+    monkeypatch.setattr(grs.GitRedisRepo, "_compare", staticmethod(fake_compare))
+    client = FakeRedis(store={"latest": "OLD"}, snapshots={"snap:OLD": SNAPSHOT})
+
+    async def other_pod_publishes():
+        await client.hset("snap:H1", mapping=SNAPSHOT)
+        await client.set("latest", "H1")
+
+    client.before_exec = None
+
+    original_pipeline = client.pipeline
+
+    def pipeline(transaction=True):
+        if transaction:
+            client.before_exec = other_pod_publishes
+        return original_pipeline(transaction)
+
+    client.pipeline = pipeline
+
+    assert await handler._publish_snapshot(client, None) == "H1"
+    assert client.store["latest"] == "H1"
+    assert "snap:H0" not in client.hashes
+    assert _tmp_keys(client) == []
+
+
+#
+# Which snapshot a read uses
+#
+
+
+async def test_fresh_snapshot_is_used_without_refresh(handler, gd):
+    client = FakeRedis(
+        store={"latest": "H1", "synced": str(time.time())},
+        snapshots={"snap:H1": SNAPSHOT},
+    )
+    assert await handler._ensure_snapshot(None, client, dirty=False) == "H1"
+    assert gd.pulls == 0
+
+
+async def test_outdated_snapshot_is_refreshed(handler, gd):
+    client = FakeRedis(
+        store={"latest": "H0", "synced": "100.0"}, snapshots={"snap:H0": SNAPSHOT}
+    )
+    assert await handler._ensure_snapshot(None, client, dirty=False) == "H0"
+    assert gd.pulls == 1
+    assert float(client.store["synced"]) > 100.0
+    assert client.locks == {}
+
+
+async def test_outdated_snapshot_is_served_while_another_pod_refreshes(handler, gd):
+    client = FakeRedis(
+        store={"latest": "H1", "synced": "100.0"}, snapshots={"snap:H1": SNAPSHOT}
+    )
+    client.locks["pull_lock"] = object()  # held elsewhere
+    with staleness.request_scope() as state:
+        assert await handler._ensure_snapshot(None, client, dirty=False) == "H1"
+        assert state.stale is False
+    assert gd.pulls == 0
+    assert "pull_lock" in client.locks  # the other pod's lock is left alone
+
+
+async def test_first_snapshot_is_awaited(handler, gd):
+    client = FakeRedis()
+    client.locks["pull_lock"] = object()
+
+    async def other_pod():
+        await asyncio.sleep(0.3)
+        await client.hset("snap:H1", mapping=SNAPSHOT)
+        await client.set("latest", "H1")
+        await client.set("synced", str(time.time()))
+
+    task = asyncio.create_task(other_pod())
+    assert await handler._ensure_snapshot(None, client, dirty=False) == "H1"
+    await task
+    assert gd.pulls == 0
+
+
+async def test_dirty_read_accepts_git_directs_dirty_max_age(handler, gd, monkeypatch):
+    class Module:
+        DIRTY_MAX = 60  # minutes
+
+    monkeypatch.setattr(grs, "_gd_module", lambda: Module)
+    age = grs.MAX_AGE + 60
+    client = FakeRedis(
+        store={"latest": "H0", "synced": str(time.time() - age)},
+        snapshots={"snap:H0": SNAPSHOT},
+    )
+    assert await handler._ensure_snapshot(None, client, dirty=True) == "H0"
+    assert gd.pulls == 0
+    assert await handler._ensure_snapshot(None, client, dirty=False) == "H0"
+    assert gd.pulls == 1
+
+
+async def test_dirty_read_refreshes_a_snapshot_that_is_too_old(handler, gd, monkeypatch):
+    class Module:
+        DIRTY_MAX = 0
+
+    monkeypatch.setattr(grs, "_gd_module", lambda: Module)
+    client = FakeRedis(
+        store={"latest": "H0", "synced": "100.0"}, snapshots={"snap:H0": SNAPSHOT}
+    )
+    await handler._ensure_snapshot(None, client, dirty=True)
+    assert gd.pulls == 1
 
 
 #
@@ -235,44 +424,95 @@ async def test_undecidable_ancestry_falls_back_to_publish(handler, monkeypatch):
 #
 
 
+class DownGitDirect(FakeGitDirect):
+    @asynccontextmanager
+    async def writer(self, user):
+        del user
+        raise RepoUnavailable("down")
+        yield  # pylint: disable=unreachable
+
+
 async def test_refresh_failure_serves_stale_snapshot(handler, monkeypatch):
-    """The refresh pull fails because the remote is down: the (complete)
-    published snapshot is returned and the request is marked stale."""
-    from contextlib import asynccontextmanager
-    from app.lib import staleness
-    from app.model.err import RepoUnavailable
-
-    class DownGitDirect(FakeGitDirect):
-        @asynccontextmanager
-        async def writer(self, user):
-            del user
-            raise RepoUnavailable("down")
-            yield  # pylint: disable=unreachable
-
     monkeypatch.setattr(grs, "_git_direct", DownGitDirect())
-    client = FakeRedis(store={"latest": "H1", "ready:H1": "1", "synced": "100.0"})
+    client = FakeRedis(
+        store={"latest": "H1", "synced": "100.0"}, snapshots={"snap:H1": SNAPSHOT}
+    )
 
     with staleness.request_scope() as state:
         result = await handler._ensure_snapshot(None, client, dirty=False)
         assert state.stale is True
         assert state.synced == 100.0
     assert result == "H1"
-    assert "pull_lock" not in client.store  # released for the next attempt
+    assert client.locks == {}  # released for the next attempt
 
 
 async def test_refresh_failure_without_snapshot_raises(handler, monkeypatch):
-    from contextlib import asynccontextmanager
-    from app.model.err import RepoUnavailable
-
-    class DownGitDirect(FakeGitDirect):
-        @asynccontextmanager
-        async def writer(self, user):
-            del user
-            raise RepoUnavailable("down")
-            yield  # pylint: disable=unreachable
-
     monkeypatch.setattr(grs, "_git_direct", DownGitDirect())
-    client = FakeRedis(store={})
+    client = FakeRedis()
 
     with pytest.raises(RepoUnavailable):
         await handler._ensure_snapshot(None, client, dirty=False)
+    assert client.locks == {}
+
+
+#
+# State, config, session
+#
+
+
+async def test_state_reports_the_shared_sync_time(handler, gd):
+    client = FakeRedis(
+        store={"latest": "H1", "synced": str(time.time())},
+        snapshots={"snap:H1": SNAPSHOT},
+    )
+    # this pod's own last attempt failed long ago, another pod synced since
+    gd.own_state = RepoState(synced=50.0, error="boom", failed=60.0)
+    await handler._ensure_snapshot(None, client, dirty=False)
+    state = handler.state()
+    assert state.synced == float(client.store["synced"])
+    assert state.failed is None and state.error is None
+
+    gd.own_state = RepoState(synced=50.0, error="boom", failed=time.time() + 5)
+    state = handler.state()
+    assert state.failed is not None and state.error == "boom"
+
+
+def test_redis_url_scheme_is_checked():
+    for url in ("", "redis://h:6379/0", "rediss://h", "unix:///run/redis.sock"):
+        grs._check_url(url)
+    with pytest.raises(RepoSpecsError):
+        grs._check_url("sentinel://h:26379/mymaster")
+
+
+async def test_session_reads_from_the_pinned_snapshot():
+    details = {"host": "hosts/{{ name }}.yml"}
+    client = FakeRedis(
+        snapshots={
+            "snap:H": {
+                "": "",
+                "hosts/a.yml": "f:x: 1\n",
+                "hosts/b.yml": "f:x: 2\n",
+                "hosts/link.yml": "l:hosts/a.yml",
+                "hosts/dangling.yml": "l:hosts/gone.yml",
+                "README.md": "f:hi",
+            }
+        }
+    )
+    s = grs._GitRedisSession(None, client, "H", details)
+    assert await s.get_hash() == "H"
+    assert await s.list("host") == ["a", "b", "dangling", "link"]
+    assert await s.exists("host", "a") is True
+    assert await s.exists("host", "zzz") is False
+    assert await s.get("host", "a") == "x: 1\n"
+    assert await s.is_link("host", "link") is True
+    assert await s.is_link("host", "a") is False
+    assert await s.get_link("host", "link") == "a"
+    assert await s.get("host", "link") == "x: 1\n"
+    assert await s.get_resolved("host", "link") == ("x: 1\n", "a")
+    assert await s.get_resolved("host", "b") == ("x: 2\n", None)
+    assert await s.is_link_target("host", "a") is True
+    assert await s.is_link_target("host", "b") is False
+    with pytest.raises(RepoError):
+        await s.get("host", "dangling")
+    with pytest.raises(RepoError):
+        await s.get("host", "zzz")
