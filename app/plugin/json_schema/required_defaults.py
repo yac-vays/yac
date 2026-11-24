@@ -1,7 +1,7 @@
 import logging
 
 from app.lib import locs
-from app.model.err import SchemaSpecsError
+from app.lib.schema import require_str_list
 from app.model.plg import IJsonSchema
 
 logger = logging.getLogger(__name__)
@@ -41,13 +41,7 @@ class RequiredDefaults(IJsonSchema):
 
         required = json_schema.get("required", [])
 
-        try:
-            assert isinstance(required, list)
-            assert all(isinstance(s, str) for s in required)
-        except AssertionError as error:
-            raise SchemaSpecsError(
-                f"{loc}/required is not an array of strings"
-            ) from error
+        require_str_list(f"{loc}/required", required, allow_empty=True)
 
         for key in json_schema.get("properties", {}).keys():
             prop = json_schema["properties"][key]

@@ -1,4 +1,4 @@
-from app.model.err import SchemaSpecsError
+from app.lib.schema import require_str_list
 from app.model.plg import IJsonSchema
 
 
@@ -16,14 +16,7 @@ class YacTypes(IJsonSchema):
         if "yac_types" not in json_schema:
             return json_schema, context
 
-        try:
-            assert bool(json_schema["yac_types"])
-            assert isinstance(json_schema["yac_types"], list)
-            assert all(isinstance(s, str) for s in json_schema["yac_types"])
-        except AssertionError as error:
-            raise SchemaSpecsError(
-                f"{loc}/yac_types is not an array of strings"
-            ) from error
+        require_str_list(f"{loc}/yac_types", json_schema["yac_types"])
 
         if props["type"] not in json_schema["yac_types"]:
             return None, context

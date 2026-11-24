@@ -8,7 +8,6 @@ import pydoc
 from types import ModuleType
 from types import FunctionType
 from pathlib import Path
-from functools import cmp_to_key
 from functools import lru_cache
 from inspect import getmembers, isfunction
 
@@ -91,18 +90,16 @@ def get_modules(kind: str, require: tuple[str, ...] | None = None) -> dict[str, 
     return modules
 
 
-def __sort(plugin1, plugin2) -> int:
+def _order(var) -> tuple[bool, int]:
+    """The order() of a plugin object; (False, 0) if it has none or a malformed one."""
     try:
-        _, p1 = plugin1.order()
-        assert isinstance(p1, int)
-    except (AttributeError, AssertionError):
-        p1 = 0
-    try:
-        _, p2 = plugin2.order()
-        assert isinstance(p2, int)
-    except (AttributeError, AssertionError):
-        p2 = 0
-    return p1 - p2
+        late, number = var.order()
+    except (AttributeError, TypeError, ValueError):
+        return False, 0
+    return (
+        late if isinstance(late, bool) else False,
+        number if isinstance(number, int) else 0,
+    )
 
 
 @lru_cache(maxsize=None)
@@ -118,19 +115,11 @@ def get_sorted(
     `late` as its bool, sorted by its int (a higher number runs later). What
     the bool means depends on the kind (see the interfaces in model/plg.py).
     """
-    vars = []
-    for var in sorted(
-        [getattr(m, varname) for m in get_modules(kind, require).values()],
-        key=cmp_to_key(__sort),
-    ):
-        try:
-            po, _ = var.order()
-            assert isinstance(po, bool)
-        except (AttributeError, AssertionError):
-            po = False
-        if po == late:
-            vars.append(var)
-    return vars
+    candidates = [getattr(m, varname) for m in get_modules(kind, require).values()]
+    return sorted(
+        (var for var in candidates if _order(var)[0] == late),
+        key=lambda var: _order(var)[1],
+    )
 
 
 @lru_cache(maxsize=None)

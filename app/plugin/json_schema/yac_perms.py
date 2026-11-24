@@ -1,8 +1,8 @@
 import logging
 
-from app.model.err import SchemaSpecsError
 from app.model.plg import IJsonSchema
 from app.lib import locs
+from app.lib.schema import require_str_list
 
 logger = logging.getLogger(__name__)
 
@@ -61,14 +61,7 @@ class YacPerms(IJsonSchema):
             context["yac_perms"] = {"#": ["add", "edt"]}
 
         if "yac_perms" in json_schema:
-            try:
-                assert bool(json_schema["yac_perms"])
-                assert isinstance(json_schema["yac_perms"], list)
-                assert all(isinstance(s, str) for s in json_schema["yac_perms"])
-            except AssertionError as error:
-                raise SchemaSpecsError(
-                    f"{loc}/yac_perms is not an array of strings"
-                ) from error
+            require_str_list(f"{loc}/yac_perms", json_schema["yac_perms"])
 
             context["yac_perms"].update({loc: json_schema["yac_perms"]})
             json_schema.pop("yac_perms")

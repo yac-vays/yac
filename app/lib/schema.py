@@ -61,6 +61,16 @@ Draft7Validator = jsonschema.validators.extend(
 )
 
 
+def require_str_list(loc: str, value: Any, *, allow_empty: bool = False) -> None:
+    """For plugins: the keyword at `loc` must hold an array of strings."""
+    if (
+        not isinstance(value, list)
+        or not all(isinstance(s, str) for s in value)
+        or not (value or allow_empty)
+    ):
+        raise SchemaSpecsError(f"{loc} is not an array of strings")
+
+
 async def get(
     op: inp.OperationRequest,
     schema_spec: spc.Schema,
