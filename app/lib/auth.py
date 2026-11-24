@@ -56,6 +56,43 @@ fastapi_oauth2 = OpenIdConnect(
 )
 
 
+# Signature algorithms an id-token may use: asymmetric ones only. The list
+# the provider advertises is narrowed to these -- an advertised `none` would
+# otherwise make unsigned tokens valid, and a symmetric one (HS*) has no key
+# that YAC could know.
+_ID_TOKEN_ALGORITHMS = frozenset(
+    {
+        "RS256", "RS384", "RS512",
+        "PS256", "PS384", "PS512",
+        "ES256", "ES384", "ES512",
+        "EdDSA",
+    }
+)  # fmt: skip
+_ID_TOKEN_ALGORITHMS_KEY = "id_token_signing_alg_values_supported"
+
+
+def _pin_id_token_algorithms(metadata: dict) -> None:
+    """
+    Narrow the algorithms of the provider metadata (which authlib's
+    `parse_id_token` takes as they are) to `_ID_TOKEN_ALGORITHMS`. A provider
+    that advertises nothing gets authlib's default (RS256).
+    """
+    advertised = metadata.get(_ID_TOKEN_ALGORITHMS_KEY)
+    if not advertised:
+        return
+    allowed = [
+        alg
+        for alg in (advertised if isinstance(advertised, list) else [])
+        if alg in _ID_TOKEN_ALGORITHMS
+    ]
+    if not allowed:
+        raise AuthlibBaseError(
+            "the provider advertises no accepted id-token signature algorithm"
+        )
+    if allowed != advertised:
+        metadata[_ID_TOKEN_ALGORITHMS_KEY] = allowed
+
+
 def _aud_set(aud) -> set:
     """Normalize an `aud` claim (string or list) into a set of strings."""
     if isinstance(aud, str):
@@ -157,6 +194,9 @@ def _extract_email(jwt_cfg: AuthOIDCJWT, claims: dict) -> str:
 
 async def _user_from_id_token(token: str) -> User:
     try:
+        _pin_id_token_algorithms(
+            await authlib_oauth.oidc.load_server_metadata()  # type: ignore
+        )
         user = await authlib_oauth.oidc.parse_id_token(  # type: ignore
             token={"id_token": token},
             # Nonce is validated client-side in openid-client's

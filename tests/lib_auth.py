@@ -36,6 +36,10 @@ def fake_oidc(monkeypatch):
 
     def _install(claims_or_exc, auth_cfg=None):
         monkeypatch.setattr(specs, "AUTH", auth_cfg or _auth())
+        # Provider metadata counts as loaded (no discovery request).
+        monkeypatch.setattr(
+            auth.authlib_oauth.oidc, "server_metadata", {"_loaded_at": 0}
+        )
 
         async def _parse(token, nonce=None):
             captured["token"] = token
