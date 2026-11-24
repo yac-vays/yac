@@ -115,7 +115,7 @@ async def measure(
     if not applicable:
         return []
 
-    new_name = op.entity.name if op.entity and op.entity.name else op.name
+    new_name = props.effective_name(op)
     base = props.get_limits_base(op, s.request, s.context)
     base["new"] = {"name": new_name, "data": new_data or {}}
 

@@ -122,37 +122,37 @@ def _extract_name(jwt_cfg: AuthOIDCJWT, claims: dict) -> str:
         ) from error
 
 
-def _extract_full_name(jwt_cfg: AuthOIDCJWT, claims: dict) -> str:
-    # The `.format(**claims)` templates raise KeyError on a missing claim
-    # and IndexError/ValueError on a malformed template; all of those must
-    # become a clean AuthError instead of a 500.
+def _extract_with_fallback(
+    template: str, fallback: str, claims: dict, what: str
+) -> str:
+    """
+    The rendered `template`, or the rendered `fallback` if a claim of the
+    template is missing or the result is empty.
+    """
     try:
-        full_name = jwt_cfg.full_name.format(**claims)
-        if len(full_name) <= 0:
-            raise KeyError("Empty string")
-        return full_name
+        value = template.format(**claims)
     except (KeyError, IndexError, ValueError):
-        try:
-            return jwt_cfg.full_name_fallback.format(**claims)
-        except (KeyError, IndexError, ValueError) as error:
-            raise AuthError(
-                f"Could not extract the full name from the token ({error})"
-            ) from error
+        value = ""
+    if value:
+        return value
+    try:
+        return fallback.format(**claims)
+    except (KeyError, IndexError, ValueError) as error:
+        raise AuthError(
+            f"Could not extract the {what} from the token ({error})"
+        ) from error
+
+
+def _extract_full_name(jwt_cfg: AuthOIDCJWT, claims: dict) -> str:
+    return _extract_with_fallback(
+        jwt_cfg.full_name, jwt_cfg.full_name_fallback, claims, "full name"
+    )
 
 
 def _extract_email(jwt_cfg: AuthOIDCJWT, claims: dict) -> str:
-    try:
-        email = jwt_cfg.email.format(**claims)
-        if len(email) <= 0:
-            raise KeyError("Empty string")
-        return email
-    except (KeyError, IndexError, ValueError):
-        try:
-            return jwt_cfg.email_fallback.format(**claims)
-        except (KeyError, IndexError, ValueError) as error:
-            raise AuthError(
-                f"Could not extract the email from the token ({error})"
-            ) from error
+    return _extract_with_fallback(
+        jwt_cfg.email, jwt_cfg.email_fallback, claims, "email"
+    )
 
 
 async def _user_from_id_token(token: str) -> User:

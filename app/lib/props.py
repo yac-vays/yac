@@ -20,53 +20,48 @@ def __request_headers(request_headers: dict, request_spec: spc.Request) -> dict:
     return headers
 
 
-def get_request() -> dict:
+def _env() -> dict:
+    return {"env": consts.ENV.env}
+
+
+def get_env_only() -> dict:
+    """The props of the specs' `request`, `repo` and `auth` sections."""
+    return _env()
+
+
+def _base(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     return {
-        "env": consts.ENV.env,
-    }
-
-
-def get_repo() -> dict:
-    return {
-        "env": consts.ENV.env,
-    }
-
-
-def get_auth() -> dict:
-    return {
-        "env": consts.ENV.env,
-    }
-
-
-def get_types(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
-    return {
-        "env": consts.ENV.env,
+        **_env(),
         "request": {
             "ip": op.request_ip,
             "headers": __request_headers(op.request_headers, request_spec),
         },
         "user": dict(op.user),
     }
+
+
+def effective_name(op: inp.OperationRequest) -> str | None:
+    """The name the entity has after the operation."""
+    return op.entity.name if op.entity and op.entity.name else op.name
+
+
+def _new_name(op: inp.OperationRequest) -> str | None:
+    return None if op.entity is None else op.entity.name
+
+
+def get_types(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
+    return _base(op, request_spec)
 
 
 def get_action(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
     return {
-        "env": consts.ENV.env,
-        "request": {
-            "ip": op.request_ip,
-            "headers": __request_headers(op.request_headers, request_spec),
-        },
-        "user": dict(op.user),
+        **_base(op, request_spec),
         "operation": op.operation,
         "actions": op.actions,
-        "old": {
-            # For a copy/link this is the source entity.
-            "name": op.name or _source_name(op),
-        },
-        "new": {
-            "name": None if op.entity is None else op.entity.name,
-        },
-        "name": op.entity.name if op.entity and op.entity.name else op.name,
+        # For a copy/link this is the source entity.
+        "old": {"name": op.name or _source_name(op)},
+        "new": {"name": _new_name(op)},
+        "name": effective_name(op),
     }
 
 
@@ -82,16 +77,8 @@ def get_log(
     op: inp.OperationRequest, request_spec: spc.Request, data: dict | None = None
 ) -> dict:
     return {
-        "env": consts.ENV.env,
-        "request": {
-            "ip": op.request_ip,
-            "headers": __request_headers(op.request_headers, request_spec),
-        },
-        "user": dict(op.user),
-        "old": {
-            "name": op.name,
-            "data": data or {},
-        },
+        **_base(op, request_spec),
+        "old": {"name": op.name, "data": data or {}},
         "name": op.name,
     }
 
@@ -103,15 +90,7 @@ def get_links_base(
     The per-request portion of link props; `app.lib.links` shallow-extends it
     per entity with `old`/`name`.
     """
-    return {
-        "env": consts.ENV.env,
-        "request": {
-            "ip": op.request_ip,
-            "headers": __request_headers(op.request_headers, request_spec),
-        },
-        "user": dict(op.user),
-        "type": op.type_name,
-    }
+    return {**_base(op, request_spec), "type": op.type_name}
 
 
 def get_roles_base(
@@ -124,12 +103,7 @@ def get_roles_base(
     headers regex sweep and user/env dict construction.
     """
     return {
-        "env": consts.ENV.env,
-        "request": {
-            "ip": op.request_ip,
-            "headers": __request_headers(op.request_headers, request_spec),
-        },
-        "user": dict(op.user),
+        **_base(op, request_spec),
         "operation": op.operation,
         "actions": op.actions,
         "type": op.type_name,
@@ -150,28 +124,15 @@ def get_roles(
     evaluated (see `lib.repo.get_entities`), so a role that is scoped on
     `name` can never be satisfied by the name of the target alone.
     """
-    if source_name is not None:
-        return {
-            **get_roles_base(op, request_spec),
-            "old": {
-                "name": source_name,
-                "data": old_data or {},
-            },
-            "new": {
-                "name": None,
-            },
-            "name": source_name,
-        }
+    alone = source_name is not None
     return {
         **get_roles_base(op, request_spec),
         "old": {
-            "name": op.name,
+            "name": source_name if alone else op.name,
             "data": old_data or {},
         },
-        "new": {
-            "name": None if op.entity is None else op.entity.name,
-        },
-        "name": op.entity.name if op.entity and op.entity.name else op.name,
+        "new": {"name": None if alone else _new_name(op)},
+        "name": source_name if alone else effective_name(op),
     }
 
 
@@ -188,12 +149,7 @@ def get_limits_base(
     """
     return {
         "context": context,
-        "env": consts.ENV.env,
-        "request": {
-            "ip": op.request_ip,
-            "headers": __request_headers(op.request_headers, request_spec),
-        },
-        "user": dict(op.user),
+        **_base(op, request_spec),
         "operation": op.operation,
         "type": op.type_name,
     }
@@ -206,12 +162,7 @@ def get_namegen(
     new_data: None | dict,
 ) -> dict:
     return {
-        "env": consts.ENV.env,
-        "request": {
-            "ip": op.request_ip,
-            "headers": __request_headers(op.request_headers, request_spec),
-        },
-        "user": dict(op.user),
+        **_base(op, request_spec),
         "operation": op.operation,
         "actions": op.actions,
         "old": {"list": old_list},
@@ -227,24 +178,15 @@ def get_schema(
     new_data: None | dict,
     context: dict,
 ) -> dict:
+    base = _base(op, request_spec)
     return {
         "context": context,
-        "env": consts.ENV.env,
-        "request": {
-            "ip": op.request_ip,
-            "headers": __request_headers(op.request_headers, request_spec),
-        },
-        "user": {**dict(op.user), "perms": perms},
+        **base,
+        "user": {**base["user"], "perms": perms},
         "operation": op.operation,
         "actions": op.actions,
         "type": op.type_name,
-        "old": {
-            "name": op.name,
-            "data": old_data or {},
-        },
-        "new": {
-            "name": None if op.entity is None else op.entity.name,
-            "data": new_data or {},
-        },
-        "name": op.entity.name if op.entity and op.entity.name else op.name,
+        "old": {"name": op.name, "data": old_data or {}},
+        "new": {"name": _new_name(op), "data": new_data or {}},
+        "name": effective_name(op),
     }

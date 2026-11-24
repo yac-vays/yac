@@ -4,6 +4,7 @@ Raises: []
 
 import logging
 from dataclasses import dataclass, field
+from typing import Callable
 
 from app.model import spc
 from app.model import inp
@@ -224,17 +225,25 @@ async def get_from_roles(
     if active_roles is None:
         active_roles = await get_active_role_set(op, specs)
 
-    # Short-circuit: if no role test depends on entity data, all remaining
-    # roles match unconditionally and we can skip building per-entity props
-    # plus the per-role render loop entirely.
+    return await _match(
+        active_roles,
+        lambda: props.get_roles(
+            op, specs.request, old_data, source_name=source_name
+        ),
+    )
+
+
+async def _match(
+    active_roles: list[ActiveRole], role_props: Callable[[], dict]
+) -> list[str]:
+    """
+    The expanded perms of the matching roles. `role_props` is only called
+    (and the residual tests only rendered) if a role depends on the entity.
+    """
     if all(ar.set_test is None and ar.role_test is None for ar in active_roles):
         matched = [ar.perm for ar in active_roles]
     else:
-        role_props = props.get_roles(
-            op, specs.request, old_data, source_name=source_name
-        )
-        matched = await _render_residuals(role_props, active_roles)
-
+        matched = await _render_residuals(role_props(), active_roles)
     logger.debug(f'Extracted perms: {", ".join(matched)}')
     return __expand_perms(matched)
 
@@ -253,17 +262,12 @@ async def get_from_roles_for_entity(
     `base_props` is read but not mutated, so this is safe to call
     concurrently from gathered tasks that share the same base.
     """
-    # If every remaining role is unconditional, skip props construction and
-    # the residual loop entirely — common for admins or for repos with
-    # mostly user-only role gates.
-    if all(ar.set_test is None and ar.role_test is None for ar in active_roles):
-        return __expand_perms([ar.perm for ar in active_roles])
-
-    role_props = {
-        **base_props,
-        "old": {"name": entity_name, "data": old_data},
-        "new": {"name": None},
-        "name": entity_name,
-    }
-    matched = await _render_residuals(role_props, active_roles)
-    return __expand_perms(matched)
+    return await _match(
+        active_roles,
+        lambda: {
+            **base_props,
+            "old": {"name": entity_name, "data": old_data},
+            "new": {"name": None},
+            "name": entity_name,
+        },
+    )

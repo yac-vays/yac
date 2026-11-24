@@ -201,16 +201,16 @@ def _render_at_startup(
 
 # `repo.details` is rendered per-call inside the plugin (it carries
 # `{{ name }}` and plugin-specific vars); everything else in `repo`
-# uses the same env-only scope as `props.get_repo()`.
+# uses the same env-only scope as `props.get_env_only()`.
 _STATIC_REPO: dict = _render_at_startup(
     _RAW_DATA.get("repo", {}) or {},
-    props.get_repo(),
+    props.get_env_only(),
     section=f"repo section of {consts.ENV.specs}",
     skip=r"^#/details$",
 )
 _STATIC_AUTH_DATA: dict = _render_at_startup(
     _RAW_DATA.get("auth", {}) or {},
-    props.get_auth(),
+    props.get_env_only(),
     section=f"auth section of {consts.ENV.specs}",
 )
 
@@ -261,7 +261,7 @@ async def __parse(op: OperationRequest) -> Specs:
 
     try:
         data["request"] = await j2.render(
-            data.get("request", {"headers": {}}), props.get_request()
+            data.get("request", {"headers": {}}), props.get_env_only()
         )
         request = Request.model_validate(data["request"])
     except j2.J2Error as error:
