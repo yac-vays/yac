@@ -146,9 +146,9 @@ async def test_full_write_cycle(repo):
             await s.write("host", "new", "cpu: 1\n", "cpu: 1\n", CommitMsg())
 
         # copy then link onto the copy's *source*
-        await s.copy("host", "clone", "new", CommitMsg())
+        await s.copy("host", "clone", "new", "cpu: 1\n", CommitMsg())
         assert await s.exists("host", "clone") is True
-        await s.link("host", "alias", "new", CommitMsg())
+        await s.link("host", "alias", "new", "cpu: 1\n", CommitMsg())
         assert await s.is_link("host", "alias") is True
 
         # the linked source must not be deletable
@@ -204,14 +204,14 @@ async def test_copy_onto_existing_rejected(repo):
     async with repo.writer(USER) as untyped:
         s = untyped.session(DETAILS)
         with pytest.raises(RepoClientError):
-            await s.copy("host", "b", "a", CommitMsg())  # b already exists
+            await s.copy("host", "b", "a", "cpu: 4\n", CommitMsg())  # b already exists
 
 
 async def test_link_to_missing_source_rejected(repo):
     async with repo.writer(USER) as untyped:
         s = untyped.session(DETAILS)
         with pytest.raises(RepoNotFound):
-            await s.link("host", "alias", "ghost", CommitMsg())
+            await s.link("host", "alias", "ghost", "", CommitMsg())
 
 
 async def test_writes_are_pushed_to_remote(repo, tmp_path):
@@ -238,8 +238,8 @@ async def test_commit_messages_name_operation_and_file(repo):
             "host", "new", "cpu: 1\n", "cpu: 2\n",
             CommitMsg(note="admin override", body="fix typo\r\nsee #42\n"),
         )
-        await s.copy("host", "clone", "new", CommitMsg())
-        await s.link("host", "alias", "b", CommitMsg())
+        await s.copy("host", "clone", "new", "cpu: 2\n", CommitMsg())
+        await s.link("host", "alias", "b", "cpu: 8\n", CommitMsg())
         await s.write_rename(
             "host", "clone", "clone2", "cpu: 2\n", "cpu: 3\n", CommitMsg()
         )
@@ -297,7 +297,7 @@ async def test_name_as_directory_full_cycle(repo, tmp_path):
         assert await s.get("svc", "src") == "cpu: 2\n"
 
         # copy, then rename the copy (both into missing directories)
-        await s.copy("svc", "cp", "src", CommitMsg())
+        await s.copy("svc", "cp", "src", "cpu: 2\n", CommitMsg())
         assert await s.get("svc", "cp") == "cpu: 2\n"
         diff = await s.write_rename(
             "svc", "cp", "mv", "cpu: 2\n", "cpu: 3\n", CommitMsg()
@@ -308,7 +308,7 @@ async def test_name_as_directory_full_cycle(repo, tmp_path):
         assert await s.get("svc", "mv") == "cpu: 3\n"
 
         # link across the per-entity directories
-        await s.link("svc", "ln", "src", CommitMsg())
+        await s.link("svc", "ln", "src", "cpu: 2\n", CommitMsg())
         assert await s.is_link("svc", "ln") is True
         assert await s.is_link("svc", "src") is False
         assert await s.get_link("svc", "ln") == "src"
@@ -324,7 +324,7 @@ async def test_name_as_directory_full_cycle(repo, tmp_path):
         with pytest.raises(RepoClientError):
             await s.write_rename("svc", "mv", "src", "cpu: 3\n", "x: 1\n", CommitMsg())
         with pytest.raises(RepoClientError):
-            await s.copy("svc", "src", "mv", CommitMsg())
+            await s.copy("svc", "src", "mv", "cpu: 3\n", CommitMsg())
 
         assert await s.list("svc") == ["ln", "mv", "src"]
 

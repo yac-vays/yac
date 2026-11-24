@@ -106,11 +106,16 @@ class WritableRepoSession(FakeRepoSession):
         self.files[name_new] = content_new
         return Diff(name=name_new, hash=self.repo_hash, patch="")
 
-    async def copy(self, type, name_dest, name_src, msg):
+    async def copy(self, type, name_dest, name_src, content_src, msg):
+        # Mirror the plugin contract (git_direct._copy), like `delete` below.
+        if self.files[name_src] != content_src:
+            raise RepoConflict("The data has changed in the meantime")
         self.files[name_dest] = self.files[name_src]
         return Diff(name=name_dest, hash=self.repo_hash, patch="")
 
-    async def link(self, type, name_link, name_src, msg):
+    async def link(self, type, name_link, name_src, content_src, msg):
+        if self.files[name_src] != content_src:
+            raise RepoConflict("The data has changed in the meantime")
         self.links[name_link] = name_src
         return Diff(name=name_link, hash=self.repo_hash, patch="")
 

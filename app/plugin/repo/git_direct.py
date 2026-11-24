@@ -280,19 +280,19 @@ class _GitRepoSession(IRepoSession):
         )
 
     async def copy(
-        self, type: str, name_dest: str, name_src: str, msg: CommitMsg
+        self, type: str, name_dest: str, name_src: str, content_src: str, msg: CommitMsg
     ) -> Diff:
         self._require_writing()
         return await self._h._copy(
-            self._user, self._details, type, name_dest, name_src, msg
+            self._user, self._details, type, name_dest, name_src, content_src, msg
         )
 
     async def link(
-        self, type: str, name_link: str, name_src: str, msg: CommitMsg
+        self, type: str, name_link: str, name_src: str, content_src: str, msg: CommitMsg
     ) -> Diff:
         self._require_writing()
         return await self._h._link(
-            self._user, self._details, type, name_link, name_src, msg
+            self._user, self._details, type, name_link, name_src, content_src, msg
         )
 
     async def delete(
@@ -322,8 +322,14 @@ class GitRepo(IRepo):
             self._reader_update_lock
         )
         self._writer_lock: asyncio.Lock = asyncio.Lock()
+        # A writer waits for the readers to leave: no new ones are let in.
+        self._writer_waiting: bool = False
+        # Whether a write has touched the working tree and not pushed it yet.
+        self._tree_touched: bool = False
         # Monotonic start time of the last successful sync with the remote.
         self._sync_started: float | None = None
+        # Monotonic time of the last failed remote operation.
+        self._remote_failed_at: float | None = None
         # Remote-connection diagnostics, see `state()`.
         self._synced: float | None = None
         self._remote_error: str | None = None
@@ -347,7 +353,10 @@ class GitRepo(IRepo):
             await self._refresh_for_read(user)
 
         async with self._reader_update_lock:
-            while self._reader_count == _WRITER_ACTIVE:
+            # Writer preference: dirty readers do not queue for the writer
+            # lock, so a steady stream of them would keep a writer waiting
+            # forever if they were still let in.
+            while self._reader_count == _WRITER_ACTIVE or self._writer_waiting:
                 await self._lock_changed.wait()
             logger.debug(f"... git reader lock for {self.path} acquired!")
             self._reader_count += 1
@@ -369,18 +378,36 @@ class GitRepo(IRepo):
     ) -> AsyncGenerator[_GitRepoUntyped, None]:
         """
         Starts with a sync, unless one that started after `synced_since`
-        (monotonic time) has already succeeded: concurrent readers waiting
-        for the lock then share one sync.
+        (monotonic time) has already succeeded or failed on the remote:
+        concurrent readers waiting for the lock then share one sync (or its
+        failure, RepoUnavailable).
         """
         logger.debug(f"Acquiring git writer lock for {self.path}...")
         async with self._writer_lock:
             async with self._reader_update_lock:
-                while self._reader_count != 0:
-                    await self._lock_changed.wait()
+                self._writer_waiting = True
+                try:
+                    while self._reader_count != 0:
+                        await self._lock_changed.wait()
+                except BaseException:
+                    # Cancelled while waiting: let the held back readers in.
+                    self._lock_changed.notify_all()
+                    raise
+                finally:
+                    self._writer_waiting = False
                 logger.debug(f"... git writer lock for {self.path} acquired!")
                 self._reader_count = _WRITER_ACTIVE
 
             try:
+                if (
+                    synced_since is not None
+                    and self._loaded
+                    and self._remote_failed_since(synced_since)
+                ):
+                    # The sync this reader queued behind has failed on the
+                    # remote: another attempt per waiting reader would only
+                    # make each of them wait for the same timeout in turn.
+                    raise self._unavailable()
                 if (
                     synced_since is None
                     or not self._loaded
@@ -394,6 +421,13 @@ class GitRepo(IRepo):
                     yield _GitRepoUntyped(self, user, writing=True)
                 except git.GitTimeoutError as error:
                     raise RepoTimeoutError(str(error)) from error
+                finally:
+                    if self._tree_touched:
+                        # The write failed (or was cancelled) half-way.
+                        # Dirty readers and the entity cache (keyed by the
+                        # HEAD hash) rely on the tree being that commit, so
+                        # restore it before anybody else gets the lock.
+                        await self._finish(self._cleanup(user))
             finally:
                 async with self._reader_update_lock:
                     self._reader_count = 0
@@ -432,6 +466,32 @@ class GitRepo(IRepo):
             and time.time() - self._remote_failed < REMOTE_BACKOFF_SECONDS
         )
 
+    def _remote_failed_since(self, asked: float) -> bool:
+        """
+        Whether the remote is in backoff or has failed since `asked`
+        (monotonic time).
+        """
+        return self._in_backoff() or (
+            self._remote_failed_at is not None and self._remote_failed_at >= asked
+        )
+
+    @staticmethod
+    async def _finish(coro) -> None:
+        """
+        Run `coro` to its end, even if this task is cancelled meanwhile
+        (the cancellation is raised afterwards).
+        """
+        task = asyncio.ensure_future(coro)
+        cancelled = None
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError as error:
+                cancelled = error
+        if cancelled is not None:
+            raise cancelled
+        task.result()
+
     def _remote_failure(self, error: git.GitError) -> RepoUnavailable:
         """
         Record a failed remote operation and build the error to raise for
@@ -440,6 +500,7 @@ class GitRepo(IRepo):
         """
         self._remote_error = str(error)
         self._remote_failed = time.time()
+        self._remote_failed_at = time.monotonic()
         self._remote_maintenance = bool(getattr(error, "maintenance", False))
         logger.error(f"Remote git repository unavailable: {error}")
         return self._unavailable()
@@ -454,6 +515,7 @@ class GitRepo(IRepo):
         self._synced = time.time()
         self._remote_error = None
         self._remote_failed = None
+        self._remote_failed_at = None
         self._remote_maintenance = False
 
     async def _is_outdated(self) -> bool:
@@ -483,7 +545,7 @@ class GitRepo(IRepo):
                 return
         try:
             logger.debug(f"Fetching git repo at {self.path}")
-            await gr.fetch()
+            await self._fetch(gr)
         except (git.GitRemoteError, git.GitTimeoutError) as error:
             # The remote is down or not answering: keep the checkout, it is
             # the best data we have (readers serve it, writers fail).
@@ -506,6 +568,33 @@ class GitRepo(IRepo):
             await self._reclone(user)
             return
         self._remote_success()
+
+    async def _fetch(self, gr: git.Repo) -> None:
+        try:
+            await gr.fetch()
+        except (git.GitRemoteError, git.GitTimeoutError):
+            raise
+        except git.GitError as error:
+            # Every process has its own checkout and this runs under its
+            # writer lock: a lock file can only be left over from a killed
+            # git (and would make every fetch fail, also after a restart).
+            if not await to_thread.run_sync(self._remove_stale_locks):
+                raise
+            logger.warning(f"Removed stale git lock files at {self.path} ({error})")
+            await gr.fetch()
+
+    def _remove_stale_locks(self) -> bool:
+        """Remove the `*.lock` files below `.git`; whether there were any."""
+        found = False
+        for directory, _, files in os.walk(f"{self.path}/.git"):
+            for file in files:
+                if file.endswith(".lock"):
+                    try:
+                        os.unlink(f"{directory}/{file}")
+                        found = True
+                    except OSError:
+                        pass
+        return found
 
     async def _reset(self, gr: git.Repo) -> None:
         """Drop everything that is not on the remote branch (as last fetched)."""
@@ -561,6 +650,7 @@ class GitRepo(IRepo):
             await gr.commit(f"{subject} ...\n\n{body}" if body else subject)
             logger.debug(f"Pushing new git commit from {self.path} to remote")
             await gr.push()
+            self._tree_touched = False
         except git.GitRemoteError as error:
             await self._cleanup(user)
             raise self._remote_failure(error) from error
@@ -593,6 +683,7 @@ class GitRepo(IRepo):
         (otherwise a commit the user got an error for would ride along with
         the next successful write).
         """
+        self._tree_touched = False
         try:
             logger.debug(f"Cleaning git repo at {self.path}")
             await self._reset(_make_git_repo(self.path, user))
@@ -629,6 +720,7 @@ class GitRepo(IRepo):
         called after `_assert_inside_repo`, which pins the resolved parent
         inside the repository.
         """
+        self._tree_touched = True
         try:
             await Path(dirname(file)).mkdir(parents=True, exist_ok=True)
         except OSError as error:
@@ -643,6 +735,7 @@ class GitRepo(IRepo):
                 f.write(content)
 
         logger.debug(f"Writing file {file}")
+        self._tree_touched = True
         try:
             await to_thread.run_sync(write)
         except OSError as error:
@@ -841,6 +934,7 @@ class GitRepo(IRepo):
         await self._make_parents(file_new)
         await self._write_file(file_new, content_new)
 
+        self._tree_touched = True
         try:
             await Path(file_old).unlink()
         except OSError as error:
@@ -863,6 +957,7 @@ class GitRepo(IRepo):
         type_name: str,
         name_dest: str,
         name_src: str,
+        content_src: str,
         msg: CommitMsg,
     ) -> Diff:
         if await self._exists(type_name, name_dest, details):
@@ -874,7 +969,11 @@ class GitRepo(IRepo):
         await self._assert_inside_repo(file_src)
         await self._assert_inside_repo(file_dest)
 
+        # Optimistic pin like in `_delete`: the copy was validated (rights on
+        # the source, limits) against `content_src` under a READER scope.
         content = await self._get(type_name, name_src, details)
+        if content != content_src:
+            raise RepoConflict("The data has changed in the meantime")
 
         await self._make_parents(file_dest)
         await self._write_file(file_dest, content)
@@ -896,10 +995,14 @@ class GitRepo(IRepo):
         type_name: str,
         name_link: str,
         name_src: str,
+        content_src: str,
         msg: CommitMsg,
     ) -> Diff:
         if not await self._exists(type_name, name_src, details):
             raise RepoNotFound("The file does not exist")
+        # Optimistic pin, see `_copy`.
+        if await self._get(type_name, name_src, details) != content_src:
+            raise RepoConflict("The data has changed in the meantime")
 
         path_link = await _render_path(type_name, name_link, details)
         link = f"{self.path}/{path_link}"
@@ -950,6 +1053,7 @@ class GitRepo(IRepo):
 
         file = await self._file_path(type_name, name, details)
         await self._assert_inside_repo(file)
+        self._tree_touched = True
         try:
             await Path(file).unlink()
         except OSError as error:

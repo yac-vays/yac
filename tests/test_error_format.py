@@ -49,6 +49,6 @@ async def test_git_direct_reports_an_existing_target_as_conflict(repo):  # noqa:
     async with repo.writer(USER) as untyped:
         s = untyped.session(DETAILS)
         with pytest.raises(RepoConflict):
-            await s.copy("host", "b", "a", CommitMsg())
+            await s.copy("host", "b", "a", "cpu: 4\n", CommitMsg())
         with pytest.raises(RepoConflict):
-            await s.link("host", "b", "a", CommitMsg())
+            await s.link("host", "b", "a", "cpu: 4\n", CommitMsg())

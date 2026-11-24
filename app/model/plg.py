@@ -242,13 +242,22 @@ class IRepoSession(ABC):
 
     @abstractmethod
     async def copy(
-        self, type: str, name_dest: str, name_src: str, msg: CommitMsg
-    ) -> Diff: ...
+        self, type: str, name_dest: str, name_src: str, content_src: str, msg: CommitMsg
+    ) -> Diff:
+        """
+        Copy the entity `name_src`, but only if its current content still
+        equals `content_src` — the content the caller validated the copy
+        against (rights on the source, limits). A mismatch must raise
+        `RepoConflict`, like for `delete`.
+        """
+        ...
 
     @abstractmethod
     async def link(
-        self, type: str, name_link: str, name_src: str, msg: CommitMsg
-    ) -> Diff: ...
+        self, type: str, name_link: str, name_src: str, content_src: str, msg: CommitMsg
+    ) -> Diff:
+        """Link to the entity `name_src`; `content_src` like for `copy`."""
+        ...
 
     @abstractmethod
     async def delete(
@@ -285,12 +294,12 @@ class ReadOnlyRepoSession(IRepoSession):
         raise RepoError("Write operation outside writer scope")
 
     async def copy(
-        self, type: str, name_dest: str, name_src: str, msg: CommitMsg
+        self, type: str, name_dest: str, name_src: str, content_src: str, msg: CommitMsg
     ) -> Diff:
         raise RepoError("Write operation outside writer scope")
 
     async def link(
-        self, type: str, name_link: str, name_src: str, msg: CommitMsg
+        self, type: str, name_link: str, name_src: str, content_src: str, msg: CommitMsg
     ) -> Diff:
         raise RepoError("Write operation outside writer scope")
 

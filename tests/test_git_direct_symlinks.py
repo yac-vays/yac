@@ -30,7 +30,7 @@ async def test_create_does_not_write_through_a_dangling_link(repo, tmp_path):
         with pytest.raises(RepoClientError):
             await s.write("host", "evil", "", "cpu: 1\n", CommitMsg())
         with pytest.raises(RepoClientError):
-            await s.copy("host", "evil", "a", CommitMsg())
+            await s.copy("host", "evil", "a", "cpu: 4\n", CommitMsg())
     assert not outside.exists()
 
 
@@ -41,12 +41,12 @@ async def test_copy_does_not_read_outside_the_repo(repo, tmp_path):
     async with repo.writer(USER) as untyped:
         s = untyped.session(DETAILS)
         with pytest.raises(RepoError):
-            await s.copy("host", "stolen", "leak", CommitMsg())
+            await s.copy("host", "stolen", "leak", "token: s3cr3t\n", CommitMsg())
         assert await s.exists("host", "stolen") is False
 
 
 async def test_copy_of_an_entity_link_still_works(repo):
     async with repo.writer(USER) as untyped:
         s = untyped.session(DETAILS)
-        await s.copy("host", "c", "link", CommitMsg())
+        await s.copy("host", "c", "link", "cpu: 4\n", CommitMsg())
         assert await s.get("host", "c") == "cpu: 4\n"

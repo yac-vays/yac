@@ -82,10 +82,18 @@ async def create_entity(
                 op, s, await rpo.list(type_name), namegen_data
             )
 
+        # The source may have been edited since it was read for the validation
+        # (rights on it, limits measured with its data): it is only copied or
+        # linked if it still is what was validated.
+        source = old.yaml or ""
         if isinstance(entity, CopyEntity):
-            return name, await rpo.copy(type_name, name, entity.copy_name, commit)
+            return name, await rpo.copy(
+                type_name, name, entity.copy_name, source, commit
+            )
         if isinstance(entity, LinkEntity):
-            return name, await rpo.link(type_name, name, entity.link_name, commit)
+            return name, await rpo.link(
+                type_name, name, entity.link_name, source, commit
+            )
         return name, await rpo.write(type_name, name, "", entity.yaml, commit)
 
     name, diff = await common.write(op, s, write)

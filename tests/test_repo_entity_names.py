@@ -52,8 +52,8 @@ async def test_commit_subjects_name_the_other_entity(repo, tmp_path):
     async with repo.writer(USER) as untyped:
         s = untyped.session(details)
         await s.write("host", "web01", "", "cpu: 1\n", CommitMsg())
-        await s.copy("host", "web02", "web01", CommitMsg())
-        await s.link("host", "alias", "web01", CommitMsg())
+        await s.copy("host", "web02", "web01", "cpu: 1\n", CommitMsg())
+        await s.link("host", "alias", "web01", "cpu: 1\n", CommitMsg())
         await s.write_rename("host", "web02", "web03", "cpu: 1\n", "cpu: 2\n", CommitMsg())
     log = subprocess.run(
         ["git", "log", "--format=%s", "-3"],
