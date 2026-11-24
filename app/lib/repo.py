@@ -186,7 +186,14 @@ async def get_entities(
         op, specs, old.data or {}, active_roles=active_roles
     )
 
-    if old_name is None or old_name == (new_name or old_name):
+    if op.operation == "create":
+        # A copy / link always has a source, also when the target name is
+        # generated later (`new_name` is None).
+        two_entities = old_name is not None
+    else:
+        two_entities = new_name not in (None, old_name)
+
+    if not two_entities:
         # Only one entity is involved (a plain create, or an operation on the
         # stored entity without a new name).
         if old_name is not None:

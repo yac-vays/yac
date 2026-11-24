@@ -1145,3 +1145,31 @@ async def test_put_changed_value_with_quotes_needs_no_cln(client, login, web03):
     )
     assert resp.status_code == 200, resp.text
     assert 'owner: "fred"' in web03.files["web03"]
+
+
+#
+# Copy / link with a generated name: the rights on the SOURCE still apply
+#
+
+
+@pytest.mark.parametrize("name", ["copy1", None])
+async def test_copy_checks_source_perms_also_for_generated_name(
+    monkeypatch, client, login, repo_session, name
+):
+    raw = copy.deepcopy(RAW_SPECS)
+    raw["types"][0]["name_generated"] = "optional"
+    raw["types"][0]["name_generator"] = "'gen-' ~ re_next_int('^gen-(\\\\d+)$')"
+    # ivy may add anything, but copy everything except web01
+    raw["roles"].append({"host:all:add": "user.name == 'ivy'"})
+    raw["roles"].append(
+        {"host:all:cpy": "user.name == 'ivy' and not (name is regex_match('^web01$'))"}
+    )
+    monkeypatch.setattr(specs_lib, "_RAW_DATA", raw)
+
+    login("ivy")
+    resp = await client.post("/entity/host", json={"name": name, "copy": "web01"})
+    assert resp.status_code == 403, resp.text
+    assert sorted(repo_session.files) == ["web01", "web02"]
+
+    resp = await client.post("/entity/host", json={"name": name, "copy": "web02"})
+    assert resp.status_code == 201, resp.text
