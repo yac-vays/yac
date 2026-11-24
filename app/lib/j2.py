@@ -165,13 +165,35 @@ def _compile_sync(nonstr: bool, source: str, loc: str):
         ) from error
 
 
+def _skipped(skip: str | None, loc: str) -> bool:
+    return bool(skip and re.match(skip, loc))
+
+
 async def render(
     o, props: dict, *, skip: str | None = None, strict: bool = True, loc: str = "#"
 ):
+    """
+    Renders all strings of a (nested) structure. Values whose loc matches
+    `skip` are kept as they are.
+    """
     if isinstance(o, dict):
-        return await __render_dict(o, props, skip=skip, strict=strict, loc=loc)
+        return {
+            k: (
+                v
+                if _skipped(skip, f"{loc}/{k}")
+                else await render(v, props, skip=skip, strict=strict, loc=f"{loc}/{k}")
+            )
+            for k, v in o.items()
+        }
     if isinstance(o, list):
-        return await __render_list(o, props, skip=skip, strict=strict, loc=loc)
+        return [
+            (
+                v
+                if _skipped(skip, f"{loc}/{i}")
+                else await render(v, props, skip=skip, strict=strict, loc=f"{loc}/{i}")
+            )
+            for i, v in enumerate(o)
+        ]
     if isinstance(o, str):
         return await render_str(o, props, strict=strict, loc=loc)
     return o
@@ -314,48 +336,6 @@ async def render_str(
         return result
 
 
-async def __render_dict(
-    d, props, *, skip: str | None, strict: bool = True, loc: str = "#"
-):
-    r = {}
-    for k, v in d.items():
-        k_loc = f"{loc}/{k}"
-        if skip and re.match(skip, k_loc):
-            r.update({k: v})
-        elif isinstance(v, dict):
-            r.update(
-                {k: await __render_dict(v, props, skip=skip, strict=strict, loc=k_loc)}
-            )
-        elif isinstance(v, list):
-            r.update(
-                {k: await __render_list(v, props, skip=skip, strict=strict, loc=k_loc)}
-            )
-        elif isinstance(v, str):
-            r.update({k: await render_str(v, props, strict=strict, loc=k_loc)})
-        else:
-            r.update({k: v})
-    return r
-
-
-async def __render_list(
-    l, props, *, skip: str | None, strict: bool = True, loc: str = "#"
-):
-    r = []
-    for v in l:
-        v_loc = f"{loc}/{len(r)}"
-        if skip and re.match(skip, v_loc):
-            r.append(v)
-        elif isinstance(v, dict):
-            r.append(await __render_dict(v, props, skip=skip, strict=strict, loc=v_loc))
-        elif isinstance(v, list):
-            r.append(await __render_list(v, props, skip=skip, strict=strict, loc=v_loc))
-        elif isinstance(v, str):
-            r.append(await render_str(v, props, strict=strict, loc=v_loc))
-        else:
-            r.append(v)
-    return r
-
-
 def render_sync(o, props: dict, *, skip: str | None = None, loc: str = "#"):
     """
     Synchronous rendering for startup-only blocks (auth, repo.plugin,
@@ -363,9 +343,23 @@ def render_sync(o, props: dict, *, skip: str | None = None, loc: str = "#"):
     here — only basic Jinja plus `omit`. Always strict.
     """
     if isinstance(o, dict):
-        return __render_sync_dict(o, props, skip=skip, loc=loc)
+        return {
+            k: (
+                v
+                if _skipped(skip, f"{loc}/{k}")
+                else render_sync(v, props, skip=skip, loc=f"{loc}/{k}")
+            )
+            for k, v in o.items()
+        }
     if isinstance(o, list):
-        return __render_sync_list(o, props, skip=skip, loc=loc)
+        return [
+            (
+                v
+                if _skipped(skip, f"{loc}/{i}")
+                else render_sync(v, props, skip=skip, loc=f"{loc}/{i}")
+            )
+            for i, v in enumerate(o)
+        ]
     if isinstance(o, str):
         return render_sync_str(o, props, loc=loc)
     return o
@@ -393,37 +387,3 @@ def render_sync_str(s, props, *, allow_nonstr: bool = True, loc: str = "#"):
                     f'Templating str "{s}" failed with: {error}', loc=loc
                 ) from error
     return result
-
-
-def __render_sync_dict(d, props, *, skip: str | None, loc: str = "#"):
-    r = {}
-    for k, v in d.items():
-        k_loc = f"{loc}/{k}"
-        if skip and re.match(skip, k_loc):
-            r[k] = v
-        elif isinstance(v, dict):
-            r[k] = __render_sync_dict(v, props, skip=skip, loc=k_loc)
-        elif isinstance(v, list):
-            r[k] = __render_sync_list(v, props, skip=skip, loc=k_loc)
-        elif isinstance(v, str):
-            r[k] = render_sync_str(v, props, loc=k_loc)
-        else:
-            r[k] = v
-    return r
-
-
-def __render_sync_list(l, props, *, skip: str | None, loc: str = "#"):
-    r = []
-    for v in l:
-        v_loc = f"{loc}/{len(r)}"
-        if skip and re.match(skip, v_loc):
-            r.append(v)
-        elif isinstance(v, dict):
-            r.append(__render_sync_dict(v, props, skip=skip, loc=v_loc))
-        elif isinstance(v, list):
-            r.append(__render_sync_list(v, props, skip=skip, loc=v_loc))
-        elif isinstance(v, str):
-            r.append(render_sync_str(v, props, loc=v_loc))
-        else:
-            r.append(v)
-    return r
