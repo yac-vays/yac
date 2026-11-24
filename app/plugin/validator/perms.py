@@ -1,3 +1,4 @@
+from app.lib import validator
 from app.lib import yaml
 from app.model.err import RequestError
 from app.model.err import RequestForbidden
@@ -51,17 +52,8 @@ class PermissionTester(IValidator):
             # removal of keys) is decided by the schema alone, see
             # plugin/json_schema/add_consts.py for keys the schema does not
             # define.
-            has_changes = True
-            if isinstance(op.entity, UpdateEntity):
-                # A patch can only express data changes: YAC itself builds
-                # the new YAML by applying it to the stored document, which
-                # preserves comments, key order and styles by construction.
-                # So a patch is never structural and needs no "cln" check.
-                if not op.entity.data:
-                    has_changes = False
-            elif isinstance(op.entity, ReplaceEntity):
-                if op.entity.yaml_old == op.entity.yaml_new:
-                    has_changes = False
+            has_changes = validator.has_content_changes(op, old)
+            if isinstance(op.entity, ReplaceEntity):
                 try:
                     if yaml.has_structural_changes(
                         op.entity.yaml_old, op.entity.yaml_new
@@ -73,7 +65,8 @@ class PermissionTester(IValidator):
                         )
                 except yaml.YAMLError as error:
                     raise RequestError(str(error)) from error
-            else:
+            elif not isinstance(op.entity, UpdateEntity):
+                # (A patch only expresses data changes: it never needs "cln".)
                 raise RequestError("The entity has the wrong format for this operation")
 
             renamed = op.name != op.entity.name

@@ -344,6 +344,11 @@ def _data_equal(a: Any, b: Any, *, json_numbers: bool = False) -> bool:
     return type(pa) is type(pb) and pa == pb
 
 
+def same_data(a: Any, b: Any) -> bool:
+    """Whether two loaded documents hold the same data, as JSON sees it."""
+    return _data_equal(a, b, json_numbers=True)
+
+
 def _project(old: Any, new: Any) -> None:
     """
     Apply the data of `new` onto `old` in place with the same semantics as

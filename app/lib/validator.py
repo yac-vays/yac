@@ -93,16 +93,21 @@ def may_read(old: Entity, perms: list[str]) -> bool:
     return "see" in (old.perms if old.perms is not None else perms)
 
 
-def has_content_changes(op: OperationRequest) -> bool:
+def has_content_changes(op: OperationRequest, old: Entity) -> bool:
     """
     Whether an edit operation would modify the entity's YAML content (as
-    opposed to a pure rename or a no-op). Mirrors the `has_changes` notion in
-    plugin/validator/perms.py that decides whether `edt` is required, so the
-    schema enforcement and the permission check always agree on what counts
-    as a content change.
+    opposed to a pure rename or a no-op). Also used by
+    plugin/validator/perms.py to decide whether `edt` is required, so the
+    schema enforcement and the permission check always agree.
+
+    A patch counts by its effect on the data: re-sending stored values is
+    not a change.
     """
     if isinstance(op.entity, UpdateEntity):
-        return bool(op.entity.data)
+        if not op.entity.data:
+            return False
+        new_data, error = incoming_new_data(op, old)
+        return error is not None or not yaml.same_data(new_data, old.data or {})
     if isinstance(op.entity, ReplaceEntity):
         return op.entity.yaml_old != op.entity.yaml_new
     return True
@@ -193,7 +198,7 @@ async def test_all(
             and op.operation == "edit"
             and op.entity is not None
             and op.entity.name == op.name
-            and not has_content_changes(op)
+            and not has_content_changes(op, old)
         ):
             raise RequestError("The request does not change anything")
     except RequestError as error:
@@ -211,7 +216,7 @@ async def test_all(
         # the stored YAML as-is, so stored data that no longer matches the
         # current schema must not block it. The validity is still reported
         # in the result (the /validate endpoint shows it), just not enforced.
-        if op.operation != "edit" or has_content_changes(op):
+        if op.operation != "edit" or has_content_changes(op, old):
             raise RequestError(schemas.message)
 
     return ValidationResult(

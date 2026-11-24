@@ -1206,3 +1206,27 @@ async def test_non_mapping_yaml_is_rejected(client, login, repo_session, doc):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["request"]["valid"] is False
+
+
+#
+# A patch that re-sends stored values is a no-op
+#
+
+
+async def test_patch_resending_stored_values_changes_nothing(
+    client, login, repo_session
+):
+    login("bob")
+    resp = await client.patch(
+        "/entity/host/web01",
+        json={"name": "web01", "data": {"owner": "alice", "networking": {"ip": "10.0.0.1"}}},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "does not change anything" in resp.json()["message"]
+    # no reformat-only commit (the stored YAML is not in canonical form)
+    assert repo_session.files["web01"] == WEB01_YAML
+
+    # /validate still accepts it: that is how a client opens an entity
+    resp = await client.post("/validate", json=_validate_body({"owner": "alice"}))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["request"]["valid"] is True
