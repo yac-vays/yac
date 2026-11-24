@@ -46,8 +46,68 @@ YAMLError = ruamel.yaml.YAMLError
 # Only used for typing.
 YAMLObject = ruamel.yaml.YAMLObject
 
+# Upper bound for the number of nodes (mappings, sequences, scalars and
+# mapping keys) of a document once all its aliases are expanded. Far beyond
+# any real entity, but it stops "billion laughs" documents: a few hundred
+# bytes of nested aliases (`b: [*a, *a, ...]`, `c: [*b, *b, ...]`, ...) load
+# quickly -- the loaders share the aliased objects -- but expand
+# exponentially as soon as the data is walked (schema validation, templates,
+# the JSON response), blocking the worker for seconds to hours.
+MAX_NODES = 100_000
+
+
+class YAMLTooComplexError(YAMLError):
+    """The document expands to more than MAX_NODES nodes (or is recursive)."""
+
+
+def _assert_bounded(text: str, data: Any) -> None:
+    """
+    Raises YAMLTooComplexError if `data` (loaded from `text`) is bigger than
+    MAX_NODES once its aliases are expanded, or contains itself. The size of
+    a shared (aliased) object is computed once and counted for every use, so
+    this is linear in the size of the document as written.
+    """
+    if "*" not in text or "&" not in text:
+        return  # no anchor/alias pair: the data is as big as the text
+
+    sizes: dict[int, int] = {}
+    in_progress: set[int] = set()
+
+    def size(node: Any) -> int:
+        if isinstance(node, dict):
+            children: Any = (x for item in node.items() for x in item)
+        elif isinstance(node, (list, tuple, set)):
+            children = node
+        else:
+            return 1
+        key = id(node)
+        if key in sizes:
+            return sizes[key]
+        if key in in_progress:
+            raise YAMLTooComplexError("The YAML contains an alias to itself")
+        in_progress.add(key)
+        total = 1
+        for child in children:
+            total += size(child)
+            if total > MAX_NODES:
+                raise YAMLTooComplexError(
+                    "The YAML is too big once its aliases are expanded (more"
+                    f" than {MAX_NODES} nodes)"
+                )
+        in_progress.discard(key)
+        sizes[key] = total
+        return total
+
+    size(data)
+
 
 def load(yaml: str, *, strict: bool = True) -> YAMLObject | None:
+    data = _load(yaml, strict=strict)
+    _assert_bounded(yaml, data)
+    return data
+
+
+def _load(yaml: str, *, strict: bool = True) -> YAMLObject | None:
     if strict:
         return y.load(yaml)
 
@@ -205,6 +265,7 @@ def load_as_dict_fast(text: str) -> dict:
         data = _pyyaml.load(text, Loader=_FastLoader)
     except _pyyaml.YAMLError:
         return load_as_dict(text, strict=False)
+    _assert_bounded(text, data)
     if isinstance(data, dict):
         return data
     return {}

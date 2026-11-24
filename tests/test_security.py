@@ -11,16 +11,19 @@ Regression tests for the findings of the security audit of 2026-11-24
       empty PATCH still rewrote (re-serialized) the stored YAML
   #4  PATCH validated the patch against the client-supplied `yaml_base` but
       wrote it onto the stored YAML
+  #6  a tiny YAML document with nested aliases blocked the worker for seconds
 
 All of them drive the real app through the harness of tests/test_routers.py
 (users and specs: tests/fixtures/routers.yml).
 """
 
 import copy
+import time
 
 import pytest
 
 from app.lib import specs as specs_lib
+from app.lib import yaml as yaml_lib
 
 # pylint: disable=unused-import
 from tests.test_routers import RAW_SPECS
@@ -309,3 +312,71 @@ async def test_patch_is_validated_against_the_stored_yaml(client, login, repo_se
     body["entity"]["yaml_base"] = "owner: bob\nos: linux\n"
     resp = await client.post("/validate", json=body)
     assert resp.json()["schemas"]["valid"] is True
+
+
+#
+# 6) YAML alias bombs
+#
+
+
+def _bomb(levels: int = 9, width: int = 10) -> str:
+    lines = [f"a0: &a0 [{', '.join(['x'] * width)}]"]
+    for i in range(1, levels):
+        lines.append(f"a{i}: &a{i} [{', '.join([f'*a{i - 1}'] * width)}]")
+    return "\n".join(lines) + "\nowner: bob\n"
+
+
+def test_yaml_bomb_is_rejected_by_both_loaders():
+    bomb = _bomb()
+    assert len(bomb) < 1000
+    start = time.monotonic()
+    with pytest.raises(yaml_lib.YAMLTooComplexError):
+        yaml_lib.load(bomb)
+    with pytest.raises(yaml_lib.YAMLTooComplexError):
+        yaml_lib.load_as_dict(bomb)
+    with pytest.raises(yaml_lib.YAMLTooComplexError):
+        yaml_lib.load_as_dict_fast(bomb)
+    assert time.monotonic() - start < 2
+
+
+def test_yaml_ordinary_anchors_still_load():
+    text = (
+        "defaults: &defaults\n  cpu: 2\n  tags: [a, b]\n"
+        "web:\n  <<: *defaults\n  ram: 4\n"
+        "db: *defaults\n"
+    )
+    assert yaml_lib.load_as_dict(text)["db"]["cpu"] == 2
+    assert yaml_lib.load_as_dict_fast(text)["web"]["cpu"] == 2
+    # a moderately repetitive document is fine
+    assert yaml_lib.load_as_dict(_bomb(levels=3))["owner"] == "bob"
+    # no anchors at all: never limited, whatever the size
+    big = "items:\n" + "  - x\n" * (yaml_lib.MAX_NODES + 10)
+    assert len(yaml_lib.load_as_dict_fast(big)["items"]) == yaml_lib.MAX_NODES + 10
+
+
+async def test_yaml_bomb_via_api(client, login, repo_session):
+    login("erin")  # may create
+    bomb = _bomb()
+
+    start = time.monotonic()
+    resp = await client.post(
+        "/validate",
+        json={"operation": "create", "type": "host", "entity": {"name": "n1", "yaml": bomb}},
+    )
+    assert resp.status_code == 200
+    result = resp.json()
+    assert result["request"]["valid"] is False
+    assert "aliases" in result["request"]["message"]
+
+    resp = await client.post("/entity/host", json={"name": "n1", "yaml": bomb})
+    assert resp.status_code == 400
+
+    # as the new content of an existing entity
+    resp = await client.put(
+        "/entity/host/web02",
+        json={"name": "web02", "yaml_old": "owner: bob\n", "yaml_new": bomb},
+    )
+    assert resp.status_code == 400
+    assert time.monotonic() - start < 5
+    assert "n1" not in repo_session.files
+    assert repo_session.files["web02"] == "owner: bob\n"
