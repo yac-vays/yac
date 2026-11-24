@@ -52,7 +52,6 @@ from typing import AsyncGenerator
 from urllib.parse import urlsplit
 import asyncio
 import logging
-import re
 import time
 import uuid
 
@@ -140,6 +139,11 @@ async def _render_glob(type_name: str, details: dict) -> str:
     return await _gd_module()._render_glob(type_name, details)
 
 
+def _name_from_path(glob_pat: str, path_rel: str) -> str | None:
+    # pylint: disable=protected-access
+    return _gd_module()._name_from_path(glob_pat, path_rel)
+
+
 async def _render_path(type_name: str, name: str, details: dict) -> str:
     # pylint: disable=protected-access
     return await _gd_module()._render_path(type_name, name, details)
@@ -170,18 +174,12 @@ class _GitRedisSession(IRepoSession):
 
     async def list(self, type: str) -> list[str]:
         glob_pat = await _render_glob(type, self._details)
-        start, end = glob_pat.split("*", maxsplit=1)
-        pattern = re.compile(rf"^{re.escape(start)}(.+){re.escape(end)}$")
         try:
             paths = await self._r.hkeys(self._key)
         except RedisError as error:
             raise RepoError(f"Redis list failed for type {type}") from error
-        names = []
-        for p in paths:
-            match = pattern.match(p)
-            if match:
-                names.append(match.group(1))
-        return sorted(names)
+        names = (_name_from_path(glob_pat, p) for p in paths)
+        return sorted(name for name in names if name is not None)
 
     async def exists(self, type: str, name: str) -> bool:
         rel = await _render_path(type, name, self._details)
@@ -196,13 +194,12 @@ class _GitRedisSession(IRepoSession):
 
     async def _target_rel_to_name(self, type: str, name: str, target_rel: str) -> str:
         glob_pat = await _render_glob(type, self._details)
-        start, end = glob_pat.split("*", maxsplit=1)
-        match = re.match(rf"^{re.escape(start)}(.+){re.escape(end)}$", target_rel)
-        if not match:
+        target = _name_from_path(glob_pat, target_rel)
+        if target is None:
             raise RepoError(
                 f"Link {name} target {target_rel} doesn't match type glob"
             )
-        return match.group(1)
+        return target
 
     async def get_link(self, type: str, name: str) -> str:
         value = await self._raw(type, name)

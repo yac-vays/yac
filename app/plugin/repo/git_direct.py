@@ -134,6 +134,18 @@ async def _render_glob(type_name: str, details: dict) -> str:
     return rendered
 
 
+def _name_from_path(glob_pat: str, path_rel: str) -> str | None:
+    """
+    The entity name of a repo-relative path that matches the type's glob
+    (None if it does not). A name never spans directories.
+    """
+    start, end = glob_pat.split("*", maxsplit=1)
+    match = re.fullmatch(
+        rf"{re.escape(start)}([^/]+){re.escape(end)}", path_rel, flags=re.DOTALL
+    )
+    return match.group(1) if match else None
+
+
 async def _render_path(type_name: str, name: str, details: dict) -> str:
     template = _path_template(type_name, details)
     return await j2.render_str(template, {"name": name})
@@ -698,21 +710,17 @@ class GitRepo(IRepo):
 
     async def _list(self, type_name: str, details: dict) -> list[str]:
         glob_pat = await _render_glob(type_name, details)
-        start, end = glob_pat.split("*", maxsplit=1)
-        pattern = re.compile(
-            rf"^{re.escape(self.path)}/{re.escape(start)}(.+){re.escape(end)}$"
-        )
+        prefix_len = len(self.path) + 1
         try:
-            return sorted(
-                [
-                    pattern.findall(str(fn))[0]
-                    async for fn in Path(self.path).glob(glob_pat)
-                ]
-            )
-        except (OSError, AttributeError, KeyError, IndexError) as error:
+            names = [
+                _name_from_path(glob_pat, str(fn)[prefix_len:])
+                async for fn in Path(self.path).glob(glob_pat)
+            ]
+        except OSError as error:
             raise RepoError(
                 f"Could not list files at {self.path}/{glob_pat}"
             ) from error
+        return sorted(name for name in names if name is not None)
 
     async def _exists(self, type_name: str, name: str, details: dict) -> bool:
         path = await self._file_path(type_name, name, details)
@@ -740,16 +748,10 @@ class GitRepo(IRepo):
             raise RepoError(f"Link {src} has an illegal destination: {dest}")
 
         glob_pat = await _render_glob(type_name, details)
-        link_rel = dest[(len(base) + 1) :]
-        start, end = glob_pat.split("*", maxsplit=1)
-        try:
-            return re.findall(
-                rf"^{re.escape(start)}(.+){re.escape(end)}$", link_rel
-            )[0]
-        except (AttributeError, KeyError, IndexError) as error:
-            raise RepoError(
-                f"Link {src} has an illegal destination: {dest}"
-            ) from error
+        target = _name_from_path(glob_pat, dest[(len(base) + 1) :])
+        if target is None:
+            raise RepoError(f"Link {src} has an illegal destination: {dest}")
+        return target
 
     async def _get(self, type_name: str, name: str, details: dict) -> str:
         path = await self._file_path(type_name, name, details)
