@@ -26,22 +26,23 @@ def incoming_new_data(op: OperationRequest, old: Entity) -> tuple[dict, str | No
     """
     The data the operation would write, parsed to a dict. Returns
     `(data, None)` on success or `({}, error_message)` if the payload YAML is
-    malformed. Shared between `test_all` (schema generation) and the routers
-    (limit measurement) so the two never disagree on what "the new data" is.
+    malformed or not a mapping. Shared between `test_all` (schema generation)
+    and the routers (limit measurement) so the two never disagree on what "the
+    new data" is.
 
     Copies/links inherit the source entity's data (`old.data`), matching how
     the create router generates their name.
     """
     try:
         if isinstance(op.entity, NewEntity):
-            return yaml.load_as_dict(op.entity.yaml), None
+            return yaml.load_mapping(op.entity.yaml), None
         if isinstance(op.entity, (CopyEntity, LinkEntity)):
             return old.data or {}, None
         if isinstance(op.entity, ReplaceEntity):
-            return yaml.load_as_dict(op.entity.yaml_new), None
+            return yaml.load_mapping(op.entity.yaml_new), None
         if isinstance(op.entity, UpdateEntity):
             base = op.entity.yaml_base if op.entity.yaml_base is not None else (old.yaml or "")
-            return yaml.load_as_dict(yaml.update(base, op.entity.data)), None
+            return yaml.load_mapping(yaml.update(base, op.entity.data)), None
         if op.entity is None and op.operation == "read":
             return old.data or {}, None
         return {}, None

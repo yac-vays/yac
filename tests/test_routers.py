@@ -1173,3 +1173,36 @@ async def test_copy_checks_source_perms_also_for_generated_name(
 
     resp = await client.post("/entity/host", json={"name": name, "copy": "web02"})
     assert resp.status_code == 201, resp.text
+
+
+#
+# Entity documents must be mappings
+#
+
+
+@pytest.mark.parametrize("doc", ["- a\n- b\n", "- [owner, alice]\n", "just text\n"])
+async def test_non_mapping_yaml_is_rejected(client, login, repo_session, doc):
+    login("alice")
+    resp = await client.post("/entity/host", json={"name": "lst", "yaml": doc})
+    assert resp.status_code == 400, resp.text
+    assert "mapping" in resp.json()["message"]
+    assert "lst" not in repo_session.files
+
+    resp = await client.put(
+        "/entity/host/web02",
+        json={"name": "web02", "yaml_old": "owner: bob\n", "yaml_new": doc},
+    )
+    assert resp.status_code == 400, resp.text
+    assert repo_session.files["web02"] == "owner: bob\n"
+
+    resp = await client.post(
+        "/validate",
+        json={
+            "operation": "create",
+            "type": "host",
+            "name": None,
+            "entity": {"name": "lst", "yaml": doc},
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["request"]["valid"] is False

@@ -102,8 +102,14 @@ def _assert_bounded(text: str, data: Any) -> None:
 
 
 def load(yaml: str, *, strict: bool = True) -> YAMLObject | None:
-    data = _load(yaml, strict=strict)
-    _assert_bounded(yaml, data)
+    try:
+        data = _load(yaml, strict=strict)
+        _assert_bounded(yaml, data)
+    except RecursionError as error:
+        raise YAMLTooComplexError("The YAML is nested too deeply") from error
+    except (ValueError, IndexError) as error:
+        # ruamel's scalar constructors leak these for tokens like `._` or `0x_`
+        raise YAMLError(f"Invalid YAML value: {error}") from error
     return data
 
 
@@ -123,10 +129,19 @@ def _load(yaml: str, *, strict: bool = True) -> YAMLObject | None:
 
 
 def load_as_dict(yaml: str, *, strict: bool = True) -> dict:
-    try:
-        return dict(load(yaml, strict=strict))
-    except (ValueError, TypeError):
+    """Lenient: anything but a mapping at the top level reads as `{}`."""
+    data = load(yaml, strict=strict)
+    return dict(data) if isinstance(data, dict) else {}
+
+
+def load_mapping(yaml: str) -> dict:
+    """Strict: the document must be a mapping (or empty), else YAMLError."""
+    data = load(yaml)
+    if data is None:
         return {}
+    if not isinstance(data, dict):
+        raise YAMLError("The YAML document must be a mapping (key: value)")
+    return dict(data)
 
 
 try:
@@ -263,9 +278,9 @@ def load_as_dict_fast(text: str) -> dict:
     """
     try:
         data = _pyyaml.load(text, Loader=_FastLoader)
-    except _pyyaml.YAMLError:
+        _assert_bounded(text, data)
+    except (_pyyaml.YAMLError, ValueError, RecursionError):
         return load_as_dict(text, strict=False)
-    _assert_bounded(text, data)
     if isinstance(data, dict):
         return data
     return {}
