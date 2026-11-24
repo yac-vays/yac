@@ -4,9 +4,12 @@ A library to run non-blocking (async) git commands and kill them after a timeout
 Raises: [app.lib.git.GitError, app.lib.git.GitTimeoutError, app.lib.git.GitRemoteError]
 """
 
+from asyncio.subprocess import Process
 import asyncio
 import logging
+import os
 import re
+import signal
 
 from anyio import Path
 
@@ -111,6 +114,25 @@ def classify_remote_failure(error: GitError) -> GitError:
 NETWORK_TIMEOUT = 30
 
 
+# How long a git process gets to exit (and remove its lock files) after
+# SIGTERM before it is killed.
+_TERMINATE_GRACE = 2
+
+
+async def _stop(proc: Process) -> None:
+    """Stop git and its helper processes, and reap git."""
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+        await asyncio.wait_for(asyncio.shield(proc.wait()), _TERMINATE_GRACE)
+    except (ProcessLookupError, asyncio.TimeoutError):
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)  # whatever is left of the group
+    except ProcessLookupError:
+        pass
+    await asyncio.shield(proc.wait())
+
+
 class Repo:
 
     def __init__(self, path: str, env: dict[str, str]) -> None:
@@ -119,23 +141,32 @@ class Repo:
         self.env = env
 
     async def __run(self, *args: str, timeout: int) -> str:
-        proc = await asyncio.create_subprocess_exec(
-            "/usr/bin/git",
-            *args,
-            env=self.env,
-            cwd=self.path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "/usr/bin/git",
+                *args,
+                env=self.env,
+                cwd=self.path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                # Own process group: git's helpers (ssh, git-remote-https)
+                # can then be stopped together with it.
+                start_new_session=True,
+            )
+        except FileNotFoundError as error:
+            raise GitError(f"Directory {self.path} does not exist") from error
+        except OSError as error:
+            raise GitError(f"Could not run git: {error}") from error
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError as error:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass  # it finished in the meantime!
+            await _stop(proc)
             raise GitTimeoutError(f"Timeout of {timeout} seconds exceeded") from error
+        except asyncio.CancelledError:
+            await _stop(proc)
+            raise
         except Exception as error:
+            await _stop(proc)
             raise GitError(f"Git command failed with: {error}") from error
 
         if proc.returncode != 0:
@@ -168,12 +199,9 @@ class Repo:
         """
         if not await Path(f"{self.path}/.git").exists():
             raise GitError(f"{self.path} is not a git checkout")
-        try:
-            await self.__run(
-                "rev-parse", "--verify", "--quiet", "HEAD^{commit}", timeout=2
-            )
-        except FileNotFoundError as error:
-            raise GitError(f"Directory {self.path} does not exist") from error
+        await self.__run(
+            "rev-parse", "--verify", "--quiet", "HEAD^{commit}", timeout=2
+        )
         self.loaded = True
 
     async def clone(
