@@ -193,3 +193,18 @@ async def test_get_broken_schema_is_a_located_specs_error(prop, data, loc):
             new_data={"a": data},
         )
     assert str(error.value).startswith(f"{loc}: ")
+
+
+def test_strip_injected_handles_properties_named_like_keywords():
+    from app.consts import INJECTED
+
+    json_schema = {
+        "properties": {
+            name: {"enum": ["x"], INJECTED: True}
+            for name in ("default", "enum", "const", "examples", "plain")
+        },
+        "default": {INJECTED: "data, not a schema"},
+    }
+    schema._strip_injected(json_schema)
+    assert all(INJECTED not in sub for sub in json_schema["properties"].values())
+    assert json_schema["default"] == {INJECTED: "data, not a schema"}

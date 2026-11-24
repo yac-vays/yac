@@ -30,8 +30,6 @@ SUBSCHEMAS = [
 SUBSCHEMA_OBJECTS = ["$defs", "properties", "patternProperties", "dependentSchemas"]
 SUBSCHEMA_ARRAYS = ["oneOf", "allOf", "anyOf", "prefixItems"]
 
-# The same keywords in different categories:
-
 
 def get(
     data: Any, add: Callable[[Any], bool], loc: str = "#", res: list[str] | None = None
@@ -39,9 +37,6 @@ def get(
     """
     Generates loc strings for all given data that the add() function returns
     True for.
-
-    If flat is False, it will also add dicts and lists to the data (instad of only
-    basic types).
     """
     if res is None:
         res = []
@@ -71,9 +66,14 @@ def extract(data_loc: str, data: Any) -> Any | None:
     d = data
     for key in keys:
         if isinstance(d, dict):
-            d = d.get(key, None)
+            if key in d:
+                d = d[key]
+            else:
+                # locs are strings, YAML keys need not be (`80: http`)
+                d = next((v for k, v in d.items() if str(k) == key), None)
         elif isinstance(d, list):
-            d = d[int(key)] if int(key) < len(d) else None
+            is_index = key.isascii() and key.isdigit() and int(key) < len(d)
+            d = d[int(key)] if is_index else None
         else:
             d = None
     return d
@@ -81,16 +81,14 @@ def extract(data_loc: str, data: Any) -> Any | None:
 
 def on_schema_lvl(schema_loc: list, index: int) -> bool:
     """
-    Tests if we are on schema level with the index (assuming that top-level
-    is always schema level).
+    Tests if the segment at index is a schema keyword (and not the name of a
+    property or the index of a subschema), walking down from the top level,
+    which is always schema level.
     """
-    if index == 0:
-        return True
-    if index >= 1 and schema_loc[index - 1] in SUBSCHEMAS:
-        return True
-    if index >= 2 and schema_loc[index - 2] in SUBSCHEMA_OBJECTS + SUBSCHEMA_ARRAYS:
-        return True
-    return False
+    i = 0
+    while i < index:
+        i += 2 if schema_loc[i] in SUBSCHEMA_OBJECTS + SUBSCHEMA_ARRAYS else 1
+    return i == index
 
 
 def to_data_path(schema_loc: str) -> list[tuple[str, str]] | None:
@@ -279,7 +277,19 @@ def is_specified(key: str, schema: dict | bool | None) -> bool:
 def value_key(value: Any) -> str:
     """
     A hashable identity of a data value that tells apart what Python equates
-    but JSON-Schema does not (e.g. `1` and `true`). YAML-only types (dates)
-    count by their string form.
+    but JSON-Schema does not (`1` and `true`), but not what JSON-Schema
+    equates (`1` and `1.0`). YAML-only types (dates) count by their string
+    form.
     """
-    return json.dumps(value, sort_keys=True, default=str)
+    return json.dumps(_canonical(value), sort_keys=True, default=str)
+
+
+def _canonical(value: Any) -> Any:
+    """Integral floats as ints (equal in JSON-Schema), all mapping keys as strings."""
+    if isinstance(value, dict):
+        return {str(k): _canonical(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical(v) for v in value]
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value

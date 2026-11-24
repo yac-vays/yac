@@ -150,15 +150,20 @@ async def _first_error(json_schema: dict, data: Any) -> jsonschema.ValidationErr
 
 def _strip_injected(json_schema: Any) -> None:
     """Drops the consts.INJECTED markers once the ui_schema is complete."""
-    if isinstance(json_schema, dict):
-        json_schema.pop(INJECTED, None)
-        for key, value in json_schema.items():
-            # data, not schemas
-            if key not in ("enum", "const", "default", "examples"):
-                _strip_injected(value)
-    elif isinstance(json_schema, list):
-        for value in json_schema:
-            _strip_injected(value)
+    if isinstance(json_schema, list):
+        for sub in json_schema:
+            _strip_injected(sub)
+    if not isinstance(json_schema, dict):
+        return
+    json_schema.pop(INJECTED, None)
+    # Only where subschemas are: a property may be named like any keyword.
+    for key in SUBSCHEMAS + SUBSCHEMA_ARRAYS:
+        _strip_injected(json_schema.get(key))
+    for key in SUBSCHEMA_OBJECTS:
+        subs = json_schema.get(key)
+        if isinstance(subs, dict):
+            for sub in subs.values():
+                _strip_injected(sub)
 
 
 def _shared_consts_excess(context: dict, data: Any) -> tuple[str, str, str] | None:

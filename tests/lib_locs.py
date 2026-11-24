@@ -143,3 +143,34 @@ def test_specification_and_removed():
 
     assert locs.removed('#', 'perms') is None
     assert locs.removed('#/properties/a', 'if') == {REMOVED: 'if', 'not': True}
+
+
+# ----- edge cases -----
+
+def test_extract_list_index_must_be_a_valid_index():
+    data = {'l': [1, 2, 3]}
+    assert locs.extract('#/l/-1', data) is None
+    assert locs.extract('#/l/x', data) is None
+    assert locs.extract('#/l/١', data) is None  # non-ASCII digit
+
+
+def test_extract_finds_non_string_keys():
+    data = {'ports': {80: 'http'}}
+    assert locs.get(data, lambda d: d == 'http') == ['#/ports/80']
+    assert locs.extract('#/ports/80', data) == 'http'
+
+
+def test_schema_level_is_decided_from_the_top():
+    # `items` is the NAME of a property here, not the keyword
+    assert not locs.shared('#/properties/properties/properties/items')
+    assert locs.shared('#/properties/properties/items')
+    assert locs.shared('#/properties/a/items/properties/b')
+    assert locs.shared('#/patternProperties/^x/properties/b')
+    assert not locs.shared('#/properties/patternProperties')
+
+
+def test_value_key():
+    assert locs.value_key(1) == locs.value_key(1.0)
+    assert locs.value_key(1) != locs.value_key(True)
+    assert locs.value_key(1.5) != locs.value_key(1)
+    assert locs.value_key({1: 'a', 'b': 2}) == locs.value_key({'b': 2, 1: 'a'})
