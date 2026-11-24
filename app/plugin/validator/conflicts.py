@@ -35,11 +35,18 @@ class ConflictTester(IValidator):
             if not old.exists:
                 raise RequestNotFound(f"{old.name} does not exist")
 
+        if op.operation == "delete" and old.is_link_target:
+            raise RequestError(f"{old.name} cannot be deleted because it is linked")
+
         if op.operation == "edit":
             if old.is_link:
                 raise RequestError("Links cannot be modified")
             if old.name != new.name and new.exists:
                 raise RequestConflict(f"{new.name} already exists")
+            if new.name not in (None, old.name) and old.is_link_target:
+                raise RequestError(
+                    f"{old.name} cannot be renamed because it is linked"
+                )
 
             if isinstance(op.entity, ReplaceEntity):
                 if old.yaml != op.entity.yaml_old:

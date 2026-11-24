@@ -211,6 +211,18 @@ class IRepoSession:
             return content, await self.get_link(type, name)
         return content, None
 
+    async def is_link_target(self, type_name: str, name: str) -> bool:
+        """
+        Whether another entity of the type is a link to this one. Such an
+        entity must not be renamed or deleted (the links would dangle).
+        Backends should override this default if they can answer cheaper.
+        """
+        for other in await self.list(type_name):
+            if other != name and await self.is_link(type_name, other):
+                if await self.get_link(type_name, other) == name:
+                    return True
+        return False
+
     @abstractmethod
     async def write(
         self, type: str, name: str, content_old: str, content_new: str, msg: CommitMsg

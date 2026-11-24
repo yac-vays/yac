@@ -206,6 +206,10 @@ class _GitRepoSession(IRepoSession):
     async def get(self, type: str, name: str) -> str:
         return await self._h._get(type, name, self._details)
 
+    async def is_link_target(self, type_name: str, name: str) -> bool:
+        # pylint: disable-next=protected-access
+        return await self._h._has_link(type_name, name, self._details)
+
     def _require_writing(self) -> None:
         if not self._writing:
             raise RepoError("Write operation outside writer scope")
@@ -752,6 +756,10 @@ class GitRepo(IRepo):
                 raise RepoConflict("The data has changed in the meantime")
             if await self._is_link(type_name, name_old, details):
                 raise RepoClientError("Modifying links is not allowed")
+            if await self._has_link(type_name, name_old, details):
+                raise RepoClientError(
+                    "The file must not be renamed because it is linked"
+                )
         else:
             raise RepoConflict("The file has been deleted in the meantime")
         if await self._exists(type_name, name_new, details):

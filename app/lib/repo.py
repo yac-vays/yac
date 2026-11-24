@@ -48,13 +48,8 @@ async def _parse_yaml_dict_cached(yaml_text: str) -> dict:
 
 
 @keyed_alru_cache(
-    key_fn=lambda repo_hash, type_name, old_name, new_name, type_exists, rpo: (
-        repo_hash,
-        type_name,
-        old_name,
-        new_name,
-        type_exists,
-    ),
+    # Everything but the session (args[5]).
+    key_fn=lambda *args: (*args[:5], *args[6:]),
     maxsize=10000,
     # Entities (and the parsed YAML dicts they embed) are mutable; hand each
     # caller its own deep copy so concurrent requests cannot corrupt the cache.
@@ -67,6 +62,7 @@ async def __lookup_entities(
     new_name: str | None,
     type_exists: bool,
     rpo: IRepoSession,
+    check_link_target: bool = False,
 ) -> tuple[Entity, Entity]:
     del repo_hash  # only required to scope the cache to a repo state
 
@@ -82,6 +78,10 @@ async def __lookup_entities(
                     await rpo.get_link(type_name, old.name) if old.is_link else None
                 )
                 old.yaml = await rpo.get(type_name, old.name)
+                if check_link_target:
+                    old.is_link_target = await rpo.is_link_target(
+                        type_name, old.name
+                    )
         if new.name is not None:
             if await rpo.exists(type_name, new.name):
                 new.exists = True
@@ -174,8 +174,18 @@ async def get_entities(
     else:  # read, delete, arbitrary
         old_name = op.name
 
+    # Links to an entity dangle once it is renamed or deleted.
+    moves_away = op.operation == "delete" or (
+        op.operation == "edit" and new_name not in (None, old_name)
+    )
     old, new = await __lookup_entities(
-        hash, op.type_name, old_name, new_name, specs.type is not None, rpo
+        hash,
+        op.type_name,
+        old_name,
+        new_name,
+        specs.type is not None,
+        rpo,
+        moves_away,
     )
     if active_roles is None:
         active_roles = await perms.get_active_role_set(op, specs)

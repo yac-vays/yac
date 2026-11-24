@@ -170,6 +170,19 @@ class _GitRedisSession(IRepoSession):
             raise RepoError(f"File {name} is not a link")
         return await self._target_rel_to_name(type, name, value[2:])
 
+    async def is_link_target(self, type_name: str, name: str) -> bool:
+        target = "l:" + await _render_path(type_name, name, self._details)
+        names = [n for n in await self.list(type_name) if n != name]
+        if not names:
+            return False
+        keys = [await self._data_key(type_name, n) for n in names]
+        try:
+            return target in await self._r.mget(keys)
+        except RedisError as error:
+            raise RepoError(
+                f"Redis link scan failed for {type_name}/{name}"
+            ) from error
+
     async def get_resolved(self, type: str, name: str) -> tuple[str, str | None]:
         # Single value fetch already encodes link vs file (`l:`/`f:`), so the
         # link target comes for free -- no extra round-trip vs plain `get`.
