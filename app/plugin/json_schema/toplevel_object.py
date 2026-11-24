@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class Toplevel(IJsonSchema):
 
     def order(self) -> tuple[bool, int]:
-        return False, 0
+        return False, 10
 
     async def process(
         self, loc: str, json_schema: dict, context: dict, props: dict

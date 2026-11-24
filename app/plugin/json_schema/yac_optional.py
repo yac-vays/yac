@@ -1,5 +1,6 @@
 import logging
 
+from app.lib import locs
 from app.model.err import SchemaSpecsError
 from app.model.plg import IJsonSchema
 
@@ -27,25 +28,27 @@ class YacOptional(IJsonSchema):
         if json_schema.get("type", "") != "object":
             return json_schema, context
 
+        # A subschema that only tests the data keeps its `required` as written.
+        shape = not locs.conditional(loc)
         if "required" in json_schema:
-            logger.warning(
-                f"Explicit definition of {loc}/required, better use yac_optional"
-                " instead"
-            )
-        else:
+            if shape:
+                logger.warning(
+                    f"Explicit definition of {loc}/required, better use yac_optional"
+                    " instead"
+                )
+        elif shape:
             json_schema["required"] = []
 
-        for key in json_schema.get("properties", {}).keys():
+        for key, prop in json_schema.get("properties", {}).items():
             optional = False
-            if "yac_optional" in json_schema["properties"][key]:
-                optional = json_schema["properties"][key]["yac_optional"]
-                if isinstance(optional, bool):
-                    json_schema["properties"][key].pop("yac_optional")
-                else:
+            if isinstance(prop, dict) and "yac_optional" in prop:
+                optional = prop.pop("yac_optional")
+                if not isinstance(optional, bool):
                     raise SchemaSpecsError(
                         f"{loc}/properties/{key}/yac_optional is not a boolean"
                     )
-
+            if not shape:
+                continue
             if key not in json_schema["required"] and not optional:
                 json_schema["required"].append(key)
             if key in json_schema["required"] and optional:

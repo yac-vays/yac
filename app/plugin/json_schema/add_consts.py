@@ -72,7 +72,7 @@ class AddConsts(IJsonSchema):
         if props["operation"] not in ("edit", "read"):
             return json_schema, context
 
-        if json_schema.get("type", "") != "object":
+        if json_schema.get("type", "") != "object" or locs.conditional(loc):
             return json_schema, context
 
         if "add_consts" not in context:

@@ -6,7 +6,7 @@ from app.model.plg import IJsonSchema
 class Formats(IJsonSchema):
 
     def order(self) -> tuple[bool, int]:
-        return False, 0
+        return False, 60
 
     async def process(
         self, loc: str, json_schema: dict, context: dict, props: dict

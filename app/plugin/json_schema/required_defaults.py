@@ -1,5 +1,6 @@
 import logging
 
+from app.lib import locs
 from app.model.err import SchemaSpecsError
 from app.model.plg import IJsonSchema
 
@@ -35,7 +36,7 @@ class RequiredDefaults(IJsonSchema):
         if props["operation"] == "read":
             return json_schema, context
 
-        if json_schema.get("type", "") != "object":
+        if json_schema.get("type", "") != "object" or locs.conditional(loc):
             return json_schema, context
 
         required = json_schema.get("required", [])
@@ -50,6 +51,8 @@ class RequiredDefaults(IJsonSchema):
 
         for key in json_schema.get("properties", {}).keys():
             prop = json_schema["properties"][key]
+            if not isinstance(prop, dict):
+                continue  # a boolean schema
             if key in required and "default" not in prop:
                 if prop.get("type", None) == "boolean":
                     prop["default"] = False

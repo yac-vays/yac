@@ -1,5 +1,6 @@
 from app.model.err import SchemaSpecsError
 from app.model.plg import IUiSchema
+from app.lib import locs
 from app.lib import uischema
 
 
@@ -30,7 +31,7 @@ class VaysCategory(IUiSchema):
 
         # Leave vays_options inside an array in the json_schema and let the
         # plugin vays_array_details handle it!
-        if "/items/" in loc:
+        if locs.below_items(loc):
             json_schema.pop("vays_category")
             json_schema.pop("vays_group", None)
             return (json_schema, ui_schema)

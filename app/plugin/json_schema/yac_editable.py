@@ -5,7 +5,8 @@ from app.model.plg import IJsonSchema
 
 class YacEditable(IJsonSchema):
     def order(self) -> tuple[bool, int]:
-        return False, 0
+        # Before yac_if, for the same reason as yac_perms.
+        return False, 40
 
     async def process(
         self, loc: str, json_schema: dict, context: dict, props: dict

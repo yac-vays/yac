@@ -4,7 +4,7 @@ from app.model.plg import IJsonSchema
 
 class YacTypes(IJsonSchema):
     def order(self) -> tuple[bool, int]:
-        return False, 0
+        return False, 20
 
     async def process(
         self, loc: str, json_schema: dict, context: dict, props: dict

@@ -213,6 +213,33 @@ def shared(schema_loc: str) -> bool:
     )
 
 
+def below_items(schema_loc: str) -> bool:
+    """Whether the subschema at schema_loc is below the `items` of an array."""
+    keys = schema_loc.split("/")
+    if keys and keys[0] == "#":
+        keys = keys[1:]
+    return any(
+        k == "items" and on_schema_lvl(keys, i) for i, k in enumerate(keys[:-1])
+    )
+
+
+def conditional(schema_loc: str) -> bool:
+    """
+    Whether the subschema at schema_loc is (below) one that only tests the
+    data (`if`, `not`, `contains`, `propertyNames`) instead of describing
+    it. Plugins that shape a schema for the form (required, defaults,
+    additionalProperties, stored values) must leave these alone: they would
+    change what the test matches.
+    """
+    keys = schema_loc.split("/")
+    if keys and keys[0] == "#":
+        keys = keys[1:]
+    return any(
+        k in ("if", "not", "contains", "propertyNames") and on_schema_lvl(keys, i)
+        for i, k in enumerate(keys)
+    )
+
+
 def specification(key: str, schema: dict | bool | None) -> str | None:
     """
     How a property (key) is defined in a json_schema specifying an object:

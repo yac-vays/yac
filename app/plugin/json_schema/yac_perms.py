@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 
 class YacPerms(IJsonSchema):
     def order(self) -> tuple[bool, int]:
-        return False, 0
+        # Before yac_if: a value the user may not write stays pinned even
+        # if its condition no longer holds.
+        return False, 30
 
     async def process(
         self, loc: str, json_schema: dict, context: dict, props: dict

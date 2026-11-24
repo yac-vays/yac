@@ -6,7 +6,7 @@ from app.model.plg import IJsonSchema
 
 class YacIf(IJsonSchema):
     def order(self) -> tuple[bool, int]:
-        return False, 0
+        return False, 50
 
     async def process(
         self, loc: str, json_schema: dict, context: dict, props: dict

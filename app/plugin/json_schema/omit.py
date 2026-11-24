@@ -4,6 +4,7 @@ from app.model.plg import IJsonSchema
 
 class Omit(IJsonSchema):
     def order(self) -> tuple[bool, int]:
+        # First: the other plugins must not see keys set to `omit`.
         return False, 0
 
     async def process(
