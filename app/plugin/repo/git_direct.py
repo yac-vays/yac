@@ -817,7 +817,9 @@ class GitRepo(IRepo):
         await self._commit_and_push(
             user, [file_abs], f"{'Edited' if exists else 'Created'} {path_rel}", msg
         )
-        patch = _patch(content_old, content_new, path_rel, path_rel)
+        patch = _patch(
+            content_old if exists else None, content_new, path_rel, path_rel
+        )
 
         return Diff(name=name, hash=await self._get_hash(), patch=patch)
 
