@@ -130,3 +130,31 @@ async def test_successful_write_has_no_warning(client, login, hooks):  # noqa: F
     r = await client.post("/entity/host", json={"name": "web10", "yaml": "owner: a\n"})
     assert r.status_code == 201
     assert "YAC-Warning" not in r.headers
+
+
+async def test_action_failure_names_type_and_entity(client, login, repo_session, monkeypatch):  # noqa: F811
+    from app.lib import action as action_lib
+    from app.model.err import ActionError
+
+    monkeypatch.setattr(
+        plugin.get_module("action", "exec"), "action", _Failing(ActionError("boom"))
+    )
+    login("alice")
+    seen = {}
+    orig = action_lib.run
+
+    async def spy(hook, op, s):
+        try:
+            await orig(hook, op, s)
+        except ActionError as error:
+            seen["msg"] = str(error)
+            raise
+
+    monkeypatch.setattr(action_lib, "run", spy)
+    specs_lib._RAW_DATA["types"][0]["actions"][0]["hooks"] = ["edit:before"]
+    specs_lib._RAW_DATA["types"][0]["actions"][0]["force"] = True
+    r = await client.patch(
+        "/entity/host/web02", json={"name": "web02", "data": {"owner": "zoe"}}
+    )
+    assert r.status_code == 500
+    assert seen["msg"] == "Action deploy for host web02 failed with: boom"

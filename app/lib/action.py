@@ -45,10 +45,8 @@ async def run(
             raise error
         except ActionError as error:
             wrapped = ActionError(
-                f"Action {action.name} for"
-                f" {action_props.get('type', '(unknown type)')}"
-                f" \"{action_props.get('old', {}).get('name', '(unknown name)')}\""
-                f" failed with: {error}"
+                f"Action {action.name} for {op.type_name}"
+                f" {op.name or action_props['name']} failed with: {error}"
             )
             wrapped.action_name = action.name
             raise wrapped from error
