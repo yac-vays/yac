@@ -96,9 +96,12 @@ async def get_active_role_set(
             if set_name == "all":
                 set_test_residual: str | None = None
             else:
-                set_test = getattr(specs.sets, type_name, {}).get(
-                    set_name, "false"
-                )
+                # `model_extra`, not getattr: a type may be named like a
+                # pydantic attribute (copy, json, ...).
+                type_sets = (specs.sets.model_extra or {}).get(type_name)
+                if not isinstance(type_sets, dict):
+                    type_sets = {}
+                set_test = type_sets.get(set_name, "false")
                 if j2.is_user_only(set_test):
                     try:
                         passed = await j2.render_test(set_test, role_props)

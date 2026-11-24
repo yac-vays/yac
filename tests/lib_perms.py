@@ -105,3 +105,20 @@ async def test_admin_shortcut_drops_redundant_conditional_roles():
     )
     active = await perms.get_active_role_set(_op("alice"), specs)
     assert all(ar.set_test is None and ar.role_test is None for ar in active)
+
+
+async def test_sets_of_a_type_named_like_a_pydantic_attribute():
+    # `copy`, `json`, ... are attributes of every pydantic model.
+    for type_name in ("copy", "json", "dict", "schema"):
+        specs = _specs(
+            {f"{type_name}:mine:edt": "true"},
+            sets={type_name: {"mine": "user.name == 'alice'"}},
+        )
+        assert await perms.get_from_roles(_op("alice", type_name=type_name), specs, {}) == ["edt", "see"]
+        assert await perms.get_from_roles(_op("bob", type_name=type_name), specs, {}) == []
+
+
+async def test_sets_of_a_type_without_sets_never_match():
+    for sets in ({}, {"host": None}):
+        specs = _specs({"host:mine:edt": "true"}, sets=sets)
+        assert await perms.get_from_roles(_op("alice"), specs, {}) == []
