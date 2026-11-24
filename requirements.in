@@ -4,7 +4,7 @@ anyio
 async-lru
 Authlib
 email-validator
-fastapi[standard]
+fastapi
 httptools # to optimize uvicorn
 httpx
 itsdangerous # required by Authlib
@@ -21,4 +21,5 @@ python-multipart
 PyYAML
 redis
 ruamel.yaml
+uvicorn[standard]
 uvloop # to optimize uvicorn
