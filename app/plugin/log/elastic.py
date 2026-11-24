@@ -30,8 +30,8 @@ Details:
 
 import httpx
 
-from app import consts
 from app.lib import j2
+from app.lib import log as log_lib
 from app.model import out
 from app.model.err import LogError
 from app.model.err import LogSpecsError
@@ -73,51 +73,31 @@ class ElasticLog(ILog):
                     json={"query": d.get("query", "")},
                 )
             logs.raise_for_status()
-        except httpx.HTTPError as error:
+        except (httpx.HTTPError, httpx.InvalidURL, TypeError) as error:
             raise LogError(
                 "Could not run elastic log eql query: "
                 f"{type(error).__name__}: {error}"
             ) from error
 
-        result = []
-        for l in logs.json().get("hits", {}).get("events", []):
-            log_props = props.copy()
-            log_props.update({"log": l.get("_source", {})})
-
-            time = await self.__render(
-                d, "time", str, "{{ log['@timestamp'] }}", log_props
-            )
-            message = await self.__render(d, "message", str, "", log_props)
-
-            entry = out.Log(
-                name=facility,
-                time=time,
-                message=message,
-            )
-
-            if "problem" in d:
-                entry.problem = await self.__render(d, "problem", bool, False, log_props)
-
-            if "progress" in d:
-                prog = await self.__render(d, "progress", (int, float), 0, log_props)
-                if prog is not None:
-                    entry.progress = int(min(max(prog, 0), 100))
-
-            result.append(entry)
-
-        return result
-
-    async def __render(self, data: dict, key: str, typ, default, props: dict):
         try:
-            result = await j2.render(data.get(key, default), props)
-            if result == consts.OMIT:
-                # `omit`: the optional fields stay unset, texts empty
-                return None if key in ("problem", "progress") else ""
-            assert isinstance(result, typ)
-        except (AssertionError, j2.J2Error) as error:
-            raise LogSpecsError(
-                f'In details.{key} for log plugin "elastic": {error}'
+            events = logs.json().get("hits", {}).get("events", [])
+        except (ValueError, AttributeError) as error:
+            raise LogError(
+                f"Elastic did not return a valid EQL result: {error}"
             ) from error
+
+        result = []
+        for l in events:
+            result.append(
+                await log_lib.build_entry(
+                    "elastic",
+                    facility,
+                    d,
+                    props | {"log": l.get("_source", {})},
+                    time_default="{{ log['@timestamp'] }}",
+                    message_default="",
+                )
+            )
         return result
 
 

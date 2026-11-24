@@ -118,9 +118,9 @@ class ExecAction(IAction):
             return
 
         if proc.returncode in d.get("error", []):
-            raise ActionClientError(stdout.decode("utf-8"))
+            raise ActionClientError(stdout.decode("utf-8", errors="replace"))
 
-        raise ActionError(stdout.decode("utf-8"))
+        raise ActionError(stdout.decode("utf-8", errors="replace"))
 
     def __get_argv(self, d: dict) -> list[str]:
         command = d.get("command", [])

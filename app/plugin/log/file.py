@@ -36,8 +36,8 @@ import re
 import logging
 from anyio import Path, open_file
 
-from app import consts
 from app.lib import j2
+from app.lib import log as log_lib
 from app.model import out
 from app.model.err import LogError
 from app.model.err import LogSpecsError
@@ -85,53 +85,32 @@ class FileLog(ILog):
         enc = d.get("encoding", "utf-8")
         try:
             pattern = re.compile(d.get("line_format", r"^(.*)$"))
-        except Exception as error:
+        except (re.error, TypeError) as error:
             raise LogSpecsError(
                 f'In details.line_format for log plugin "file": {error}'
-            )
+            ) from error
 
         result = []
         for l in lines:
-            line = l.decode(enc).rstrip("\r\n")
+            try:
+                line = l.decode(enc, errors="replace").rstrip("\r\n")
+            except LookupError as error:
+                raise LogSpecsError(
+                    f'In details.encoding for log plugin "file": {error}'
+                ) from error
             match = pattern.search(line)
             if not match:
                 continue
-
-            log_props = props.copy()
-            log_props.update({"log": match.groups()})
-
-            time = await self.__render(d, "time", str, "", log_props)
-            message = await self.__render(d, "message", str, "{{ log[0] }}", log_props)
-
-            entry = out.Log(
-                name=facility,
-                time=time,
-                message=message,
+            result.append(
+                await log_lib.build_entry(
+                    "file",
+                    facility,
+                    d,
+                    props | {"log": match.groups()},
+                    time_default="",
+                    message_default="{{ log[0] }}",
+                )
             )
-
-            if "problem" in d:
-                entry.problem = await self.__render(d, "problem", bool, False, log_props)
-
-            if "progress" in d:
-                prog = await self.__render(d, "progress", (int, float), 0, log_props)
-                if prog is not None:
-                    entry.progress = int(min(max(prog, 0), 100))
-
-            result.append(entry)
-
-        return result
-
-    async def __render(self, data: dict, key: str, typ, default, props: dict):
-        try:
-            result = await j2.render(data.get(key, default), props)
-            if result == consts.OMIT:
-                # `omit`: the optional fields stay unset, texts empty
-                return None if key in ("problem", "progress") else ""
-            assert isinstance(result, typ)
-        except (AssertionError, j2.J2Error) as error:
-            raise LogSpecsError(
-                f'In details.{key} for log plugin "file": {error}'
-            ) from error
         return result
 
 

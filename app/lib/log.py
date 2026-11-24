@@ -3,19 +3,88 @@ Raises: [app.model.err.LogSpecsError, app.model.err.LogError,
          app.model.err.RequestNotFound]
 """
 
-from typing import List
+from typing import Any, List
 import asyncio
 import logging
 
+from app import consts
+from app.lib import j2
 from app.lib import plugin
 from app.lib import props
 from app.model import inp
 from app.model import out
 from app.model import spc
 from app.model.err import LogError
+from app.model.err import LogSpecsError
 from app.model.err import RequestNotFound
 
 logger = logging.getLogger(__name__)
+
+
+async def render_field(
+    plugin_name: str, details: dict, key: str, typ: Any, default: Any, log_props: dict
+) -> Any:
+    """
+    For log plugins: a field of `details` (dotted `key` below it, e.g.
+    `content.time`) rendered for one record, checked to be of type `typ`.
+    `omit` yields None for problem / progress and "" for texts.
+
+    A template that does not render is a specs error; a value of the wrong
+    type depends on the record and is a LogError (the log is left out).
+    """
+    template = details
+    for part in key.split("."):
+        template = template.get(part, default) if isinstance(template, dict) else default
+    try:
+        result = await j2.render(template, log_props)
+    except j2.J2Error as error:
+        raise LogSpecsError(
+            f'In details.{key} for log plugin "{plugin_name}": {error}'
+        ) from error
+    if result == consts.OMIT:
+        return None if key in ("problem", "progress") else ""
+    # bool is an int for Python, but no number for a log
+    if not isinstance(result, typ) or (isinstance(result, bool) and typ is not bool):
+        raise LogError(
+            f'details.{key} of log plugin "{plugin_name}" rendered to'
+            f" {type(result).__name__}: {str(result)[:100]!r}"
+        )
+    return result
+
+
+async def build_entry(
+    plugin_name: str,
+    name: str,
+    details: dict,
+    log_props: dict,
+    *,
+    time_default: str,
+    message_default: str,
+) -> out.Log:
+    """
+    For log plugins: the entry of one record (`log` in `log_props`), from the
+    time / message / problem / progress templates of the rendered `details`.
+    """
+    entry = out.Log(
+        name=name,
+        time=await render_field(
+            plugin_name, details, "time", str, time_default, log_props
+        ),
+        message=await render_field(
+            plugin_name, details, "message", str, message_default, log_props
+        ),
+    )
+    if "problem" in details:
+        entry.problem = await render_field(
+            plugin_name, details, "problem", bool, None, log_props
+        )
+    if "progress" in details:
+        progress = await render_field(
+            plugin_name, details, "progress", (int, float), None, log_props
+        )
+        if progress is not None:
+            entry.progress = int(min(max(progress, 0), 100))
+    return entry
 
 
 async def get(

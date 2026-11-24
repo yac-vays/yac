@@ -82,6 +82,7 @@ def http_mod(monkeypatch):
             HTTPStatusError=httpx.HTTPStatusError,
             ConnectError=httpx.ConnectError,
             ConnectTimeout=httpx.ConnectTimeout,
+            InvalidURL=httpx.InvalidURL,
         ),
     )
     return mod

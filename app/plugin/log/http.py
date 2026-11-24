@@ -72,8 +72,8 @@ from time import monotonic
 
 import httpx
 
-from app import consts
 from app.lib import j2
+from app.lib import log as log_lib
 from app.model import out
 from app.model.err import LogContentNotFound
 from app.model.err import LogError
@@ -103,20 +103,15 @@ class HttpLog(ILog):
 
         result = []
         for record in records:
-            log_props = props | {"log": record}
-
-            entry = out.Log(
-                name=facility,
-                time=await self.__render(d, "time", str, "{{ log.time }}", log_props),
-                message=await self.__render(d, "message", str, "", log_props),
-                has_content="content" in d,
+            entry = await log_lib.build_entry(
+                "http",
+                facility,
+                d,
+                props | {"log": record},
+                time_default="{{ log.time }}",
+                message_default="",
             )
-            if "problem" in d:
-                entry.problem = await self.__render(d, "problem", bool, False, log_props)
-            if "progress" in d:
-                prog = await self.__render(d, "progress", (int, float), 0, log_props)
-                if prog is not None:
-                    entry.progress = int(min(max(prog, 0), 100))
+            entry.has_content = "content" in d
             result.append(entry)
 
         return result
@@ -152,8 +147,10 @@ class HttpLog(ILog):
                 ) from error
 
         log_props = props | {"log": record}
-        text = await self.__render(c, "text", str, "{{ log.body }}", log_props, "content.")
-        time = await self.__render(c, "time", str, "", log_props, "content.")
+        text = await log_lib.render_field(
+            "http", d, "content.text", str, "{{ log.body }}", log_props
+        )
+        time = await log_lib.render_field("http", d, "content.time", str, "", log_props)
         return out.LogContent(name=facility, time=time, content=text)
 
     async def __render_details(self, details: dict, props: dict) -> dict:
@@ -226,6 +223,8 @@ class HttpLog(ILog):
                     return None
                 response.raise_for_status()
                 return response
+            except (httpx.InvalidURL, TypeError) as error:
+                raise LogError(f"Could not fetch logs over http: {error}") from error
             except httpx.HTTPError as error:
                 # Timeouts stringify to "", so always name the exception type.
                 reason = (
@@ -239,21 +238,6 @@ class HttpLog(ILog):
                     continue
                 raise LogError(f"Could not fetch logs over http: {reason}") from error
         raise AssertionError("unreachable")
-
-    async def __render(
-        self, data: dict, key: str, typ, default, props: dict, prefix: str = ""
-    ):
-        try:
-            result = await j2.render(data.get(key, default), props)
-            if result == consts.OMIT:
-                # `omit`: the optional fields stay unset, texts empty
-                return None if key in ("problem", "progress") else ""
-            assert isinstance(result, typ)
-        except (AssertionError, j2.J2Error) as error:
-            raise LogSpecsError(
-                f'In details.{prefix}{key} for log plugin "http": {error}'
-            ) from error
-        return result
 
 
 log = HttpLog()
