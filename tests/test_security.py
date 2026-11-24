@@ -478,3 +478,16 @@ async def test_name_pattern_must_match_the_whole_name(
     assert resp.status_code == 400
     resp = await client.post("/entity/host", json={"name": "web42", "yaml": "owner: erin\n"})
     assert resp.status_code == 201
+
+
+async def test_auth_failure_reason_is_logged_but_not_returned(caplog):
+    from app.model.err import AuthError
+    from app.router.error import handle_yac
+    from starlette.requests import Request
+
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+    with caplog.at_level("WARNING"):
+        resp = await handle_yac(request, AuthError("audience x is not accepted"))
+    assert resp.status_code == 401
+    assert b"audience" not in resp.body
+    assert "audience x is not accepted" in caplog.text

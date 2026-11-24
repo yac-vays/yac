@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 async def handle_yac(request: Request, exc: YACError) -> JSONResponse:
     if exc.code == 500:
         logger.error(f"{exc.title}: {exc}")
+    elif exc.code == 401:
+        # The client only gets the default message: keep the reason here.
+        logger.warning(f"{exc.title}: {exc}")
 
     message = exc.default_message
     if exc.code not in [401, 500] or consts.ENV.debug_mode:
