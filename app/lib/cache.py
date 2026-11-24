@@ -89,9 +89,9 @@ def keyed_alru_cache(
                     leader = False
 
             if not leader:
-                # Awaiting the future re-raises the computation's exception
-                # (if any) in every waiter without cancelling the computation.
-                value = await fut
+                # Re-raises the computation's exception (if any). Shielded:
+                # a cancelled waiter must not cancel the shared future.
+                value = await asyncio.shield(fut)
                 return copy.deepcopy(value) if copy_result else value
 
             async def compute() -> None:
