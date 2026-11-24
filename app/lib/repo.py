@@ -177,9 +177,41 @@ async def get_entities(
     old, new = await __lookup_entities(
         hash, op.type_name, old_name, new_name, specs.type is not None, rpo
     )
+    if active_roles is None:
+        active_roles = await perms.get_active_role_set(op, specs)
+
+    # The roles as evaluated for the request as a whole: `name` is the target
+    # name of a create / rename / copy / link (see docs: specs/j2.md).
     p = await perms.get_from_roles(
         op, specs, old.data or {}, active_roles=active_roles
     )
+
+    if old_name is None or old_name == (new_name or old_name):
+        # Only one entity is involved (a plain create, or an operation on the
+        # stored entity without a new name).
+        if old_name is not None:
+            old.perms = p
+        if new_name is not None:
+            new.perms = p
+        return old, new, p
+
+    # A rename, copy or link involves TWO entities: the stored source and the
+    # target name. Roles scoped on `name` only say something about the
+    # target, so the rights on the source are evaluated separately, as if the
+    # request referred to the source alone. Otherwise a user could move,
+    # copy or link ANY entity into a name scope they have rights for.
+    old.perms = await perms.get_from_roles(
+        op,
+        specs,
+        old.data or {},
+        active_roles=active_roles,
+        source_name=old_name,
+    )
+    new.perms = p
+    if op.operation == "edit":
+        # A rename is an edit of the source: everything but the `add` of the
+        # new name (validator plugin `perms`) is decided by the rights on it.
+        return old, new, old.perms
     return old, new, p
 
 

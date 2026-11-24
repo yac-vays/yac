@@ -77,6 +77,21 @@ def incoming_new_yaml(op: OperationRequest, old: Entity) -> str | None:
         return None
 
 
+def may_read(old: Entity, perms: list[str]) -> bool:
+    """
+    Whether anything derived from the stored entity `old` (its data, its
+    YAML, a schema generated from it) may be handed to the user. Reading is
+    all-or-nothing and tied to "see"; an entity that does not exist has
+    nothing to protect.
+
+    `old.perms` are the rights on the stored entity itself (for a rename /
+    copy / link they differ from `perms`, see `lib.repo.get_entities`).
+    """
+    if not old.exists:
+        return True
+    return "see" in (old.perms if old.perms is not None else perms)
+
+
 def has_content_changes(op: OperationRequest) -> bool:
     """
     Whether an edit operation would modify the entity's YAML content (as
@@ -122,14 +137,22 @@ async def test_all(
 
     request = Request(valid=True)
 
-    new_data, yaml_error = incoming_new_data(op, old)
+    # Everything below that is derived from the stored entity (the merged
+    # data, the generated schema with its echoed consts, the canonical YAML)
+    # ends up in the result of `/validate` -- regardless of whether the
+    # operation itself is allowed. So without "see" on the stored entity,
+    # none of it is generated; the validators below still report why the
+    # operation is not allowed.
+    readable = may_read(old, perms)
+
+    new_data, yaml_error = incoming_new_data(op, old) if readable else ({}, None)
     if yaml_error is not None:
         if raise_on_error:
             raise RequestError(yaml_error)
         request.valid = False
         request.message = yaml_error
 
-    if (
+    if readable and (
         op.operation == "edit"
         or (op.operation == "create" and isinstance(op.entity, (NewEntity, UpdateEntity)))
         or (op.operation == "read" and schema_on_read)
@@ -148,7 +171,7 @@ async def test_all(
 
     # Canonical YAML for the new data (comments preserved), so a YAML editor in
     # the UI can mirror the form without re-implementing ruamel serialization.
-    schemas.yaml = incoming_new_yaml(op, old) or ""
+    schemas.yaml = (incoming_new_yaml(op, old) or "") if readable else ""
 
     require = ("actions", "conflicts", "names", "operations", "perms", "type_spec")
     try:
@@ -159,6 +182,19 @@ async def test_all(
         # Enforced last so a forbidden / conflicting operation surfaces its own
         # (more specific) error before a limit message.
         limits.assert_within(usages)
+        # A write that changes nothing (no content change, no rename) is
+        # refused instead of being passed on: applying an empty patch still
+        # re-serializes the stored YAML, which must not become a commit.
+        # (/validate reports such a request as valid -- that is how a client
+        # asks for the schema of an entity it is about to edit.)
+        if (
+            raise_on_error
+            and op.operation == "edit"
+            and op.entity is not None
+            and op.entity.name == op.name
+            and not has_content_changes(op)
+        ):
+            raise RequestError("The request does not change anything")
     except RequestError as error:
         if raise_on_error:
             raise error

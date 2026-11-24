@@ -252,7 +252,7 @@ async def test_all_pure_rename_skips_data_revalidation():
                  data={"cpu": "not-an-int"})
     op = _edit_op(UpdateEntity(name="name2", data={}))
     res = await _v.test_all(
-        op, _full_specs(_INT_CPU_SCHEMA), old, Entity(name="name2", exists=False),
+        op, _full_specs(_INT_CPU_SCHEMA), old, Entity(name="name2", exists=False, perms=["see", "add", "rnm"]),
         perms=["see", "add", "rnm"], raise_on_error=True,
     )
     assert res.schemas.valid is False
@@ -264,7 +264,7 @@ async def test_all_pure_rename_via_replace_skips_data_revalidation():
     op = _edit_op(ReplaceEntity(name="name2", yaml_old="cpu: not-an-int",
                                   yaml_new="cpu: not-an-int"))
     res = await _v.test_all(
-        op, _full_specs(_INT_CPU_SCHEMA), old, Entity(name="name2", exists=False),
+        op, _full_specs(_INT_CPU_SCHEMA), old, Entity(name="name2", exists=False, perms=["see", "add", "rnm"]),
         perms=["see", "add", "rnm"], raise_on_error=True,
     )
     assert res.schemas.valid is False
@@ -276,7 +276,7 @@ async def test_all_rename_with_content_changes_still_revalidates():
     with pytest.raises(RequestError):
         await _v.test_all(
             op, _full_specs(_INT_CPU_SCHEMA), old,
-            Entity(name="name2", exists=False),
+            Entity(name="name2", exists=False, perms=["see", "add", "rnm"]),
             perms=["see", "add", "rnm", "edt"], raise_on_error=True,
         )
 
@@ -291,7 +291,7 @@ async def test_all_rename_blocked_when_create_or_delete_disabled(flags):
     with pytest.raises(RequestForbidden):
         await _v.test_all(
             op, _full_specs(_INT_CPU_SCHEMA, **flags), old,
-            Entity(name="name2", exists=False),
+            Entity(name="name2", exists=False, perms=["see", "add", "rnm"]),
             perms=["see", "add", "rnm", "edt"], raise_on_error=True,
         )
 

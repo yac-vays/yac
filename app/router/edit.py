@@ -122,7 +122,16 @@ async def change_entity(
     Will validate the given data (in combination with the existing data
     for this entity), overwrite the existing entity with the changes and,
     if configured and/or requested, run actions.
+
+    `yaml_base` is ignored here: the patch is always applied to (and
+    validated against) the stored entity.
     """
+    # `yaml_base` only exists for `/validate` (a client validating the YAML
+    # it is editing). The write merges the patch into the STORED YAML, so the
+    # validation, the limits and the write must all see exactly that -- not a
+    # base document chosen by the client.
+    if entity.yaml_base is not None:
+        entity = entity.model_copy(update={"yaml_base": None})
     op = OperationRequest(
         request_headers=dict(request.headers),
         request_ip=request.client.host if request.client else "",

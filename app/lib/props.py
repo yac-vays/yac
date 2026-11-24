@@ -128,8 +128,31 @@ def get_roles_base(
 
 
 def get_roles(
-    op: inp.OperationRequest, request_spec: spc.Request, old_data: None | dict
+    op: inp.OperationRequest,
+    request_spec: spc.Request,
+    old_data: None | dict,
+    *,
+    source_name: str | None = None,
 ) -> dict:
+    """
+    With `source_name`, the props describe the stored entity of that name on
+    its own: `name` and `old.name` are the source name and there is no `new`
+    name. This is how the rights on the source of a rename / copy / link are
+    evaluated (see `lib.repo.get_entities`), so a role that is scoped on
+    `name` can never be satisfied by the name of the target alone.
+    """
+    if source_name is not None:
+        return {
+            **get_roles_base(op, request_spec),
+            "old": {
+                "name": source_name,
+                "data": old_data or {},
+            },
+            "new": {
+                "name": None,
+            },
+            "name": source_name,
+        }
     return {
         **get_roles_base(op, request_spec),
         "old": {

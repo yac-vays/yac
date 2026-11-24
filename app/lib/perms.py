@@ -204,11 +204,15 @@ async def get_from_roles(
     old_data: dict,
     *,
     active_roles: list[ActiveRole] | None = None,
+    source_name: str | None = None,
 ) -> list[str]:
     """
     Reads the role definitions from specs and renders them with given data
     and request context. If they match, the perms are returned if the role
     definition also matches (including set definition for sets).
+
+    `source_name` evaluates the roles for the stored entity of that name on
+    its own (see `props.get_roles`) instead of for the request as a whole.
 
     `active_roles` may be supplied by callers that iterate over many
     entities (e.g. the list endpoint) so the user-only role prefilter runs
@@ -223,7 +227,9 @@ async def get_from_roles(
     if all(ar.set_test is None and ar.role_test is None for ar in active_roles):
         matched = [ar.perm for ar in active_roles]
     else:
-        role_props = props.get_roles(op, specs.request, old_data)
+        role_props = props.get_roles(
+            op, specs.request, old_data, source_name=source_name
+        )
         matched = await _render_residuals(role_props, active_roles)
 
     logger.debug(f'Extracted perms: {", ".join(matched)}')

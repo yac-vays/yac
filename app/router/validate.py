@@ -43,8 +43,13 @@ async def validate_operation(
         rpo = raw.session(s.repo.details if s.type else {})
         hash = await rpo.get_hash()
         old, new, perms = await repo.get_entities(hash, rpo, op, s)
-        new_data, _ = validator.incoming_new_data(op, old)
-        usages = await limits.measure(hash, rpo, op, s, old, new_data)
+        if validator.may_read(old, perms):
+            new_data, _ = validator.incoming_new_data(op, old)
+            usages = await limits.measure(hash, rpo, op, s, old, new_data)
+        else:
+            # Nothing derived from an entity the user may not read (see
+            # `validator.test_all`), not even its share of a limit.
+            usages = []
 
     return await validator.test_all(
         op, s, old, new, perms, usages, raise_on_error=False, schema_on_read=True

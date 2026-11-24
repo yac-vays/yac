@@ -10,3 +10,9 @@ class Entity(BaseModel):
     link: None | str = None
     yaml: None | str = None
     data: None | dict = None
+    # The permissions of the requesting user on THIS entity (see
+    # `lib.repo.get_entities`): for `old`, evaluated as if the request only
+    # referred to the stored entity (so `name` is its name, never the name of
+    # a rename/copy/link target); for `new`, evaluated for the target name.
+    # None where the entity plays no role in the request.
+    perms: None | list[str] = None

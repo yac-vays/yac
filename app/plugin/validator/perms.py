@@ -38,10 +38,12 @@ class PermissionTester(IValidator):
 
         elif op.operation == "create":
             self.__assert_perm("add", perms)
+            # Copying / linking needs the right on the SOURCE entity (`old`),
+            # evaluated for the source alone: `perms` belong to the new name.
             if isinstance(op.entity, CopyEntity):
-                self.__assert_perm("cpy", perms)
+                self.__assert_perm("cpy", old.perms, "copy this entity")
             elif isinstance(op.entity, LinkEntity):
-                self.__assert_perm("lnk", perms)
+                self.__assert_perm("lnk", old.perms, "link to this entity")
 
         elif op.operation == "edit":
             # "cln" covers what the schema does not: comments, key order,
@@ -74,11 +76,24 @@ class PermissionTester(IValidator):
             else:
                 raise RequestError("The entity has the wrong format for this operation")
 
+            renamed = op.name != op.entity.name
+            # `perms` are the rights on the stored entity (for a rename
+            # evaluated for the old name alone, see lib.repo.get_entities).
             if has_changes:
                 self.__assert_perm("edt", perms)
-            if op.name != op.entity.name:
-                self.__assert_perm("add", perms)
-                self.__assert_perm("rnm", perms)
+            if renamed:
+                self.__assert_perm("rnm", perms, "rename this entity")
+                # ... while the new name must be one the user may create.
+                self.__assert_perm(
+                    "add", new.perms, "create an entity with the new name"
+                )
+            if not has_changes and not renamed:
+                # Nothing is to be changed (VAYS validates this to open an
+                # entity for editing / renaming): still only for those who
+                # may change it at all. Without this, the request would need
+                # no permission whatsoever.
+                if not {"edt", "rnm"}.intersection(perms or []):
+                    self.__assert_perm("edt", perms)
 
         elif op.operation == "delete":
             self.__assert_perm("del", perms)

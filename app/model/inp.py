@@ -113,8 +113,9 @@ class UpdateEntity(Entity):
     result (and the returned `schemas.yaml`). It lets a client validate against
     the YAML it is actually editing — preserving its comments / formatting / key
     order — instead of the stored entity. When omitted, the stored entity's YAML
-    is used. This only affects the produced *content*; permissions, limits and
-    schema constraints are still evaluated against the stored entity.
+    is used. It is only honoured by `/validate`: a write (`PATCH`) ignores it
+    and always applies the patch to, and validates it against, the stored
+    entity.
     """
 
     data: dict
