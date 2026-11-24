@@ -228,10 +228,33 @@ def uses_old_data(source: str) -> bool:
     return False
 
 
+@lru_cache(maxsize=10000)
+def _may_be_nonstr(source: str) -> bool:
+    """
+    Whether the j2-string may render to a non-string: it starts and ends
+    with a tag, and is not a plain concatenation like `{{ a }}-{{ b }}`
+    (always a string; `{{ a }}{{ b }}` must not become the number 12).
+    Templates with blocks (`{% if %}`, `{% set %}`, ...) are only known
+    once rendered.
+    """
+    if not re.match(r"^(\{\{|\{%).+(\}\}|%\})$", source):
+        return False
+    try:
+        body = _get_sync_env(False).parse(source).body
+    except jinja2.TemplateSyntaxError:
+        return False  # reported when the template is compiled
+    is_concatenation = (
+        len(body) == 1
+        and isinstance(body[0], jinja2.nodes.Output)
+        and len(body[0].nodes) > 1
+    )
+    return not is_concatenation
+
+
 async def render_str(
     s, props, *, allow_nonstr: bool = True, strict: bool = True, loc: str = "#"
 ):
-    nonstr = bool(re.match(r"^(\{\{|\{%).+(\}\}|%\})$", s)) and allow_nonstr
+    nonstr = allow_nonstr and _may_be_nonstr(s)
     template = _compile(strict, nonstr, s, loc)
     try:
         result = await template.render_async({"loc": loc} | props)
@@ -245,9 +268,9 @@ async def render_str(
         try:
             return json.loads(result)
         except ValueError:
-            # Multi-part templates (e.g. "{{ a }} text {{ b }}") match the
-            # nonstr heuristic but do not render to a single JSON value;
-            # fall back to a plain string render.
+            # A block template whose taken branch is plain text (e.g.
+            # "{% if x %}{{ omit }}{% else %}text{% endif %}"): render it
+            # as a string.
             template = _compile(strict, False, s, loc)
             try:
                 return await template.render_async({"loc": loc} | props)
@@ -320,7 +343,7 @@ def render_sync(o, props: dict, *, skip: str | None = None, loc: str = "#"):
 
 
 def render_sync_str(s, props, *, allow_nonstr: bool = True, loc: str = "#"):
-    nonstr = bool(re.match(r"^(\{\{|\{%).+(\}\}|%\})$", s)) and allow_nonstr
+    nonstr = allow_nonstr and _may_be_nonstr(s)
     template = _compile_sync(nonstr, s, loc)
     try:
         result = template.render({"loc": loc} | props)
@@ -330,9 +353,9 @@ def render_sync_str(s, props, *, allow_nonstr: bool = True, loc: str = "#"):
         try:
             return json.loads(result)
         except ValueError:
-            # Multi-part templates (e.g. "{{ a }} text {{ b }}") match the
-            # nonstr heuristic but do not render to a single JSON value;
-            # fall back to a plain string render.
+            # A block template whose taken branch is plain text (e.g.
+            # "{% if x %}{{ omit }}{% else %}text{% endif %}"): render it
+            # as a string.
             template = _compile_sync(False, s, loc)
             try:
                 return template.render({"loc": loc} | props)

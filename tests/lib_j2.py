@@ -114,3 +114,24 @@ async def test_omit_global_renders_sentinel():
 async def test_render_sync_str():
     assert j2.render_sync_str("{{ a }}", {"a": "1"}) == "1"
     assert j2.render_sync_str("plain", {}) == "plain"
+
+
+async def test_concatenations_are_always_strings_and_rendered_once():
+    calls = []
+
+    def count(value):
+        calls.append(value)
+        return value
+
+    props = {"a": 1, "b": 2, "count": count}
+    assert await j2.render_str("{{ a }}{{ b }}", props) == "12"
+    assert await j2.render_str("{{ count(a) }}-{{ count(b) }}", props) == "1-2"
+    assert calls == [1, 2]
+    assert j2.render_sync_str("{{ a }}{{ b }}", props) == "12"
+
+
+async def test_block_templates_can_still_yield_any_type():
+    template = "{% if on %}{{ [1, 2] }}{% else %}text{% endif %}"
+    assert await j2.render_str(template, {"on": True}) == [1, 2]
+    assert await j2.render_str(template, {"on": False}) == "text"
+    assert await j2.render_str("{% set x = 3 %}{{ x }}", {}) == 3
