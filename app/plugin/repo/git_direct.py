@@ -860,7 +860,7 @@ class GitRepo(IRepo):
         await self._push(
             user,
             [file_old, file_new],
-            f"Edited {path_new} (renamed from {os.path.basename(path_old)})",
+            f"Edited {path_new} (renamed from {name_old})",
             msg,
         )
         patch = "\n".join(
@@ -901,7 +901,7 @@ class GitRepo(IRepo):
         await self._push(
             user,
             [file_dest],
-            f"Created {path_dest} (copy of {os.path.basename(file_src)})",
+            f"Created {path_dest} (copy of {name_src})",
             msg,
         )
         patch = "\n".join(
@@ -945,7 +945,7 @@ class GitRepo(IRepo):
         await self._push(
             user,
             [link],
-            f"Created {path_link} (link to {os.path.basename(src)})",
+            f"Created {path_link} (link to {name_src})",
             msg,
         )
         patch = "\n".join(

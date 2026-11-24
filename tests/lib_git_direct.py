@@ -251,9 +251,9 @@ async def test_commit_messages_name_operation_and_file(repo):
     ).stdout.split("\x00")
     assert [m.strip() for m in log[:-1]] == [
         "[YAC] Deleted hosts/clone2.yml ...\n\ncleanup",
-        "[YAC] Edited hosts/clone2.yml (renamed from clone.yml)",
-        "[YAC] Created hosts/alias.yml (link to b.yml)",
-        "[YAC] Created hosts/clone.yml (copy of new.yml)",
+        "[YAC] Edited hosts/clone2.yml (renamed from clone)",
+        "[YAC] Created hosts/alias.yml (link to b)",
+        "[YAC] Created hosts/clone.yml (copy of new)",
         "[YAC] Edited hosts/new.yml (admin override) ...\n\nfix typo\nsee #42",
         "[YAC] Created hosts/new.yml",
     ]

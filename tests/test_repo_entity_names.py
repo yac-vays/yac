@@ -41,3 +41,26 @@ async def test_git_redis_list_ignores_subdirectories():
     assert await s.list("host") == ["a"]
     top = grs._GitRedisSession(None, _Redis(), "H", {"doc": "{{ name }}.md"})
     assert await top.list("doc") == ["README"]
+
+
+async def test_commit_subjects_name_the_other_entity(repo, tmp_path):
+    import subprocess
+
+    from app.model.plg import CommitMsg
+
+    details = {"host": "hosts/{{ name }}/yac_data.yml"}
+    async with repo.writer(USER) as untyped:
+        s = untyped.session(details)
+        await s.write("host", "web01", "", "cpu: 1\n", CommitMsg())
+        await s.copy("host", "web02", "web01", CommitMsg())
+        await s.link("host", "alias", "web01", CommitMsg())
+        await s.write_rename("host", "web02", "web03", "cpu: 1\n", "cpu: 2\n", CommitMsg())
+    log = subprocess.run(
+        ["git", "log", "--format=%s", "-3"],
+        cwd=tmp_path / "remote.git", check=True, capture_output=True, text=True,
+    ).stdout.splitlines()
+    assert log == [
+        "[YAC] Edited hosts/web03/yac_data.yml (renamed from web02)",
+        "[YAC] Created hosts/alias/yac_data.yml (link to web01)",
+        "[YAC] Created hosts/web02/yac_data.yml (copy of web01)",
+    ]
