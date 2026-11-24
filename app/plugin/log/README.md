@@ -2,7 +2,7 @@
 
 Log plugins are referenced by filename in the specs.
 
-Each plugin must implement the the `app.model.plg.ILog` class and provide an
+Each plugin must implement the `app.model.plg.ILog` class and provide an
 instance of that class as `log` variable:
 
   - `get(facility, *, details, props)` returns the entries of the log

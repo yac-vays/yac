@@ -3,8 +3,11 @@
 Validator plugins are all processed according to their order. They are used to
 validate a request before the requested operation may happen.
 
-Each plugin must implement the the `app.model.plg.IValidator` class and provide an
-instance of that class as `tester` variable.
+Each plugin must implement the `app.model.plg.IValidator` class and provide an
+instance of that class as `tester` variable. `order()` returns a tuple: the
+boolean selects the method (`False`: `test_always`, runs on every operation;
+`True`: `test_nolist`, skipped when only listing entities), the integer the
+order (lower runs earlier).
 
 It may raise the following exceptions:
 
