@@ -106,6 +106,10 @@ async def add_entity(
         else:
             raise ServerError("Cannot happen!")
 
+    # A generated name is only known now (`create:before` cannot have it).
+    op = op.model_copy(
+        update={"entity": op.entity.model_copy(update={"name": name})}
+    )
     await action.run(TypeActionHook.CREATE_AFTER, op, s)
 
     return diff

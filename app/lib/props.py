@@ -60,13 +60,22 @@ def get_action(op: inp.OperationRequest, request_spec: spc.Request) -> dict:
         "operation": op.operation,
         "actions": op.actions,
         "old": {
-            "name": op.name,
+            # For a copy/link this is the source entity.
+            "name": op.name or _source_name(op),
         },
         "new": {
             "name": None if op.entity is None else op.entity.name,
         },
         "name": op.entity.name if op.entity and op.entity.name else op.name,
     }
+
+
+def _source_name(op: inp.OperationRequest) -> str | None:
+    if isinstance(op.entity, inp.CopyEntity):
+        return op.entity.copy_name
+    if isinstance(op.entity, inp.LinkEntity):
+        return op.entity.link_name
+    return None
 
 
 def get_log(
