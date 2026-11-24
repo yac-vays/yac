@@ -14,7 +14,7 @@ class AdditionalProperties(IJsonSchema):
         Default additionalProperties in objects to false instead of true to have a
         more secure default schema behaviour.
         """
-        if json_schema.get("type", "") == "object" and not locs.conditional(loc):
+        if locs.is_object(json_schema) and not locs.conditional(loc):
             if "additionalProperties" not in json_schema:
                 json_schema["additionalProperties"] = False
         return json_schema, context

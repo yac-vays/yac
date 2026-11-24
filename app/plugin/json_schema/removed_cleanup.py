@@ -1,9 +1,11 @@
 import logging
 
 from app.consts import REMOVED
+from app.lib import locs
 from app.lib.locs import SUBSCHEMAS
 from app.lib.locs import SUBSCHEMA_ARRAYS
 from app.lib.locs import SUBSCHEMA_OBJECTS
+from app.model.err import SchemaSpecsError
 from app.model.plg import IJsonSchema
 
 logger = logging.getLogger(__name__)
@@ -11,6 +13,11 @@ logger = logging.getLogger(__name__)
 
 def _marked(schema) -> bool:
     return isinstance(schema, dict) and REMOVED in schema
+
+
+def _guarded(schema) -> bool:
+    """Removed because the user may not write it (yac_perms, yac_editable)."""
+    return _marked(schema) and schema[REMOVED] in ("perms", "editable")
 
 
 class RemovedCleanup(IJsonSchema):
@@ -43,6 +50,24 @@ class RemovedCleanup(IJsonSchema):
         care of cleaning up the required list of the parent object afterwards.
         """
         del props
+
+        # What keeps a user from writing a property that yac_perms or
+        # yac_editable took out of the schema is the object around it: its
+        # `additionalProperties: false` and the stored value pinned as a
+        # const. Both are only added to schemas that say they are objects
+        # (see locs.is_object) -- anywhere else the property would just be
+        # unconstrained, so that is an error in the specs, not a silent hole.
+        if not locs.is_object(json_schema) and not locs.conditional(loc):
+            for k in ("properties", "patternProperties"):
+                children = json_schema.get(k)
+                for key, child in children.items() if isinstance(children, dict) else ():
+                    if _guarded(child):
+                        raise SchemaSpecsError(
+                            f"{loc}/{k}/{key} is restricted (yac_perms or"
+                            f" yac_editable), but {loc} is not declared as"
+                            ' "type: object": the restriction could not be'
+                            " enforced"
+                        )
 
         for k in SUBSCHEMAS:
             if _marked(json_schema.get(k)):

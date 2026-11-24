@@ -25,7 +25,7 @@ class YacOptional(IJsonSchema):
         property definitions with the properties schema-keyword!
         """
         del props
-        if json_schema.get("type", "") != "object":
+        if not locs.is_object(json_schema):
             return json_schema, context
 
         # A subschema that only tests the data keeps its `required` as written.

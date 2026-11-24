@@ -242,6 +242,20 @@ def conditional(schema_loc: str) -> bool:
     )
 
 
+def is_object(schema: Any) -> bool:
+    """
+    Whether the (sub)schema describes an object: `type: object`, also as one
+    of several types (e.g. `[object, "null"]` for an optional one). The
+    plugins that close and pin objects (additionalProperties, required,
+    stored values as consts) -- i.e. what enforces `yac_perms` and
+    `yac_editable` on the properties -- apply to exactly these.
+    """
+    if not isinstance(schema, dict):
+        return False
+    types = schema.get("type", "")
+    return types == "object" or (isinstance(types, list) and "object" in types)
+
+
 def specification(key: str, schema: dict | bool | None) -> str | None:
     """
     How a property (key) is defined in a json_schema specifying an object:

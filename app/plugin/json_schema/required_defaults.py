@@ -36,7 +36,7 @@ class RequiredDefaults(IJsonSchema):
         if props["operation"] == "read":
             return json_schema, context
 
-        if json_schema.get("type", "") != "object" or locs.conditional(loc):
+        if not locs.is_object(json_schema) or locs.conditional(loc):
             return json_schema, context
 
         required = json_schema.get("required", [])
