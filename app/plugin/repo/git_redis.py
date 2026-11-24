@@ -33,7 +33,8 @@ at process startup; changes require a pod restart.
                     serving the snapshot there is.
                     default: 300
   grace_seconds:    How long a replaced snapshot is kept so in-flight
-                    readers can finish.
+                    readers can finish; at least 10 (smaller values are
+                    raised to it).
                     default: 60
   pull_lock_ttl:    TTL of the refresh mutex. Should exceed the time a
                     refresh takes (waiting for local writers, the git
@@ -52,6 +53,7 @@ from typing import AsyncGenerator
 from urllib.parse import urlsplit
 import asyncio
 import logging
+import re
 import time
 import uuid
 
@@ -79,9 +81,10 @@ logger = logging.getLogger(__name__)
 _CONN = _specs.get_repo_connection()
 REDIS_URL = _CONN.get("redis_url", "")
 MAX_AGE = int(_CONN.get("max_age_seconds", 300))
-GRACE = int(_CONN.get("grace_seconds", 60))
 PULL_LOCK_TTL = int(_CONN.get("pull_lock_ttl", 120))
-
+# A replaced snapshot must outlive the requests that are pinned to it: with
+# no grace it is deleted in the middle of them.
+MIN_GRACE = 10
 
 
 def _check_url(url: str) -> None:
@@ -92,7 +95,20 @@ def _check_url(url: str) -> None:
         )
 
 
+def _check_grace(seconds: int) -> int:
+    if seconds < MIN_GRACE:
+        logger.warning(
+            "git_redis: repo.connection.grace_seconds %d is too short for"
+            " in-flight readers, using %d",
+            seconds,
+            MIN_GRACE,
+        )
+        return MIN_GRACE
+    return seconds
+
+
 _check_url(REDIS_URL)
+GRACE = _check_grace(int(_CONN.get("grace_seconds", 60)))
 
 _KEY_LATEST = "latest"
 _KEY_SYNCED = "synced"
@@ -103,10 +119,24 @@ _MARKER = ""
 # An abandoned temporary snapshot (pod killed while uploading) expires.
 _TMP_TTL = 600
 _UPLOAD_BATCH = 500
+# `latest` ends up in key names and git arguments, and Redis is no trusted
+# source for either.
+_HASH_RE = re.compile(r"^[0-9a-f]{40,64}$")
 
 
 def _snap(snapshot_hash: str) -> str:
     return f"snap:{snapshot_hash}"
+
+
+def _is_hash(value: str | None) -> bool:
+    return bool(value) and _HASH_RE.fullmatch(value) is not None
+
+
+async def _snapshot_hash(client: "redis_async.Redis", latest: str | None) -> str | None:
+    """`latest` if it is the hash of a snapshot that exists, else None."""
+    if not _is_hash(latest) or not await client.exists(_snap(latest)):
+        return None
+    return latest
 
 
 class _Superseded(Exception):
@@ -170,19 +200,38 @@ class _GitRedisSession(ReadOnlyRepoSession):
     async def get_hash(self) -> str:
         return self._hash
 
+    def _gone(self) -> RepoError:
+        return RepoError(
+            f"git_redis: snapshot {self._hash[:8]} expired during the request"
+        )
+
+    async def _assert_snapshot(self) -> None:
+        """
+        To be called when something was not found: in a snapshot that has
+        expired meanwhile (replaced longer than `grace_seconds` ago) nothing
+        is, which must not pass for "absent".
+        """
+        if not await self._r.hexists(self._key, _MARKER):
+            raise self._gone()
+
     async def list(self, type: str) -> list[str]:
         glob_pat = await _render_glob(type, self._details)
         try:
             paths = await self._r.hkeys(self._key)
         except RedisError as error:
             raise RepoError(f"Redis list failed for type {type}") from error
+        if _MARKER not in paths:
+            raise self._gone()
         names = (_name_from_path(glob_pat, p) for p in paths)
         return sorted(name for name in names if name is not None)
 
     async def exists(self, type: str, name: str) -> bool:
         rel = await _render_path(type, name, self._details)
         try:
-            return bool(await self._r.hexists(self._key, rel))
+            if await self._r.hexists(self._key, rel):
+                return True
+            await self._assert_snapshot()
+            return False
         except RedisError as error:
             raise RepoError(f"Redis exists failed for {type}/{name}") from error
 
@@ -212,15 +261,20 @@ class _GitRedisSession(ReadOnlyRepoSession):
             return False
         paths = [await _render_path(type_name, n, self._details) for n in names]
         try:
-            return target in await self._r.hmget(self._key, paths)
+            marker, *values = await self._r.hmget(self._key, [_MARKER, *paths])
         except RedisError as error:
             raise RepoError(
                 f"Redis link scan failed for {type_name}/{name}"
             ) from error
+        if marker is None:
+            raise self._gone()
+        return target in values
 
     async def _link_content(self, type: str, name: str, target_rel: str) -> str:
         try:
             target_value = await self._r.hget(self._key, target_rel)
+            if target_value is None:
+                await self._assert_snapshot()
         except RedisError as error:
             raise RepoError(f"Redis follow-link failed for {type}/{name}") from error
         if target_value is None or not target_value.startswith("f:"):
@@ -255,7 +309,10 @@ class _GitRedisSession(ReadOnlyRepoSession):
     async def _raw(self, type: str, name: str) -> str | None:
         rel = await _render_path(type, name, self._details)
         try:
-            return await self._r.hget(self._key, rel)
+            value = await self._r.hget(self._key, rel)
+            if value is None:
+                await self._assert_snapshot()
+            return value
         except RedisError as error:
             raise RepoError(f"Redis get failed for {type}/{name}") from error
 
@@ -413,8 +470,8 @@ class GitRedisRepo(IRepo):
         the remote is unavailable, marking the request as stale. Raises
         `error` when there is no snapshot to fall back on.
         """
-        latest = await client.get(_KEY_LATEST)
-        if not latest or not await client.exists(_snap(latest)):
+        latest = await _snapshot_hash(client, await client.get(_KEY_LATEST))
+        if latest is None:
             raise error
         synced = await client.get(_KEY_SYNCED)
         staleness.mark_stale(float(synced) if synced else None)
@@ -430,8 +487,8 @@ class GitRedisRepo(IRepo):
         The hash of the published snapshot (None if there is none) and
         whether it is recent enough for this read.
         """
-        latest = await client.get(_KEY_LATEST)
-        if not latest or not await client.exists(_snap(latest)):
+        latest = await _snapshot_hash(client, await client.get(_KEY_LATEST))
+        if latest is None:
             return None, False
         synced = await client.get(_KEY_SYNCED)
         if not synced:
@@ -447,35 +504,30 @@ class GitRedisRepo(IRepo):
     ) -> str:
         """
         Make the snapshot of git_direct's checkout the published one, unless
-        a newer one is published already; returns the hash of the snapshot
-        to read from. Must be called inside a `git_direct` writer scope.
+        the published one is what the remote has by now; returns the hash of
+        the snapshot to read from. Must be called inside a `git_direct`
+        writer scope.
         """
         synced_again = False
         for _ in range(5):
             local = await self._read_git_head(_gd().path)
             latest = await client.get(_KEY_LATEST)
-            published = latest
-            if published and not await client.exists(_snap(published)):
-                published = None  # `latest` without its snapshot
+            # None: no (valid) `latest`, or one without its snapshot
+            published = await _snapshot_hash(client, latest)
 
             if published == local:
                 await self._set_synced(client)
                 return local
 
-            if published:
+            if published and not synced_again:
                 relation = await self._compare(_gd().path, local, published)
-                if relation == "newer":
-                    logger.info(
-                        "git_redis: keeping published snapshot %s (newer than"
-                        " local HEAD %s)",
-                        published[:8],
-                        local[:8],
-                    )
-                    return published
-                if relation == "unknown" and not synced_again:
-                    # Not in this clone: another pod may have pushed and
-                    # published it after this pod last fetched. Fetch, then
-                    # decide again.
+                if relation != "other":
+                    # Ahead of the local HEAD ("newer") or not in this clone
+                    # ("unknown"): another pod may have pushed and published
+                    # it after this pod last fetched. Fetch, then decide
+                    # again: the local HEAD then is what the remote has, and
+                    # a published snapshot that still differs is of a commit
+                    # the remote was rewound from (it is replaced).
                     synced_again = True
                     # pylint: disable-next=protected-access
                     await _gd()._pull(user)
@@ -522,7 +574,7 @@ class GitRedisRepo(IRepo):
                 pipe.persist(_snap(new_hash))
                 pipe.set(_KEY_LATEST, new_hash)
                 pipe.set(_KEY_SYNCED, str(now))
-                if current and current != new_hash:
+                if current != new_hash and _is_hash(current):
                     # in-flight readers may still be pinned to it
                     pipe.expire(_snap(current), GRACE)
                 try:

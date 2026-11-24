@@ -22,6 +22,13 @@ from app.model.err import RepoError, RepoSpecsError, RepoUnavailable
 from app.model.plg import RepoState
 
 
+# Commit hashes (`latest` is only accepted if it looks like one).
+H0 = "0" * 40
+H1 = "1" * 40
+OLD = "a" * 40
+GONE = "d" * 40
+
+
 #
 # Fakes
 #
@@ -173,7 +180,7 @@ class FakeGitDirect:
 
     path = "/nonexistent-test-repo"
 
-    def __init__(self, head="H0") -> None:
+    def __init__(self, head=H0) -> None:
         self.head = head
         self.pulls = 0
         self.after_pull = None  # HEAD after the next sync
@@ -244,43 +251,63 @@ def _tmp_keys(client) -> list[str]:
 #
 
 
-async def test_newer_published_snapshot_is_kept(handler, monkeypatch):
+async def test_newer_published_snapshot_is_kept(handler, gd, monkeypatch):
+    """This pod lags behind: the sync brings it to the published commit."""
     calls = _set_relation(monkeypatch, "newer")
-    client = FakeRedis(store={"latest": "H1"}, snapshots={"snap:H1": SNAPSHOT})
+    gd.after_pull = H1
+    client = FakeRedis(store={"latest": H1}, snapshots={f"snap:{H1}": SNAPSHOT})
 
-    assert await handler._publish_snapshot(client, None) == "H1"
-    assert client.store["latest"] == "H1"
-    assert client.set_keys == []
+    assert await handler._publish_snapshot(client, None) == H1
+    assert gd.pulls == 1
+    assert client.store["latest"] == H1
+    assert client.set_keys == ["synced"]
     assert client.ttl == {}
-    assert calls == [(FakeGitDirect.path, "H0", "H1")]
+    assert calls == [(FakeGitDirect.path, H0, H1)]
+
+
+async def test_newer_published_snapshot_of_a_rewound_remote_is_replaced(
+    handler, gd, monkeypatch
+):
+    """
+    The remote was force-pushed back from H1 to H0, but H1 still is in this
+    pod's clone ("newer"): after the sync the local HEAD is what the remote
+    has, so H1 must not be served any longer.
+    """
+    _set_relation(monkeypatch, "newer")
+    client = FakeRedis(store={"latest": H1}, snapshots={f"snap:{H1}": SNAPSHOT})
+
+    assert await handler._publish_snapshot(client, None) == H0
+    assert gd.pulls == 1
+    assert client.store["latest"] == H0
+    assert client.ttl == {f"snap:{H1}": grs.GRACE}
 
 
 async def test_older_published_snapshot_is_replaced_and_expires(handler, monkeypatch):
     _set_relation(monkeypatch, "other")
-    client = FakeRedis(store={"latest": "OLD"}, snapshots={"snap:OLD": SNAPSHOT})
+    client = FakeRedis(store={"latest": OLD}, snapshots={f"snap:{OLD}": SNAPSHOT})
 
-    assert await handler._publish_snapshot(client, None) == "H0"
-    assert client.store["latest"] == "H0"
-    assert client.hashes["snap:H0"] == SNAPSHOT
-    assert client.ttl == {"snap:OLD": grs.GRACE}  # the new one does not expire
+    assert await handler._publish_snapshot(client, None) == H0
+    assert client.store["latest"] == H0
+    assert client.hashes[f"snap:{H0}"] == SNAPSHOT
+    assert client.ttl == {f"snap:{OLD}": grs.GRACE}  # the new one does not expire
     assert _tmp_keys(client) == []
     assert handler._synced is not None
 
 
 async def test_latest_without_its_snapshot_is_replaced(handler, monkeypatch):
     calls = _set_relation(monkeypatch, "newer")
-    client = FakeRedis(store={"latest": "H1"})  # snap:H1 expired / never written
+    client = FakeRedis(store={"latest": H1})  # snap:H1 expired / never written
 
-    assert await handler._publish_snapshot(client, None) == "H0"
-    assert client.store["latest"] == "H0"
+    assert await handler._publish_snapshot(client, None) == H0
+    assert client.store["latest"] == H0
     assert calls == []
 
 
 async def test_unchanged_head_only_bumps_synced(handler, monkeypatch):
     calls = _set_relation(monkeypatch, "newer")
-    client = FakeRedis(store={"latest": "H0"}, snapshots={"snap:H0": SNAPSHOT})
+    client = FakeRedis(store={"latest": H0}, snapshots={f"snap:{H0}": SNAPSHOT})
 
-    assert await handler._publish_snapshot(client, None) == "H0"
+    assert await handler._publish_snapshot(client, None) == H0
     assert calls == []
     assert client.set_keys == ["synced"]
 
@@ -288,39 +315,40 @@ async def test_unchanged_head_only_bumps_synced(handler, monkeypatch):
 async def test_unknown_published_commit_triggers_a_sync_first(handler, gd, monkeypatch):
     """Another pod pushed and published H1 after this pod fetched H0."""
     _set_relation(monkeypatch, "unknown")
-    gd.after_pull = "H1"
-    client = FakeRedis(store={"latest": "H1"}, snapshots={"snap:H1": SNAPSHOT})
+    gd.after_pull = H1
+    client = FakeRedis(store={"latest": H1}, snapshots={f"snap:{H1}": SNAPSHOT})
 
-    assert await handler._publish_snapshot(client, None) == "H1"
+    assert await handler._publish_snapshot(client, None) == H1
     assert gd.pulls == 1
-    assert client.store["latest"] == "H1"  # not rolled back to H0
+    assert client.store["latest"] == H1  # not rolled back to H0
     assert client.ttl == {}
 
 
 async def test_published_commit_unknown_to_the_remote_is_replaced(handler, gd, monkeypatch):
     """Still unknown after the sync (e.g. the branch was rewound): publish."""
     _set_relation(monkeypatch, "unknown")
-    client = FakeRedis(store={"latest": "GONE"}, snapshots={"snap:GONE": SNAPSHOT})
+    client = FakeRedis(store={"latest": GONE}, snapshots={f"snap:{GONE}": SNAPSHOT})
 
-    assert await handler._publish_snapshot(client, None) == "H0"
+    assert await handler._publish_snapshot(client, None) == H0
     assert gd.pulls == 1
-    assert client.store["latest"] == "H0"
+    assert client.store["latest"] == H0
 
 
-async def test_publish_gives_way_to_a_concurrent_publish(handler, monkeypatch):
+async def test_publish_gives_way_to_a_concurrent_publish(handler, gd, monkeypatch):
     """`latest` moves to a newer snapshot while this pod uploads its own."""
     relations = iter(["other", "newer"])
+    gd.after_pull = H1  # what the sync for the "newer" one brings
 
     async def fake_compare(repo_path, local, published):
         del repo_path, local, published
         return next(relations)
 
     monkeypatch.setattr(grs.GitRedisRepo, "_compare", staticmethod(fake_compare))
-    client = FakeRedis(store={"latest": "OLD"}, snapshots={"snap:OLD": SNAPSHOT})
+    client = FakeRedis(store={"latest": OLD}, snapshots={f"snap:{OLD}": SNAPSHOT})
 
     async def other_pod_publishes():
-        await client.hset("snap:H1", mapping=SNAPSHOT)
-        await client.set("latest", "H1")
+        await client.hset(f"snap:{H1}", mapping=SNAPSHOT)
+        await client.set("latest", H1)
 
     client.before_exec = None
 
@@ -333,9 +361,9 @@ async def test_publish_gives_way_to_a_concurrent_publish(handler, monkeypatch):
 
     client.pipeline = pipeline
 
-    assert await handler._publish_snapshot(client, None) == "H1"
-    assert client.store["latest"] == "H1"
-    assert "snap:H0" not in client.hashes
+    assert await handler._publish_snapshot(client, None) == H1
+    assert client.store["latest"] == H1
+    assert f"snap:{H0}" not in client.hashes
     assert _tmp_keys(client) == []
 
 
@@ -346,18 +374,18 @@ async def test_publish_gives_way_to_a_concurrent_publish(handler, monkeypatch):
 
 async def test_fresh_snapshot_is_used_without_refresh(handler, gd):
     client = FakeRedis(
-        store={"latest": "H1", "synced": str(time.time())},
-        snapshots={"snap:H1": SNAPSHOT},
+        store={"latest": H1, "synced": str(time.time())},
+        snapshots={f"snap:{H1}": SNAPSHOT},
     )
-    assert await handler._ensure_snapshot(None, client, dirty=False) == "H1"
+    assert await handler._ensure_snapshot(None, client, dirty=False) == H1
     assert gd.pulls == 0
 
 
 async def test_outdated_snapshot_is_refreshed(handler, gd):
     client = FakeRedis(
-        store={"latest": "H0", "synced": "100.0"}, snapshots={"snap:H0": SNAPSHOT}
+        store={"latest": H0, "synced": "100.0"}, snapshots={f"snap:{H0}": SNAPSHOT}
     )
-    assert await handler._ensure_snapshot(None, client, dirty=False) == "H0"
+    assert await handler._ensure_snapshot(None, client, dirty=False) == H0
     assert gd.pulls == 1
     assert float(client.store["synced"]) > 100.0
     assert client.locks == {}
@@ -365,11 +393,11 @@ async def test_outdated_snapshot_is_refreshed(handler, gd):
 
 async def test_outdated_snapshot_is_served_while_another_pod_refreshes(handler, gd):
     client = FakeRedis(
-        store={"latest": "H1", "synced": "100.0"}, snapshots={"snap:H1": SNAPSHOT}
+        store={"latest": H1, "synced": "100.0"}, snapshots={f"snap:{H1}": SNAPSHOT}
     )
     client.locks["pull_lock"] = object()  # held elsewhere
     with staleness.request_scope() as state:
-        assert await handler._ensure_snapshot(None, client, dirty=False) == "H1"
+        assert await handler._ensure_snapshot(None, client, dirty=False) == H1
         assert state.stale is False
     assert gd.pulls == 0
     assert "pull_lock" in client.locks  # the other pod's lock is left alone
@@ -381,12 +409,12 @@ async def test_first_snapshot_is_awaited(handler, gd):
 
     async def other_pod():
         await asyncio.sleep(0.3)
-        await client.hset("snap:H1", mapping=SNAPSHOT)
-        await client.set("latest", "H1")
+        await client.hset(f"snap:{H1}", mapping=SNAPSHOT)
+        await client.set("latest", H1)
         await client.set("synced", str(time.time()))
 
     task = asyncio.create_task(other_pod())
-    assert await handler._ensure_snapshot(None, client, dirty=False) == "H1"
+    assert await handler._ensure_snapshot(None, client, dirty=False) == H1
     await task
     assert gd.pulls == 0
 
@@ -398,12 +426,12 @@ async def test_dirty_read_accepts_git_directs_dirty_max_age(handler, gd, monkeyp
     monkeypatch.setattr(grs, "_gd_module", lambda: Module)
     age = grs.MAX_AGE + 60
     client = FakeRedis(
-        store={"latest": "H0", "synced": str(time.time() - age)},
-        snapshots={"snap:H0": SNAPSHOT},
+        store={"latest": H0, "synced": str(time.time() - age)},
+        snapshots={f"snap:{H0}": SNAPSHOT},
     )
-    assert await handler._ensure_snapshot(None, client, dirty=True) == "H0"
+    assert await handler._ensure_snapshot(None, client, dirty=True) == H0
     assert gd.pulls == 0
-    assert await handler._ensure_snapshot(None, client, dirty=False) == "H0"
+    assert await handler._ensure_snapshot(None, client, dirty=False) == H0
     assert gd.pulls == 1
 
 
@@ -413,7 +441,7 @@ async def test_dirty_read_refreshes_a_snapshot_that_is_too_old(handler, gd, monk
 
     monkeypatch.setattr(grs, "_gd_module", lambda: Module)
     client = FakeRedis(
-        store={"latest": "H0", "synced": "100.0"}, snapshots={"snap:H0": SNAPSHOT}
+        store={"latest": H0, "synced": "100.0"}, snapshots={f"snap:{H0}": SNAPSHOT}
     )
     await handler._ensure_snapshot(None, client, dirty=True)
     assert gd.pulls == 1
@@ -435,14 +463,14 @@ class DownGitDirect(FakeGitDirect):
 async def test_refresh_failure_serves_stale_snapshot(handler, monkeypatch):
     monkeypatch.setattr(grs, "_git_direct", DownGitDirect())
     client = FakeRedis(
-        store={"latest": "H1", "synced": "100.0"}, snapshots={"snap:H1": SNAPSHOT}
+        store={"latest": H1, "synced": "100.0"}, snapshots={f"snap:{H1}": SNAPSHOT}
     )
 
     with staleness.request_scope() as state:
         result = await handler._ensure_snapshot(None, client, dirty=False)
         assert state.stale is True
         assert state.synced == 100.0
-    assert result == "H1"
+    assert result == H1
     assert client.locks == {}  # released for the next attempt
 
 
@@ -462,8 +490,8 @@ async def test_refresh_failure_without_snapshot_raises(handler, monkeypatch):
 
 async def test_state_reports_the_shared_sync_time(handler, gd):
     client = FakeRedis(
-        store={"latest": "H1", "synced": str(time.time())},
-        snapshots={"snap:H1": SNAPSHOT},
+        store={"latest": H1, "synced": str(time.time())},
+        snapshots={f"snap:{H1}": SNAPSHOT},
     )
     # this pod's own last attempt failed long ago, another pod synced since
     gd.own_state = RepoState(synced=50.0, error="boom", failed=60.0)

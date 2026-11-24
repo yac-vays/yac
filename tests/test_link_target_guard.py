@@ -96,6 +96,7 @@ async def test_git_redis_finds_links_to_an_entity():
     import app.plugin.repo.git_redis as grs
 
     snapshot = {
+        "": "",  # the marker of a complete snapshot
         "hosts/a.yml": "f:x: 1\n",
         "hosts/b.yml": "f:x: 2\n",
         "hosts/link.yml": "l:hosts/a.yml",
