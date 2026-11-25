@@ -152,3 +152,7 @@ class OperationRequest(Operation):
     # `validator.test_all`. Deliberately NOT part of `Operation` (the /validate
     # request body): validation results must always report the real state.
     force: bool = False
+
+    # Memo of `lib.validator` (the document the operation would write, parsed
+    # once): no part of the operation itself.
+    written_document: Annotated[tuple | None, Field(exclude=True, repr=False)] = None

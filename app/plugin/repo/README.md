@@ -8,6 +8,12 @@ Each plugin must implement the `app.model.plg.IRepo` class (with its
 `IRepoSession` / `IRepoUntyped` scopes and `state()`) and provide an
 instance of that class as `handler` variable.
 
+`IRepoSession` has defaults for `get_resolved`, `get_all` and
+`is_link_target` that are built on the per-entity reads. They are correct
+for any backend, but `get_all` in particular (the whole type at once, used by
+the entity list and the limits) is worth overriding if the backend can read
+everything in one go.
+
 It may raise the following exceptions:
 
     app.model.err.RepoError # irrelevant for user, only log

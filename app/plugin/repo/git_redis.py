@@ -119,6 +119,7 @@ _MARKER = ""
 # An abandoned temporary snapshot (pod killed while uploading) expires.
 _TMP_TTL = 600
 _UPLOAD_BATCH = 500
+_READ_BATCH = 500
 # `latest` ends up in key names and git arguments, and Redis is no trusted
 # source for either.
 _HASH_RE = re.compile(r"^[0-9a-f]{40,64}$")
@@ -305,6 +306,63 @@ class _GitRedisSession(ReadOnlyRepoSession):
         if value.startswith("l:"):
             return await self._link_content(type, name, value[2:])
         raise RepoError(f"Unrecognised value prefix for {type}/{name}")
+
+    async def get_all(self, type: str) -> dict[str, tuple[str, str | None]]:
+        """
+        A few round trips for the whole type (the paths, the entities, then
+        the targets of the links among them) instead of at least one per
+        entity.
+        """
+        glob_pat = await _render_glob(type, self._details)
+        try:
+            listed = await self._r.hkeys(self._key)
+            if _MARKER not in listed:
+                raise self._gone()
+            paths = {}
+            for path in listed:
+                name = _name_from_path(glob_pat, path)
+                if name is not None:
+                    paths[name] = path
+            values = dict(zip(paths, await self._hmget(list(paths.values()))))
+            links = {
+                name: value[2:]
+                for name, value in values.items()
+                if value.startswith("l:")
+            }
+            targets = dict.fromkeys(links.values())
+            targets = dict(zip(targets, await self._hmget(list(targets), strict=False)))
+        except RedisError as error:
+            raise RepoError(f"Redis read failed for type {type}") from error
+
+        entities: dict[str, tuple[str, str | None]] = {}
+        for name, value in values.items():
+            if value.startswith("f:"):
+                entities[name] = (value[2:], None)
+                continue
+            # Same rules as `get_resolved`.
+            target = _name_from_path(glob_pat, links.get(name, ""))
+            content = targets.get(links.get(name))
+            if target is None or content is None or not content.startswith("f:"):
+                logger.warning(f"Link {name} has no (legal) target in the snapshot")
+                continue
+            entities[name] = (content[2:], target)
+        return entities
+
+    async def _hmget(self, paths: list[str], *, strict: bool = True) -> list:
+        """
+        The values of the paths. With `strict`, all of them have to exist
+        (they were just listed): otherwise the snapshot has expired.
+        """
+        values: list = []
+        # In batches: no huge reply to wait for.
+        for i in range(0, len(paths), _READ_BATCH):
+            marker, *batch = await self._r.hmget(
+                self._key, [_MARKER, *paths[i : i + _READ_BATCH]]
+            )
+            if marker is None or (strict and None in batch):
+                raise self._gone()
+            values += batch
+        return values
 
     async def _raw(self, type: str, name: str) -> str | None:
         rel = await _render_path(type, name, self._details)

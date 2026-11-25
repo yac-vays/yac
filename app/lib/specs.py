@@ -58,7 +58,11 @@ def _stable_token(token: dict | None) -> dict:
     return {k: v for k, v in token.items() if k not in _VOLATILE_TOKEN_CLAIMS}
 
 
-def _op_signature(op: OperationRequest) -> tuple:
+def op_signature(op: OperationRequest) -> tuple:
+    """
+    What identifies the caller of a request for the caches (the rendered
+    specs here, the permissions of the entity list in `lib.perms`).
+    """
     # Exactly what specs rendering consumes (see `props.get_types`); of the
     # request headers only `yac-*` ones are ever exposed to templates.
     user = dict(op.user)
@@ -240,7 +244,7 @@ AUTH: Auth = _load_auth()
 
 
 async def read(op: OperationRequest) -> Specs:
-    op_sig = _op_signature(op)
+    op_sig = op_signature(op)
     return await __parse_cached(op, op_sig)
 
 

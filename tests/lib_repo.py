@@ -1,7 +1,7 @@
 """
-Tests for the repo helpers added for limit correctness: `get_resolved` (the
-backward-compatible default on `IRepoSession`) and `lib.repo.load_data_resolved`,
-which report a symlink's target alongside its content.
+Tests for the repo helpers: `get_resolved` / `get_all` (the backward-compatible
+defaults on `IRepoSession`, which report a symlink's target alongside its
+content) and what `lib.repo` builds on them.
 """
 
 import pytest
@@ -84,57 +84,85 @@ async def test_get_resolved_link_reports_target_and_content(fake_repo):
     assert target == "A"       # ... and the target name is reported
 
 
-async def test_load_data_resolved_parses_and_reports_link(fake_repo):
-    rpo = fake_repo(files={"A": "cpus: 4\nram: 8"}, links={"B": "A"})
-    data, target = await repo.load_data_resolved(rpo, "host", "A")
-    assert data == {"cpus": 4, "ram": 8}
-    assert target is None
+# ----- get_all (the per-entity default on `IRepoSession`) -----
 
-    data, target = await repo.load_data_resolved(rpo, "host", "B")
-    assert data == {"cpus": 4, "ram": 8}
-    assert target == "A"
-
-
-async def test_load_data_resolved_tolerates_bad_yaml(fake_repo):
-    rpo = fake_repo(files={"A": "::: not yaml :::"})
-    data, target = await repo.load_data_resolved(rpo, "host", "A")
-    assert data == {}
-    assert target is None
+async def test_get_all_reads_every_entity_with_its_link_target(fake_repo):
+    rpo = fake_repo(files={"A": "x: 1", "C": "x: 3"}, links={"B": "A"})
+    assert await rpo.get_all("host") == {
+        "A": ("x: 1", None),
+        "B": ("x: 1", "A"),
+        "C": ("x: 3", None),
+    }
 
 
-# ----- load_data (best-effort, content-cache backed) -----
-
-async def test_load_data_parses_yaml(fake_repo):
-    rpo = fake_repo(files={"A": "cpu: 4\nram: 8"})
-    assert await repo.load_data(rpo, "host", "A") == {"cpu": 4, "ram": 8}
-
-
-async def test_load_data_empty_content_is_empty_dict(fake_repo):
-    rpo = fake_repo(files={"A": ""})
-    assert await repo.load_data(rpo, "host", "A") == {}
-
-
-async def test_load_data_bad_yaml_is_empty_dict(fake_repo):
-    rpo = fake_repo(files={"A": "::: not yaml :::"})
-    assert await repo.load_data(rpo, "host", "A") == {}
-
-
-async def test_load_data_repo_error_is_empty_dict():
-    class _Raising(IRepoSession):
-        async def get_hash(self): return "h"
-        async def list(self, type): return []
-        async def exists(self, type, name): return False
-        async def is_link(self, type, name): return False
-        async def get_link(self, type, name): return ""
+async def test_get_all_leaves_out_what_cannot_be_read(fake_repo):
+    class _Dangling(fake_repo):
         async def get(self, type, name):
-            raise RepoNotFound("nope")
-        async def write(self, *a): ...
-        async def write_rename(self, *a): ...
-        async def copy(self, *a): ...
-        async def link(self, *a): ...
-        async def delete(self, *a): ...
+            if name == "B":
+                raise RepoNotFound("The link target of B does not exist")
+            return await super().get(type, name)
 
-    assert await repo.load_data(_Raising(), "host", "x") == {}
+    rpo = _Dangling(files={"A": "x: 1"}, links={"B": "gone"})
+    assert await rpo.get_all("host") == {"A": ("x: 1", None)}
+
+
+# ----- read_type (one bulk read per type and repo state) -----
+
+async def test_read_type_is_sorted_and_read_once_per_repo_state(fake_repo):
+    class _Counting(fake_repo):
+        reads = 0
+
+        async def get_all(self, type):
+            _Counting.reads += 1
+            return dict(reversed((await super().get_all(type)).items()))
+
+    rpo = _Counting(files={"b": "x: 2", "a": "x: 1"}, links={"c": "a"})
+    stored = await repo.read_type("h-read-type-1", "host", rpo)
+    assert list(stored) == ["a", "b", "c"]
+    assert stored["c"] == ("x: 1", "a")
+    assert await repo.read_type("h-read-type-1", "host", rpo) is stored
+    assert _Counting.reads == 1
+    # another repo state (or type) is read on its own
+    await repo.read_type("h-read-type-2", "host", rpo)
+    await repo.read_type("h-read-type-2", "vm", rpo)
+    assert _Counting.reads == 3
+
+
+async def test_get_entity_for_list_builds_the_entity_and_its_perms():
+    op = _op()
+    specs = _specs({"host:all:edt": "old.data.owner == user.name"})
+    active = await repo.perms.get_active_role_set(op, specs)
+    base = repo.props.get_roles_base(op, specs.request)
+
+    old, p = await repo.get_entity_for_list("a", ("owner: alice", None), base, active)
+    assert old.exists is True and old.is_link is False and old.link is None
+    assert old.yaml == "owner: alice" and old.data == {"owner": "alice"}
+    assert p == ["edt", "see"]
+
+    old, p = await repo.get_entity_for_list("l", ("owner: bob", "b"), base, active)
+    assert old.is_link is True and old.link == "b" and p == []
+
+    with pytest.raises(RepoError):
+        await repo.get_entity_for_list("x", ("::: not yaml :::", None), base, active)
+
+
+# ----- parse_data (best-effort, content-cache backed) -----
+
+def test_parse_data_parses_yaml():
+    assert repo.parse_data("cpu: 4\nram: 8") == {"cpu": 4, "ram": 8}
+
+
+def test_parse_data_empty_or_bad_yaml_is_empty_dict():
+    assert repo.parse_data("") == {}
+    assert repo.parse_data("::: not yaml :::") == {}
+
+
+def test_parse_data_hands_out_an_own_copy():
+    text = "users: [a]\nnested: {k: [1]}"
+    first = repo.parse_data(text)
+    first["users"].append("b")
+    first["nested"]["k"].append(2)
+    assert repo.parse_data(text) == {"users": ["a"], "nested": {"k": [1]}}
 
 
 # ----- get_entities: name resolution + entity population -----

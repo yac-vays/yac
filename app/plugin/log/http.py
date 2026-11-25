@@ -77,6 +77,7 @@ import logging
 import httpx
 
 from app.lib import j2
+from app.lib import tls
 from app.lib import log as log_lib
 from app.model import out
 from app.model.err import LogContentNotFound
@@ -238,7 +239,7 @@ class HttpLog(ILog):
             try:
                 async with httpx.AsyncClient(
                     headers={"Accept": accept, **headers},
-                    verify=d.get("ssl_verify", True),
+                    verify=tls.context(d.get("ssl_verify", True)),
                     timeout=d.get("timeout", 5),
                 ) as client, client.stream(
                     method=d.get("method", "GET"),

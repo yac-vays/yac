@@ -26,4 +26,10 @@ class Settings(BaseSettings):
     # times this plus 64 kB (see app.lib.bodylimit).
     max_yaml_size: int = 65536
 
+    # Seconds the permissions on an entity are reused for the entity list of
+    # the same user (while the entity is unchanged), 0 to evaluate the
+    # entity-dependent roles on every list request. Only the list is affected:
+    # operations on an entity always evaluate the roles anew.
+    list_perms_ttl: int = 300
+
     env: dict = {}  # custom env vars available in props

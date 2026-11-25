@@ -22,6 +22,55 @@ from app.model.int import Entity
 from app.model.spc import Specs
 
 
+def _written_document(
+    op: OperationRequest, old: Entity
+) -> tuple[dict, str | None, str | None] | None:
+    """
+    `(data, yaml, error)` of the YAML document the operation would write, or
+    None if it writes none of its own (a read, copy, link, ...). `yaml` is the
+    canonical document with comments / quoting / key order preserved, `data`
+    what it parses to; with an `error` (malformed YAML, not a mapping) the
+    data is `{}`.
+
+    The round-trip parser is by far the slowest part of a validation and an
+    operation is asked for its document several times (the limits, the
+    permission check, the schema), so the result is kept on the operation
+    for the base document it was derived from.
+    """
+    entity = op.entity
+    if isinstance(entity, UpdateEntity):
+        # The patch is merged into `yaml_base` (the YAML the client is
+        # editing) if given, else into the stored YAML.
+        base = entity.yaml_base if entity.yaml_base is not None else (old.yaml or "")
+    elif isinstance(entity, NewEntity):
+        base = entity.yaml
+    elif isinstance(entity, ReplaceEntity):
+        base = entity.yaml_new
+    else:
+        return None
+
+    memo = op.written_document
+    if memo is not None and memo[0] is entity and memo[1] == base:
+        return memo[2]
+
+    text: str | None = None
+    try:
+        if isinstance(entity, UpdateEntity):
+            text = yaml.update(base, entity.data)
+            data = yaml.load_mapping(text)
+        else:
+            # Dumped right away (a round-trip that normalizes the formatting
+            # while keeping the comments), before anything gets to see `data`.
+            node = yaml.load(base)
+            text = yaml.dump(node)
+            data = yaml.as_mapping(node)
+        result = (data, text, None)
+    except yaml.YAMLError as error:
+        result = ({}, text, str(error))
+    op.written_document = (entity, base, result)
+    return result
+
+
 def incoming_new_data(op: OperationRequest, old: Entity) -> tuple[dict, str | None]:
     """
     The data the operation would write, parsed to a dict. Returns
@@ -33,49 +82,29 @@ def incoming_new_data(op: OperationRequest, old: Entity) -> tuple[dict, str | No
     Copies/links inherit the source entity's data (`old.data`), matching how
     the create router generates their name.
     """
-    try:
-        if isinstance(op.entity, NewEntity):
-            return yaml.load_mapping(op.entity.yaml), None
-        if isinstance(op.entity, (CopyEntity, LinkEntity)):
-            return old.data or {}, None
-        if isinstance(op.entity, ReplaceEntity):
-            return yaml.load_mapping(op.entity.yaml_new), None
-        if isinstance(op.entity, UpdateEntity):
-            base = op.entity.yaml_base if op.entity.yaml_base is not None else (old.yaml or "")
-            return yaml.load_mapping(yaml.update(base, op.entity.data)), None
-        if op.entity is None and op.operation == "read":
-            return old.data or {}, None
-        return {}, None
-    except yaml.YAMLError as error:
-        return {}, str(error)
+    document = _written_document(op, old)
+    if document is not None:
+        return document[0], document[2]
+    if isinstance(op.entity, (CopyEntity, LinkEntity)):
+        return old.data or {}, None
+    if op.entity is None and op.operation == "read":
+        return old.data or {}, None
+    return {}, None
 
 
 def incoming_new_yaml(op: OperationRequest, old: Entity) -> str | None:
     """
     The canonical YAML the operation would write, with comments/quoting/key
-    order preserved (unlike `incoming_new_data`, which goes through
-    `load_as_dict` and drops them). Returned to the UI in `Schema.yaml` so a
-    YAML editor can stay in sync with the form without re-implementing YAC's
-    ruamel serialization client-side.
+    order preserved (unlike `incoming_new_data`, which drops them). Returned
+    to the UI in `Schema.yaml` so a YAML editor can stay in sync with the form
+    without re-implementing YAC's ruamel serialization client-side.
 
     Returns `None` for operations that do not produce writable YAML (reads,
     copies, links) or when the payload YAML is malformed (the schema/request
     validation already surfaces that error).
     """
-    try:
-        if isinstance(op.entity, UpdateEntity):
-            # Merge the patch into `yaml_base` (the YAML the client is editing) if
-            # given, else the stored YAML; either way comments are preserved.
-            base = op.entity.yaml_base if op.entity.yaml_base is not None else (old.yaml or "")
-            return yaml.update(base, op.entity.data)
-        if isinstance(op.entity, NewEntity):
-            # Round-trip to normalize formatting while keeping comments.
-            return yaml.dump(yaml.load(op.entity.yaml))
-        if isinstance(op.entity, ReplaceEntity):
-            return yaml.dump(yaml.load(op.entity.yaml_new))
-        return None
-    except (yaml.YAMLError, RequestError):
-        return None
+    document = _written_document(op, old)
+    return None if document is None else document[1]
 
 
 def may_read(old: Entity, perms: list[str]) -> bool:

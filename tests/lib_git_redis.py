@@ -544,3 +544,85 @@ async def test_session_reads_from_the_pinned_snapshot():
         await s.get("host", "dangling")
     with pytest.raises(RepoError):
         await s.get("host", "zzz")
+
+
+async def test_session_reads_a_whole_type_in_bulk(monkeypatch):
+    details = {"host": "hosts/{{ name }}.yml"}
+    client = FakeRedis(
+        snapshots={
+            "snap:H": {
+                "": "",
+                "hosts/a.yml": "f:x: 1\n",
+                "hosts/b.yml": "f:x: 2\n",
+                "hosts/link.yml": "l:hosts/a.yml",
+                "hosts/link2.yml": "l:hosts/a.yml",
+                "hosts/dangling.yml": "l:hosts/gone.yml",
+                "hosts/readme.yml": "l:README.md",
+                "hosts/sub/c.yml": "f:x: 3\n",
+                "README.md": "f:hi",
+            }
+        }
+    )
+    calls = []
+    for command in ("hkeys", "hmget", "hget"):
+        real = getattr(client, command)
+
+        async def counting(*args, _command=command, _real=real):
+            calls.append(_command)
+            return await _real(*args)
+
+        monkeypatch.setattr(client, command, counting)
+
+    s = grs._GitRedisSession(None, client, "H", details)
+    stored = await s.get_all("host")
+    # one round trip each for the entities and the targets of the links
+    assert calls == ["hkeys", "hmget", "hmget"]
+    assert stored == {
+        "a": ("x: 1\n", None),
+        "b": ("x: 2\n", None),
+        "link": ("x: 1\n", "a"),
+        "link2": ("x: 1\n", "a"),
+    }
+    for name, entity in stored.items():
+        assert entity == await s.get_resolved("host", name)
+
+    # a type without entities
+    assert await grs._GitRedisSession(
+        None, client, "H", {"host": "vms/{{ name }}.yml"}
+    ).get_all("host") == {}
+
+
+async def test_bulk_read_of_an_expired_snapshot_fails():
+    details = {"host": "hosts/{{ name }}.yml"}
+    with pytest.raises(RepoError):
+        await grs._GitRedisSession(None, FakeRedis(), "H", details).get_all("host")
+
+    # expired between listing the entities and reading them
+    client = FakeRedis(snapshots={"snap:H": {"": "", "hosts/a.yml": "f:x: 1\n"}})
+    hkeys = client.hkeys
+
+    async def expiring(key):
+        paths = await hkeys(key)
+        await client.delete(key)
+        return paths
+
+    client.hkeys = expiring
+    with pytest.raises(RepoError):
+        await grs._GitRedisSession(None, client, "H", details).get_all("host")
+
+
+async def test_bulk_read_is_split_into_batches(monkeypatch):
+    monkeypatch.setattr(grs, "_READ_BATCH", 2)
+    files = {f"hosts/h{i}.yml": f"f:x: {i}\n" for i in range(5)}
+    client = FakeRedis(snapshots={"snap:H": {"": "", **files}})
+    sizes = []
+    hmget = client.hmget
+
+    async def counting(key, fields):
+        sizes.append(len(fields) - 1)  # less the marker
+        return await hmget(key, fields)
+
+    client.hmget = counting
+    s = grs._GitRedisSession(None, client, "H", {"host": "hosts/{{ name }}.yml"})
+    assert await s.get_all("host") == {f"h{i}": (f"x: {i}\n", None) for i in range(5)}
+    assert sizes == [2, 2, 1]

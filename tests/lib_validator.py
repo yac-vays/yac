@@ -312,3 +312,71 @@ async def test_ls_passes_for_valid_list_request():
     # test_ls runs the list-time validators (names/operations/type_spec) and
     # returns None when nothing is wrong.
     assert await _v.test_ls(_read_op(), _full_specs()) is None
+
+
+# ----- the written document is parsed once per operation and base -----
+
+
+def _count_loads(monkeypatch) -> list:
+    loads = []
+    load = _v.yaml.load
+
+    def counting(text, **kwargs):
+        loads.append(text)
+        return load(text, **kwargs)
+
+    monkeypatch.setattr(_v.yaml, "load", counting)
+    return loads
+
+
+def test_patch_is_merged_and_parsed_once(monkeypatch):
+    loads = _count_loads(monkeypatch)
+    op, old = _update_op({"ram": 8}), _old()
+
+    data, error = validator.incoming_new_data(op, old)
+    text = validator.incoming_new_yaml(op, old)
+    assert error is None and data["ram"] == 8 and "ram: 8" in text
+    assert validator.has_content_changes(op, old) is True
+    assert validator.incoming_new_data(op, old) == (data, None)
+    # the stored YAML (to merge the patch into) and the merged document
+    assert loads == [STORED, text]
+
+
+def test_patch_is_merged_again_into_another_base(monkeypatch):
+    """A write validates in a reader scope, then again on what the writer scope holds."""
+    op = _update_op({"ram": 8})
+    assert "Bender" in validator.incoming_new_yaml(op, _old())
+
+    loads = _count_loads(monkeypatch)
+    changed = Entity(name="name1", exists=True, yaml="owner: Fry\n", data={"owner": "Fry"})
+    assert validator.incoming_new_data(op, changed) == ({"owner": "Fry", "ram": 8}, None)
+    assert validator.incoming_new_yaml(op, changed) == "---\nowner: Fry\nram: 8\n"
+    assert len(loads) == 2
+
+
+def test_new_document_is_parsed_once(monkeypatch):
+    loads = _count_loads(monkeypatch)
+    op = _op(NewEntity(name="n", yaml="b: 1 # why\na:   2\n"), operation="create")
+    old = Entity(name=None, exists=False)
+
+    assert validator.incoming_new_data(op, old) == ({"b": 1, "a": 2}, None)
+    assert validator.incoming_new_yaml(op, old) == "---\nb: 1 # why\na: 2\n"
+    assert len(loads) == 1
+
+
+def test_document_errors_are_kept_too(monkeypatch):
+    loads = _count_loads(monkeypatch)
+    old = Entity(name=None, exists=False)
+
+    op = _op(NewEntity(name="n", yaml="a: [1\n"), operation="create")
+    data, error = validator.incoming_new_data(op, old)
+    assert data == {} and error
+    assert validator.incoming_new_data(op, old) == ({}, error)
+    assert validator.incoming_new_yaml(op, old) is None
+    assert len(loads) == 1
+
+    # not a mapping: no data, but still a document
+    op = _op(NewEntity(name="n", yaml="- a\n"), operation="create")
+    data, error = validator.incoming_new_data(op, old)
+    assert data == {} and "mapping" in error
+    assert validator.incoming_new_yaml(op, old) == "---\n  - a\n"

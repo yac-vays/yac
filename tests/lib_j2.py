@@ -150,3 +150,37 @@ def test_is_user_only():
     # a plugin function that gets the render context may read entity data
     assert j2.is_user_only("re_next_int('^x(\\d+)$') > 3") is False
     assert j2.is_user_only("{{{ broken") is False
+
+
+async def test_strings_without_markup_render_like_jinja_does():
+    """They skip Jinja2 (`_static`), so they have to come out the same."""
+    env = j2._get_env(True, False)
+    for text in [
+        "",
+        "plain",
+        "a } b %} c #} d",
+        "trailing newline\n",
+        "two trailing newlines\n\n",
+        "\n",
+        "  spaces \t kept  ",
+        "multi\nline\n  indented\n",
+        "carriage\r\nreturns\rare normalized\r\n",
+        "unicode \u2028 äöü",
+    ]:
+        expected = await env.from_string(text).render_async()
+        assert await j2.render_str(text, {}) == expected, repr(text)
+        assert j2.render_sync_str(text, {}) == expected, repr(text)
+        assert await j2.render_str(text, {}, allow_nonstr=False, strict=False) == expected
+    # ... and anything with a `{` still is rendered
+    assert await j2.render_str("{# gone #}x", {}) == "x"
+    assert await j2.render_str("{{ 1 + 1 }}", {}) == 2
+
+
+async def test_template_globals_are_those_of_the_environment():
+    """Kept as a plain dict per template (`_Environment.make_globals`)."""
+    template = j2._get_template(True, False, "{{ omit }}{{ range(2) | list }}")
+    assert type(template.globals) is dict
+    assert template.globals["omit"] == OMIT
+    assert await j2.render_str("{{ omit }}", {}) == OMIT
+    # plugin functions are globals as well
+    assert await j2.render_str("{{ uuid() | length }}", {}) == 36

@@ -37,6 +37,7 @@ import json
 import httpx
 
 from app.lib import j2
+from app.lib import tls
 from app.model.err import ActionClientError
 from app.model.err import ActionError
 from app.model.err import ActionSpecsError
@@ -89,7 +90,7 @@ class HttpAction(IAction):
         try:
             async with httpx.AsyncClient(
                 headers=headers,
-                verify=d.get("ssl_verify", True),
+                verify=tls.context(d.get("ssl_verify", True)),
                 timeout=d.get("timeout", 5),
             ) as client, client.stream(
                 method=d.get("method", "GET"),

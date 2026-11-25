@@ -272,3 +272,19 @@ def test_has_structural_changes_detects_non_data_changes():
     assert h(STRUCT_OLD, STRUCT_OLD.replace('owner: alice', 'owner: &o alice').replace('note: n', 'note: *o'))
     # wiping the document
     assert h(STRUCT_OLD, '')
+
+
+def test_copy_data_shares_nothing_mutable():
+    data = yaml.load_as_dict_fast("a: [1, {b: [2]}]\nc: {d: x}\ne: null\nf: 1.5")
+    copied = yaml.copy_data(data)
+    assert copied == data
+    copied["a"][1]["b"].append(3)
+    copied["c"]["d"] = "y"
+    assert data == {"a": [1, {"b": [2]}], "c": {"d": "x"}, "e": None, "f": 1.5}
+
+
+def test_copy_data_copies_other_types_like_deepcopy():
+    data = {"s": {1, 2}, "t": (1, [2])}
+    copied = yaml.copy_data(data)
+    assert copied == data
+    assert copied["s"] is not data["s"] and copied["t"][1] is not data["t"][1]

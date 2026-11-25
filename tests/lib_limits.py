@@ -193,3 +193,85 @@ async def test_limit_not_applicable_to_operation(fake_repo):
         Entity(name="A", exists=True, data={"cpus": 4}), {"cpus": 4},
     )
     assert usages == []
+
+
+async def test_entities_are_read_once_for_all_limits(fake_repo):
+    class _Counting(fake_repo):
+        bulk = 0
+        single = 0
+
+        async def get_all(self, type):
+            _Counting.bulk += 1
+            return await super().get_all(type)
+
+        async def get(self, type, name):
+            _Counting.single += 1
+            return await super().get(type, name)
+
+    typ = Type.model_construct(
+        limits=[
+            TypeLimit(**_CPUS_LIMIT),
+            TypeLimit(**{**_CPUS_LIMIT, "title": "half", "value": "old.data.cpus / 2"}),
+            TypeLimit(**{**_CPUS_LIMIT, "title": "names", "value": "1", "scope": "old.name != 'C'"}),
+        ]
+    )
+    specs = Specs.model_construct(
+        types=[typ], type=typ, request=Request.model_construct(headers={}), context={}
+    )
+    rpo = _Counting(files={"A": "cpus: 4", "C": "cpus: 2"}, links={"B": "A"})
+    usages = await limits.measure(
+        rpo, _edit_op({"cpus": 8}), specs, Entity(name="A", exists=True), {"cpus": 8}
+    )
+    assert [u.used for u in usages] == [18, 9, 2]
+    assert _Counting.bulk == 1
+    single = _Counting.single
+
+    # ... and not at all if no limit looks at their data
+    typ = Type.model_construct(limits=[typ.limits[2]])
+    specs = Specs.model_construct(
+        types=[typ], type=typ, request=Request.model_construct(headers={}), context={}
+    )
+    await limits.measure(
+        rpo, _edit_op({"cpus": 8}), specs, Entity(name="A", exists=True), {"cpus": 8}
+    )
+    assert (_Counting.bulk, _Counting.single) == (1, single)
+
+
+async def test_shared_scope_is_tested_once_per_entity(fake_repo, monkeypatch):
+    tested = []
+    render_test = limits.j2.render_test
+
+    async def counting(test, props):
+        tested.append((test, props["old"]["name"]))
+        return await render_test(test, props)
+
+    monkeypatch.setattr(limits.j2, "render_test", counting)
+    same_owner = "old.data.owner == new.data.owner"
+    typ = Type.model_construct(
+        limits=[
+            TypeLimit(title="cpus", on=["create"], scope=same_owner, value="old.data.cpus", max="100"),
+            TypeLimit(title="count", on=["create"], scope=same_owner, max="100"),
+            TypeLimit(title="all", on=["create"], scope="true", value="old.data.cpus", max="100"),
+        ]
+    )
+    specs = Specs.model_construct(
+        types=[typ], type=typ, request=Request.model_construct(headers={}), context={}
+    )
+    rpo = fake_repo(
+        files={"A": "owner: a\ncpus: 4", "B": "owner: b\ncpus: 2", "C": "owner: a\ncpus: 1"}
+    )
+    op = OperationRequest(
+        request_headers={}, request_ip="",
+        user=User(name="u", email="u@example.com", full_name="U"),
+        operation="create", type="host", name=None, actions=[],
+        entity=NewEntity(name="N", yaml="owner: a\ncpus: 8"),
+    )
+    usages = await limits.measure(
+        rpo, op, specs, Entity(name=None), {"owner": "a", "cpus": 8}
+    )
+    assert [u.used for u in usages] == [13, 3, 15]
+    # the stored entities: once per scope; the incoming one: for every limit
+    assert sorted(t for t in tested if t[0] == same_owner) == [
+        (same_owner, "A"), (same_owner, "B"), (same_owner, "C"),
+        (same_owner, "N"), (same_owner, "N"),
+    ]

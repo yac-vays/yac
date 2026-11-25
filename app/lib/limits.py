@@ -2,8 +2,6 @@
 Raises: [app.model.err.RequestError]
 """
 
-import asyncio
-
 from app.lib import j2
 from app.lib import props
 from app.lib import repo as _repo
@@ -15,22 +13,25 @@ from app.model.plg import IRepoSession
 from app.model.spc import Specs
 from app.model.spc import TypeLimit
 
-# Bounded fan-out when a limit's scope/value needs each entity's data, mirroring
-# the list endpoint: a moderate width overlaps the async file I/O without
-# overwhelming the thread pool.
-_SCAN_CONCURRENCY = 32
-
 # Decimal places kept of a limit sum (see measure).
 _SUM_DECIMALS = 9
 
 
 async def _contribution(
-    lim: TypeLimit, base: dict, name: str, data: dict
+    lim: TypeLimit,
+    base: dict,
+    name: str,
+    data: dict,
+    scopes: dict[str, bool] | None = None,
 ) -> float:
     """
     The amount one entity (`old`) contributes to the limit's sum: 0 if it is
     outside the scope, else the rendered `value` (which defaults to 1, so an
     unset `value` counts entities).
+
+    `scopes` holds what the scopes tested for this entity so far rendered to:
+    limits tend to share their scope (e.g. "of the same owner"), which then is
+    tested once per entity instead of once per entity and limit.
 
     A `value` that cannot be coerced to a number -- typically because the
     entity's data is schema-invalid (e.g. a non-number where a number is
@@ -39,8 +40,12 @@ async def _contribution(
     report that real error instead of failing on the limit first.
     """
     entity_props = {**base, "old": {"name": name, "data": data}, "name": name}
+    if scopes is None:
+        scopes = {}
     try:
-        if not await j2.render_test(lim.scope, entity_props):
+        if lim.scope not in scopes:
+            scopes[lim.scope] = await j2.render_test(lim.scope, entity_props)
+        if not scopes[lim.scope]:
             return 0.0
         return await j2.render_number(lim.value, entity_props, default=0.0)
     except j2.J2Error as error:
@@ -49,44 +54,30 @@ async def _contribution(
         ) from error
 
 
-async def _scan_existing(
-    lim: TypeLimit,
-    base: dict,
-    type_name: str,
-    rpo: IRepoSession,
+def _existing_data(
     existing: list[str],
-    needs_data: bool,
+    stored: dict[str, tuple[str, str | None]],
     edited: str | None,
     new_data: dict,
-) -> float:
+) -> dict[str, dict]:
     """
-    Sum the contributions of the existing entities. Entities whose data is not
-    referenced by the limit are scored straight from their name (no YAML
-    load); otherwise data is loaded with bounded concurrency.
+    The data of the existing entities, from what the repo holds of them
+    (`stored`, see `IRepoSession.get_all`). An entity that could not be read
+    counts with empty data.
 
     A symlink pointing at the entity being edited (`edited`) holds that entity's
     data, so once the edit is committed it will hold `new_data` -- not the stale
     copy on disk. Such entities are therefore scored with `new_data`, otherwise
-    the new value escapes the limit through the link. This only matters when the
-    limit actually reads the data (`needs_data`); a name-only limit is unaffected
-    by an edit, so that fast path is left untouched.
+    the new value escapes the limit through the link.
     """
-    if not needs_data:
-        total = 0.0
-        for name in existing:
-            total += await _contribution(lim, base, name, {})
-        return total
-
-    sem = asyncio.Semaphore(_SCAN_CONCURRENCY)
-
-    async def _one(name: str) -> float:
-        async with sem:
-            data, link_target = await _repo.load_data_resolved(rpo, type_name, name)
+    data = {}
+    for name in existing:
+        yaml_text, link_target = stored.get(name, ("", None))
         if edited is not None and link_target == edited:
-            data = new_data
-        return await _contribution(lim, base, name, data)
-
-    return sum(await asyncio.gather(*(_one(n) for n in existing)))
+            data[name] = new_data
+        else:
+            data[name] = _repo.parse_data(yaml_text)
+    return data
 
 
 async def measure(
@@ -103,7 +94,8 @@ async def measure(
     being replaced, on `edit`) plus the incoming entity — so create,
     rename, owner-change and quota-increase all fall out of one uniform scan.
     A rule whose `scope`/`value` only reference `old.name` (not `old.data`) is
-    counted from the name list alone, without loading any YAML.
+    counted from the name list alone; the YAML of the entities is only loaded
+    (in one bulk read) if a rule needs it.
 
     Must be called inside an open repo reader scope. Returns the usages for
     display; enforcement (raising on `not ok`) happens in `lib.validator`.
@@ -125,15 +117,28 @@ async def measure(
     edited = old.name if op.operation == "edit" else None
     existing = [n for n in names if not (edited is not None and n == edited)]
 
+    # Read (in bulk) and parsed at most once for all the limits, like a scope
+    # that several limits share is tested once per entity. Sound, because a
+    # scope that reads the data gets it with every limit that has this scope.
+    data: dict[str, dict] | None = None
+    scopes: dict[str, dict[str, bool]] = {name: {} for name in existing}
+
     usages: list[out.LimitUsage] = []
     for lim in applicable:
+        # A limit that does not reference the data of the entities is scored
+        # straight from their names.
         needs_data = j2.uses_old_data(lim.scope) or j2.uses_old_data(lim.value)
+        if needs_data and data is None:
+            data = _existing_data(
+                existing, await rpo.get_all(op.type_name), edited, new_data or {}
+            )
 
         # The incoming entity always contributes (its data is `new_data`).
         total = await _contribution(lim, base, new_name or "", new_data or {})
-        total += await _scan_existing(
-            lim, base, op.type_name, rpo, existing, needs_data, edited, new_data or {}
-        )
+        for name in existing:
+            total += await _contribution(
+                lim, base, name, data[name] if needs_data else {}, scopes[name]
+            )
         # Float sums of decimal values carry noise (0.1 + 0.2), which would
         # show up in the usage (0.30000000000000004/2.5) and could tip a sum
         # exactly at the cap over it.

@@ -2,6 +2,7 @@
 Raises: [app.lib.yaml.YAMLError]
 """
 
+import copy
 import io
 import logging
 import re
@@ -162,9 +163,8 @@ def load_as_dict(yaml: str, *, strict: bool = True) -> dict:
     return dict(data) if isinstance(data, dict) else {}
 
 
-def load_mapping(yaml: str) -> dict:
-    """Strict: the document must be a mapping (or empty), else YAMLError."""
-    data = load(yaml)
+def as_mapping(data: YAMLNode | None) -> dict:
+    """The loaded document as a dict: a mapping (or empty), else YAMLError."""
     if data is None:
         return {}
     if not isinstance(data, dict):
@@ -172,9 +172,18 @@ def load_mapping(yaml: str) -> dict:
     return dict(data)
 
 
+def load_mapping(yaml: str) -> dict:
+    """Strict: the document must be a mapping (or empty), else YAMLError."""
+    return as_mapping(load(yaml))
+
+
 try:
     _FastLoaderBase = _pyyaml.CSafeLoader
 except AttributeError:
+    logger.warning(
+        "PyYAML is installed without libyaml: reading entities is about 10"
+        " times slower than it could be"
+    )
     _FastLoaderBase = _pyyaml.SafeLoader
 
 
@@ -313,6 +322,26 @@ def load_as_dict_fast(text: str) -> dict:
     if isinstance(data, dict):
         return data
     return {}
+
+
+_IMMUTABLE = (str, int, float, bool, bytes, type(None))
+
+
+def copy_data(data: Any) -> Any:
+    """
+    A copy of loaded data that shares nothing mutable with it. Like
+    `copy.deepcopy`, but several times faster for what the fast loader
+    returns: plain dicts and lists of scalars (which is all there is to copy
+    in an entity list of a thousand entities).
+    """
+    kind = type(data)
+    if kind is dict:
+        return {key: copy_data(value) for key, value in data.items()}
+    if kind is list:
+        return [copy_data(value) for value in data]
+    if kind in _IMMUTABLE:
+        return data
+    return copy.deepcopy(data)
 
 
 def dump(data: dict | YAMLNode | None) -> str:

@@ -34,10 +34,9 @@ from app.router.common import session
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Bounded fan-out for the list endpoint. The per-entity work is a mix of
-# async file I/O (via anyio's thread pool) and CPU-bound YAML/j2 work; a
-# moderate width lets the I/O parts overlap without overwhelming the
-# thread pool or starving other requests.
+# Bounded fan-out for the list endpoint. The per-entity work is CPU-bound
+# YAML/j2 work, but a role or link template may also wait for something (a
+# lookup of a j2 plugin function); a moderate width lets that overlap.
 _LIST_CONCURRENCY = 32
 
 
@@ -95,17 +94,24 @@ async def list_entities(
         # Build the per-request shared portion of role props once; each
         # gathered task shallow-extends it with its own old/new/name keys.
         base_props = props.get_roles_base(op, s.request)
+        # Perms are reused between the list requests of a user (for a while).
+        signature = perms.list_signature(op, active_roles)
         links_props = props.get_links_base(op, s.request)
 
-        matches = [n for n in await rpo.list(type_name) if search in n]
+        # Everything of the type in one bulk read (once per repo state).
+        stored = await repo.read_type(hash, type_name, rpo)
+        matches = [n for n in stored if search in n]
         sem = asyncio.Semaphore(_LIST_CONCURRENCY)
 
         async def _process(entity_name: str) -> ListedEntity | None:
             async with sem:
                 try:
                     old, entity_perms = await repo.get_entity_for_list(
-                        hash, rpo, type_name, entity_name, s,
-                        base_props, active_roles,
+                        entity_name,
+                        stored[entity_name],
+                        base_props,
+                        active_roles,
+                        signature,
                     )
                 except RepoError as error:
                     logger.warning(error)

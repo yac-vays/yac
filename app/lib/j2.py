@@ -20,7 +20,19 @@ class J2Error(Exception):
         self.loc = loc
 
 
-# A SandboxedEnvironment is built once per (strict, nonstr) combination and
+class _Environment(SandboxedEnvironment):
+    def make_globals(self, d):
+        """
+        The globals of a template as a plain dict instead of Jinja's ChainMap
+        on the environment's: they are copied into the context of every
+        render, which takes far longer from a ChainMap than the render of a
+        small expression itself. The environments here never get a global
+        after their first template is compiled.
+        """
+        return {**self.globals, **(d or {})}
+
+
+# An environment is built once per (strict, nonstr) combination and
 # the plugin globals/filters/tests are registered once on first use. Compiled
 # templates are LRU-cached by source per environment.
 
@@ -29,7 +41,7 @@ _envs_initialized = False
 
 
 def _build_env(strict: bool, nonstr: bool) -> SandboxedEnvironment:
-    return SandboxedEnvironment(
+    return _Environment(
         enable_async=True,
         loader=jinja2.BaseLoader(),
         undefined=jinja2.StrictUndefined if strict else jinja2.DebugUndefined,
@@ -135,7 +147,7 @@ _SYNC_ENV_VARIANTS: dict[bool, SandboxedEnvironment] = {}
 
 
 def _build_sync_env(nonstr: bool) -> SandboxedEnvironment:
-    env = SandboxedEnvironment(
+    env = _Environment(
         loader=jinja2.BaseLoader(),
         undefined=jinja2.StrictUndefined,
         trim_blocks=not nonstr,
@@ -302,9 +314,25 @@ def _may_be_nonstr(source: str) -> bool:
     return not is_concatenation
 
 
+def _static(source: str) -> str | None:
+    """
+    What a string without any Jinja2 markup renders to (itself, less the
+    trailing newline Jinja2 drops), without the detour through Jinja2: most
+    strings of a schema or of the specs are such. None if it has to be
+    rendered.
+    """
+    # All of `{{`, `{%` and `{#` start with it; Jinja2 normalizes a `\r`.
+    if "{" in source or "\r" in source:
+        return None
+    return source[:-1] if source.endswith("\n") else source
+
+
 async def render_str(
     s, props, *, allow_nonstr: bool = True, strict: bool = True, loc: str = "#"
 ):
+    static = _static(s)
+    if static is not None:
+        return static
     nonstr = allow_nonstr and _may_be_nonstr(s)
     template = _compile(strict, nonstr, s, loc)
     try:
@@ -366,6 +394,9 @@ def render_sync(o, props: dict, *, skip: str | None = None, loc: str = "#"):
 
 
 def render_sync_str(s, props, *, allow_nonstr: bool = True, loc: str = "#"):
+    static = _static(s)
+    if static is not None:
+        return static
     nonstr = allow_nonstr and _may_be_nonstr(s)
     template = _compile_sync(nonstr, s, loc)
     try:

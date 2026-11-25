@@ -5,7 +5,7 @@ conftest):
 
 * `_stable_token` -- drops volatile JWT claims so the specs/perms caches hit
   across token refreshes.
-* `_op_signature` -- the cache key derived from a request.
+* `op_signature` -- the cache key derived from a request.
 * `_process_includes_sync` -- the `yac_include` merge (existing keys win) plus
   its path-escape guard (an include outside the base dir aborts the process).
 """
@@ -37,30 +37,30 @@ def test_stable_token_none_is_empty():
     assert specs._stable_token({}) == {}
 
 
-# ----- _op_signature -----
+# ----- op_signature -----
 
-def test_op_signature_ignores_volatile_token_claims():
-    a = specs._op_signature(_op(token={"sub": "u", "iat": 1}))
-    b = specs._op_signature(_op(token={"sub": "u", "iat": 9999}))
+def testop_signature_ignores_volatile_token_claims():
+    a = specs.op_signature(_op(token={"sub": "u", "iat": 1}))
+    b = specs.op_signature(_op(token={"sub": "u", "iat": 9999}))
     assert a == b  # iat differs but is volatile -> same signature
 
 
-def test_op_signature_changes_with_stable_claim():
-    a = specs._op_signature(_op(token={"sub": "u"}))
-    b = specs._op_signature(_op(token={"sub": "other"}))
+def testop_signature_changes_with_stable_claim():
+    a = specs.op_signature(_op(token={"sub": "u"}))
+    b = specs.op_signature(_op(token={"sub": "other"}))
     assert a != b
 
 
-def test_op_signature_reflects_request_fields():
-    base = specs._op_signature(_op(ip="1.1.1.1"))
-    assert base != specs._op_signature(_op(ip="2.2.2.2"))
-    assert base != specs._op_signature(_op(ip="1.1.1.1", headers={"yac-tenant": "a"}))
+def testop_signature_reflects_request_fields():
+    base = specs.op_signature(_op(ip="1.1.1.1"))
+    assert base != specs.op_signature(_op(ip="2.2.2.2"))
+    assert base != specs.op_signature(_op(ip="1.1.1.1", headers={"yac-tenant": "a"}))
 
 
-def test_op_signature_ignores_what_rendering_does_not_consume():
-    base = specs._op_signature(_op())
-    assert base == specs._op_signature(_op(actions=["x"]))
-    assert base == specs._op_signature(
+def testop_signature_ignores_what_rendering_does_not_consume():
+    base = specs.op_signature(_op())
+    assert base == specs.op_signature(_op(actions=["x"]))
+    assert base == specs.op_signature(
         _op(headers={"authorization": "Bearer abc", "content-length": "42"})
     )
 

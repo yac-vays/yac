@@ -2,7 +2,6 @@
 Raises: [app.model.err.RepoError, app.model.err.RepoSpecsError]
 """
 
-import copy
 import re
 from functools import lru_cache
 
@@ -97,44 +96,35 @@ async def __lookup_entities(
     return old, new
 
 
-async def load_data(rpo: IRepoSession, type_name: str, name: str) -> dict:
+def parse_data(yaml_text: str) -> dict:
     """
-    Best-effort load + parse of a single entity's YAML into a dict, reusing
-    the content-keyed parse cache. Returns an empty dict on any read/parse
-    error so callers that aggregate over many entities (e.g. `lib.limits`)
+    Best-effort parse of an entity's YAML into a dict (an own copy), reusing
+    the content-keyed parse cache. Returns an empty dict if it cannot be
+    parsed, so callers that aggregate over many entities (e.g. `lib.limits`)
     never fail on a single malformed file.
     """
     try:
-        yaml_text = await rpo.get(type_name, name)
-    except RepoError:
-        return {}
-    if not yaml_text:
-        return {}
-    try:
-        return copy.deepcopy(_parse_yaml_dict(yaml_text))
+        return yaml.copy_data(_parse_yaml_dict(yaml_text))
     except yaml.YAMLError:
         return {}
 
 
-async def load_data_resolved(
-    rpo: IRepoSession, type_name: str, name: str
-) -> tuple[dict, str | None]:
+@keyed_alru_cache(
+    key_fn=lambda repo_hash, type_name, rpo: (repo_hash, type_name), maxsize=8
+)
+async def read_type(
+    repo_hash: str, type_name: str, rpo: IRepoSession
+) -> dict[str, tuple[str, str | None]]:
     """
-    Like `load_data`, but also returns the entity's link target (or `None` for a
-    regular file), so callers can tell a symlink apart from a plain entity. Used
-    by `lib.limits` to count a symlink to the entity under edit with the incoming
-    data instead of its stale on-disk copy.
+    All entities of the type in the repo state `repo_hash`, sorted by name:
+    their YAML (links followed) and the name of the entity they link to
+    (None for a regular one), see `IRepoSession.get_all`.
+
+    One bulk read per type and repo state instead of several reads per
+    entity. The result is shared between the requests: not to be modified.
     """
-    try:
-        yaml_text, link_target = await rpo.get_resolved(type_name, name)
-    except RepoError:
-        return {}, None
-    if not yaml_text:
-        return {}, link_target
-    try:
-        return copy.deepcopy(_parse_yaml_dict(yaml_text)), link_target
-    except yaml.YAMLError:
-        return {}, link_target
+    del repo_hash  # only required to scope the cache to a repo state
+    return dict(sorted((await rpo.get_all(type_name)).items()))
 
 
 async def get_entities(
@@ -232,25 +222,41 @@ async def get_entities(
 
 
 async def get_entity_for_list(
-    hash: str,
-    rpo: IRepoSession,
-    type_name: str,
     entity_name: str,
-    specs: Specs,
+    stored: tuple[str, str | None],
     base_props: dict,
     active_roles: list[perms.ActiveRole],
+    signature: tuple | None = None,
 ) -> tuple[Entity, list[str]]:
     """
-    List-endpoint specialisation of `get_entities`: assumes a read operation
-    with no entity payload, skips the `op.model_copy` per entity, and uses
-    the pre-built `base_props` + pre-filtered `active_roles` to compute
-    perms without rebuilding the per-request props skeleton.
+    List-endpoint specialisation of `get_entities` for an entity as
+    `read_type` gave it (`stored`): assumes a read operation with no entity
+    payload and uses the pre-built `base_props` + pre-filtered `active_roles`
+    to compute perms without rebuilding the per-request props skeleton. With
+    a `signature` (`perms.list_signature`), perms are reused between requests.
     """
-    old, _ = await __lookup_entities(
-        hash, type_name, entity_name, None, specs.type is not None, rpo
+    yaml_text, link = stored
+    try:
+        data = yaml.copy_data(_parse_yaml_dict(yaml_text))
+    except yaml.YAMLError as error:
+        raise RepoError(
+            f"Failed to parse YAML of {entity_name}: {error}"
+        ) from error
+    old = Entity(
+        name=entity_name,
+        exists=True,
+        is_link=link is not None,
+        link=link,
+        yaml=yaml_text,
+        data=data,
     )
     p = await perms.get_from_roles_for_entity(
-        base_props, active_roles, entity_name, old.data or {}
+        base_props,
+        active_roles,
+        entity_name,
+        data,
+        signature=signature,
+        yaml_text=yaml_text,
     )
     return old, p
 

@@ -50,6 +50,7 @@ import asyncio
 import errno
 import logging
 import os
+import pathlib
 import time
 import re
 
@@ -241,6 +242,9 @@ class _GitRepoSession(IRepoSession):
 
     async def get(self, type: str, name: str) -> str:
         return await self._h._get(type, name, self._details)
+
+    async def get_all(self, type: str) -> dict[str, tuple[str, str | None]]:
+        return await self._h._get_all(type, self._details)
 
     async def is_link_target(self, type_name: str, name: str) -> bool:
         # pylint: disable-next=protected-access
@@ -854,6 +858,50 @@ class GitRepo(IRepo):
         return await self._read_file(
             path, what=f"{type_name} {name}", absolute=True
         )
+
+    async def _get_all(
+        self, type_name: str, details: dict
+    ) -> dict[str, tuple[str, str | None]]:
+        """
+        Every entity of the type as `(content, link target name or None)`,
+        read in a single worker thread: one hop to it per entity (let alone
+        one per file operation) costs more than the read itself.
+        """
+        glob_pat = await _render_glob(type_name, details)
+
+        def read_all() -> dict[str, tuple[str, str | None]]:
+            base = os.path.realpath(self.path)
+            entities = {}
+            for file in pathlib.Path(self.path).glob(glob_pat):
+                path = str(file)
+                name = _name_from_path(glob_pat, path[len(self.path) + 1 :])
+                if name is None:
+                    continue
+                # Same rules as `_get` / `_get_link`: nothing is followed
+                # out of the checkout, a link points to an entity of the type.
+                real = os.path.realpath(path)
+                if not real.startswith(base + "/"):
+                    logger.warning(f"Resolved path escapes the repository: {path}")
+                    continue
+                target = None
+                if os.path.islink(path):
+                    target = _name_from_path(glob_pat, real[len(base) + 1 :])
+                    if target is None:
+                        logger.warning(f"Link {path} has an illegal destination")
+                        continue
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        entities[name] = (f.read(), target)
+                except (OSError, UnicodeDecodeError) as error:
+                    logger.warning(f"Could not read file {path}: {error}")
+            return entities
+
+        try:
+            return await to_thread.run_sync(read_all)
+        except OSError as error:
+            raise RepoError(
+                f"Could not list files at {self.path}/{glob_pat}"
+            ) from error
 
     # ----- write ops -----
 

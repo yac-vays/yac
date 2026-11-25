@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import AsyncGenerator
@@ -14,6 +16,13 @@ from app.model.spc import Specs
 from app.model.err import PluginError
 from app.model.err import RepoError
 from app.model.err import LogContentNotFound
+
+
+logger = logging.getLogger(__name__)
+
+# Bounded fan-out of the per-entity default of `IRepoSession.get_all`: lets
+# the I/O overlap without overwhelming the backend (or the thread pool).
+_GET_ALL_CONCURRENCY = 32
 
 
 class IAction(ABC):
@@ -211,6 +220,30 @@ class IRepoSession(ABC):
         if await self.is_link(type, name):
             return content, await self.get_link(type, name)
         return content, None
+
+    async def get_all(self, type: str) -> dict[str, tuple[str, str | None]]:
+        """
+        All entities of the type at once: their `get_resolved` by name (in
+        no particular order). An entity that cannot be read (e.g. a link
+        whose target is gone) is left out.
+
+        This is what the entity list and the limits are computed from.
+        Backends should override this default (one read per entity) if they
+        can fetch everything in one go.
+        """
+        sem = asyncio.Semaphore(_GET_ALL_CONCURRENCY)
+
+        async def read(name: str) -> tuple[str, str | None] | None:
+            async with sem:
+                try:
+                    return await self.get_resolved(type, name)
+                except RepoError as error:
+                    logger.warning(f"Could not read {type} {name}: {error}")
+                    return None
+
+        names = await self.list(type)
+        entities = await asyncio.gather(*(read(name) for name in names))
+        return {n: e for n, e in zip(names, entities) if e is not None}
 
     async def is_link_target(self, type_name: str, name: str) -> bool:
         """
