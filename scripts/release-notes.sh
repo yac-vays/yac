@@ -34,12 +34,12 @@ section() {
   log=$(git log --no-merges --format='%h%x09%s' "$range")
   breaking=$(git log --no-merges --format='%h' -E --grep='^BREAKING[ -]CHANGE:' "$range" | xargs)
 
-  for kind in breaking feat fix perf; do
+  for kind in feat fix perf other; do
     case $kind in
-      breaking) heading='Breaking changes' ;;
       feat) heading='Features' ;;
       fix) heading='Fixes' ;;
       perf) heading='Performance' ;;
+      other) heading='Other changes' ;;             # only breaking ones of other types
     esac
     local items
     items=$(awk -F'\t' -v kind="$kind" -v breaking=" $breaking " -v web="$web" '
@@ -58,11 +58,18 @@ section() {
         scope = ""
         if (match(prefix, /\([^)]*\)/)) scope = "**" escape(substr(prefix, RSTART + 1, RLENGTH - 2)) ":** "
         is_breaking = (prefix ~ /!: *$/ || index(breaking, " " $1 " "))
-        if (kind == "breaking" ? !is_breaking : (is_breaking || type != kind)) next
-        printf "  - %s%s ([%s](%s/commit/%s))\n", scope, escape(text), $1, web, $1
-      }' <<<"$log")
+        if (kind == "other" ? (!is_breaking || type ~ /^(feat|fix|perf)$/) : type != kind) next
+        item = sprintf("  - %s%s%s ([%s](%s/commit/%s))\n", is_breaking ? "⚠ **Breaking change:**{: .text-red-300 } " : "", scope, escape(text), $1, web, $1)
+        if (is_breaking) first = first item; else rest = rest item
+      }
+      END { printf "%s%s", first, rest }' <<<"$log")
     [ -z "$items" ] || out+=$'\n'"### $heading"$'\n'"{: .no_toc }"$'\n\n'"$items"$'\n'
   done
+
+  # warning box on top of a release with breaking changes
+  if [ -n "$out" ] && grep -q '^  - ⚠ \*\*Breaking change' <<<"$out"; then
+    out=$'\n'"{: .warning }"$'\n'"This release has **breaking changes**, marked with ⚠ below. Check them before upgrading."$'\n'"$out"
+  fi
 
   [ -n "$out" ] || return 0
   echo
