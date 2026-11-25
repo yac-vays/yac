@@ -34,5 +34,9 @@ esac
 git tag "$v"
 git push "$r" "$v"
 
+# regenerate the release notes page of the docs repo
+"$(dirname "$0")/release-notes.sh" --publish \
+  || echo "WARNING: release notes not published, retry with: scripts/release-notes.sh --publish"
+
 echo "previous latest releases: ${s:-none} (main), ${rc:-none} (test)"
 echo "successfully released $v ($b) now"
