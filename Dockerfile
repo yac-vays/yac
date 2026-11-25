@@ -8,7 +8,10 @@ WORKDIR /code
 
 COPY ./requirements.* ./
 
-RUN apk add --update-cache curl git libldap openssh-client && \
+# `yaml` (libyaml) is what PyYAML's C loader links against: without it at
+# runtime, reading entities silently falls back to the ~10x slower pure
+# Python loader (checked in the test stage below).
+RUN apk add --update-cache curl git libldap openssh-client yaml && \
     apk add --virtual build-deps build-base cmake openldap-dev python3-dev libffi-dev yaml-dev && \
     pip install --no-cache-dir --upgrade --compile -r /code/requirements.txt && \
     apk del build-deps && \
@@ -42,6 +45,7 @@ RUN pip install --no-cache-dir --upgrade --compile pylint pytest pytest-asyncio
 RUN pylint --rcfile /code/app/.pylintrc --exit-zero /code/app /code/app/plugin/*/*.py
 COPY ./tests /code/tests
 RUN PYTHONPATH=/code python -m pytest /code/tests
+RUN python -c "import yaml; assert yaml.__with_libyaml__, 'PyYAML lacks libyaml'"
 RUN touch /tmp/tested
 
 #
