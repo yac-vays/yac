@@ -101,7 +101,8 @@ container tags.
 EOF
 
   # release candidate ahead of the latest stable release
-  local last=${tags[-1]:-}
+  local last=''
+  [ ${#tags[@]} -eq 0 ] || last=${tags[-1]}
   if [ -n "$rc" ] && [ "$(printf '%s\n' "${rc%%rc*}" "${last:-v0.0}" | sort -V | tail -1)" != "${last:-v0.0}" ]; then
     section "$rc (testing)" "$rc" "$last"
   fi
