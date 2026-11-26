@@ -1,11 +1,12 @@
 import enum
+import re
 from datetime import datetime
 from typing import Any
 from typing import Literal, Callable
 from typing_extensions import Annotated
 from typing_extensions import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app import consts
 
@@ -356,6 +357,119 @@ class ValidationResult(BaseModel):
 #
 
 
+# `{N}` in `TypeOptionAliasPattern.tooltip`: capture group N of `match`.
+_TOOLTIP_GROUP = re.compile(r"\{(\d+)\}")
+# Inline flags at group start, e.g. `(?i)`, `(?i:...)`, `(?-i:...)`.
+_INLINE_FLAGS = re.compile(r"[aiLmsux]*(?:-[aiLmsux]+)?[):]")
+
+
+def _js_incompatible_group(rest: str) -> str | None:
+    """`_js_incompatible` for a group starting with `(?` followed by `rest`."""
+    if rest[:1] == "P":
+        return "(?P (use numbered groups)"
+    if rest[:1] in ("#", ">"):
+        return f"(?{rest[:1]}"
+    flags = _INLINE_FLAGS.match(rest)
+    if flags and flags.group(0) not in (":", ")"):
+        return f"(?{flags.group(0)} (inline flags)"
+    return None
+
+
+def _js_incompatible(pattern: str) -> str | None:
+    """
+    The first construct in `pattern` that Python's `re` accepts but a browser
+    (JavaScript `RegExp`, where VAYS evaluates the pattern) does not or
+    interprets differently, or None. Escapes and character classes are
+    skipped, so `\\(?P` or `[(?P]` are fine.
+    """
+    i = 0
+    in_class = False
+    while i < len(pattern):
+        char = pattern[i]
+        if char == "\\":
+            if not in_class and pattern[i + 1 : i + 2] in ("A", "Z"):
+                return f"\\{pattern[i + 1]} (use ^ and $)"
+            i += 2
+            continue
+        if in_class:
+            in_class = char != "]"
+        elif char == "[":
+            # Python takes a `]` right after `[` / `[^` as a literal, JS as
+            # the end of an empty class.
+            start = i + 2 if pattern[i + 1 : i + 2] == "^" else i + 1
+            if pattern[start : start + 1] == "]":
+                return "a ] first in a character class (write \\])"
+            in_class = True
+            i = start
+            continue
+        elif char == "(" and pattern[i + 1 : i + 2] == "?":
+            construct = _js_incompatible_group(pattern[i + 2 :])
+            if construct is not None:
+                return construct
+        elif char in "*+?}" and pattern[i + 1 : i + 2] == "+":
+            return f"{char}+ (possessive quantifier)"
+        i += 1
+    return None
+
+
+class TypeOptionAliasPattern(BaseModel):
+    """
+    An alias for every value of an option that matches a regular expression
+    (e.g. one logo for all `ubuntu-*` values). Evaluated by the UI, so the
+    pattern must be valid in Python and JavaScript alike.
+    """
+
+    match: Annotated[
+        str,
+        Field(
+            description=(
+                "Regular expression the whole value must match (implicitly"
+                " anchored). Numbered capture groups can be used in `tooltip`."
+            ),
+            examples=["ubuntu-(.+)"],
+        ),
+    ]
+    alias: Annotated[
+        str,
+        Field(description="Markdown formatted string shown instead of the value"),
+    ]
+    tooltip: Annotated[
+        str,
+        Field(
+            description=(
+                "Plain text shown when hovering the alias; `{0}` is the value,"
+                " `{1}`, `{2}`, ... its capture groups. Empty: no tooltip."
+            ),
+            examples=["Ubuntu {1}"],
+        ),
+    ] = "{0}"
+
+    @field_validator("match")
+    @classmethod
+    def _valid_match(cls, value: str) -> str:
+        try:
+            re.compile(value)
+        except re.error as error:
+            raise ValueError(f"invalid regular expression: {error}") from error
+        construct = _js_incompatible(value)
+        if construct is not None:
+            raise ValueError(
+                f"not supported by browsers (the UI evaluates it): {construct}"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _known_groups(self) -> "TypeOptionAliasPattern":
+        groups = re.compile(self.match).groups
+        for ref in _TOOLTIP_GROUP.findall(self.tooltip):
+            if int(ref) > groups:
+                raise ValueError(
+                    f"tooltip refers to {{{ref}}} but match '{self.match}' has"
+                    f" only {groups} group(s)"
+                )
+        return self
+
+
 class TypeOption(BaseModel):
     name: Annotated[
         str,
@@ -381,6 +495,15 @@ class TypeOption(BaseModel):
         dict[str, Annotated[str, Field(description="Markdown formatted string")]],
         Field(description="A key-value list of aliases to use for the options"),
     ] = {}
+    alias_patterns: Annotated[
+        list[TypeOptionAliasPattern],
+        Field(
+            description=(
+                "Aliases for values matching a regular expression; used for values"
+                " without an entry in `aliases`, the first matching one wins"
+            )
+        ),
+    ] = []
 
 
 class TypeLink(BaseModel):
