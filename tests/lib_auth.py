@@ -41,7 +41,7 @@ def fake_oidc(monkeypatch):
             auth.authlib_oauth.oidc, "server_metadata", {"_loaded_at": 0}
         )
 
-        async def _parse(token, nonce=None):
+        async def _parse(token, nonce=None, **_kwargs):
             captured["token"] = token
             captured["nonce"] = nonce
             if isinstance(claims_or_exc, Exception):

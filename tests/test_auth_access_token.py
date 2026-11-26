@@ -75,7 +75,7 @@ def fake_idp(monkeypatch):
                 raise claims_or_exc
             return claims_or_exc
 
-        async def _parse(token, nonce=None):
+        async def _parse(token, nonce=None, **_kwargs):
             captured["id_token"] = token
             if id_claims is None:
                 raise AssertionError("id-token path must not be taken")
@@ -149,19 +149,6 @@ async def test_at_jwt_typ_is_case_insensitive(fake_idp):
         await auth.get_current_user(
             _jwtish(_claims(aud="other-api"), typ="application/AT+JWT")
         )
-
-
-async def test_missing_nonce_error_carries_access_token_hint(fake_idp, monkeypatch):
-    # IdPs that omit the `typ` header route to the id-token path and fail on
-    # the missing nonce (authlib's ImplicitIDToken) — the message must hint
-    # at the audience config instead of leaving only the nonce complaint.
-    async def _parse(token, nonce=None):
-        raise joserfc.errors.MissingClaimError("nonce")
-
-    fake_idp(id_claims={})  # id-token path is expected here
-    monkeypatch.setattr(auth.authlib_oauth.oidc, "parse_id_token", _parse)
-    with pytest.raises(AuthError, match="access_tokens.audiences"):
-        await auth.get_current_user(_jwtish(_claims(aud="other-api")))
 
 
 # ----- verified claims checks -----

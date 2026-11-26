@@ -26,10 +26,11 @@ from typing_extensions import Annotated
 
 from authlib.common.errors import AuthlibBaseError
 from authlib.integrations.starlette_client import OAuth
+from authlib.oidc.core import CodeIDToken
 from fastapi import Depends
 from fastapi.security.open_id_connect_url import OpenIdConnect
 from joserfc import jwt as jose_jwt
-from joserfc.errors import InvalidKeyIdError, JoseError, MissingClaimError
+from joserfc.errors import InvalidKeyIdError, JoseError
 from joserfc.jwk import KeySet
 
 from app.lib import specs
@@ -131,10 +132,11 @@ def _is_access_token(token: str) -> bool:
 def _reject_unrouted_access_token(token: str) -> None:
     """
     A token with the RFC 9068 header `typ: at+jwt` is definitely an access
-    token, never an id-token; if it did not match the access-token routing it
-    could only go on to fail id-token validation with a cryptic complaint
-    about the missing `nonce` claim, so reject it with the real reason here.
-    The unverified header/claims are only used to phrase the rejection.
+    token, never an id-token: if it did not match the access-token routing,
+    reject it here. Load-bearing: the id-token validation does not require a
+    nonce (refreshed id-tokens have none), so such a token with an `aud` in
+    `client_ids` would otherwise pass as an id-token. The unverified
+    header/claims are only used to phrase the rejection.
     """
     if str(_unverified_part(token, 0).get("typ", "")).lower() not in (
         "at+jwt",
@@ -202,8 +204,12 @@ async def _user_from_id_token(token: str) -> User:
             # Nonce is validated client-side in openid-client's
             # authorizationCodeGrant (loginProcess.ts: expectedNonce). The
             # backend re-validates only signature, iss, aud, exp; it has no
-            # session state to bind a nonce to.
+            # session state to bind a nonce to. A nonce is not even required:
+            # id-tokens from a token refresh usually have none (OIDC Core
+            # 12.2), and authlib's default for a token without access_token
+            # (ImplicitIDToken) would demand one.
             nonce=None,
+            claims_cls=CodeIDToken,
         )
         aud = user["aud"]
         if not _aud_set(aud).intersection(specs.AUTH.oidc.client_ids):
@@ -212,18 +218,8 @@ async def _user_from_id_token(token: str) -> User:
         # Since authlib 1.6 the JOSE layer is joserfc, whose errors (expired
         # token, bad signature, malformed JWT, invalid claims) surface
         # unwrapped and do NOT inherit from AuthlibBaseError.
-        hint = ""
-        # A nonce-less but otherwise valid-looking token is usually an access
-        # token that missed the audience routing (some IdPs omit the RFC 9068
-        # `typ` header, so _reject_unrouted_access_token cannot catch it).
-        if isinstance(error, MissingClaimError) and "'nonce'" in str(error):
-            hint = (
-                " — id-tokens must carry a nonce; if this was meant as an"
-                " access token, its aud must match one of"
-                " auth.oidc.access_tokens.audiences"
-            )
         raise AuthError(
-            f"Supplied authentication could not be validated ({error}){hint}"
+            f"Supplied authentication could not be validated ({error})"
         ) from error
 
     jwt_cfg = specs.AUTH.oidc.jwt

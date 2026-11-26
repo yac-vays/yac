@@ -94,13 +94,30 @@ async def test_signed_id_token_is_accepted(idp, algs):
         {"exp": 1},
         {"iss": "https://evil.example"},
         {"aud": "other-client"},
-        {"nonce": None},
         {"iat": None},
     ],
 )
 async def test_id_token_with_bad_claims_is_rejected(idp, over):
     idp(["RS256"])
     token = jwt.encode(HEADER, _claims(**over), KEY)
+    with pytest.raises(AuthError):
+        await auth.get_current_user("Bearer " + token)
+
+
+async def test_id_token_without_nonce_is_accepted(idp):
+    """Id-tokens from a token refresh usually have no nonce (access.ethz.ch)."""
+    idp(["RS256"])
+    token = jwt.encode(HEADER, _claims(nonce=None), KEY)
+    user = await auth.get_current_user("Bearer " + token)
+    assert user.name == "s1"
+
+
+async def test_access_token_type_is_rejected_even_with_a_client_id_audience(idp):
+    """Without the nonce requirement, the `typ: at+jwt` check keeps access
+    tokens out of the id-token path."""
+    idp(["RS256"])
+    header = {**HEADER, "typ": "at+jwt"}
+    token = jwt.encode(header, _claims(nonce=None), KEY)
     with pytest.raises(AuthError):
         await auth.get_current_user("Bearer " + token)
 
